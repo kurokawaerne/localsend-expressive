@@ -25,7 +25,7 @@ compose.desktop {
         nativeDistributions {
             targetFormats(TargetFormat.Deb, TargetFormat.AppImage)
             packageName = "localsend-expressive"
-            packageVersion = "0.1.0"
+            packageVersion = "0.2.0"
             description = "LocalSend Expressive — Material 3 Expressive LocalSend client for Android and Linux"
             vendor = "kurokawaerne"
         }
