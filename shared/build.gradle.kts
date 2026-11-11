@@ -8,6 +8,12 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+compose.resources {
+    publicResClass = true
+    packageOfResClass = "dev.kurokawa.localsend.expressive.resources"
+    generateResClass = org.jetbrains.compose.resources.ResourcesExtension.ResourceClassGeneration.Always
+}
+
 kotlin {
     androidTarget {
         compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
