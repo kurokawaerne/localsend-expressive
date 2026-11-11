@@ -20,11 +20,11 @@ import io.ktor.http.content.OutgoingContent
 import io.ktor.serialization.kotlinx.json.json
 import io.ktor.server.application.Application
 import io.ktor.server.application.install
-import io.ktor.server.cio.CIO
 import io.ktor.server.engine.EmbeddedServer
 import io.ktor.server.engine.connector
 import io.ktor.server.engine.embeddedServer
 import io.ktor.server.engine.sslConnector
+import io.ktor.server.netty.Netty
 import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.request.receive
 import io.ktor.server.request.receiveChannel
@@ -95,7 +95,9 @@ class ReceiveServer(
     fun start() {
         val local = localProvider()
         val keyStore = keyStoreProvider()
-        server = embeddedServer(CIO, configure = {
+        // Netty engine: it terminates TLS. (Ktor's CIO server cannot do HTTPS
+        // at all — it throws UnsupportedOperationException at startup.)
+        server = embeddedServer(Netty, configure = {
             if (local.protocol == "https" && keyStore != null) {
                 sslConnector(
                     keyStore = keyStore,

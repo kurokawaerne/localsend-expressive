@@ -43,7 +43,9 @@ kotlin {
         }
         jvmMain.dependencies {
             implementation(libs.ktor.server.core)
-            implementation(libs.ktor.server.cio)
+            // Netty, not CIO: the CIO server engine cannot terminate TLS
+            // ("CIO Engine does not currently support HTTPS" — startup crash).
+            implementation(libs.ktor.server.netty)
             implementation(libs.ktor.server.content.negotiation)
             implementation(libs.ktor.client.cio)
             // Self-signed TLS certificate generation (HTTPS mode, M1).

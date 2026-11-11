@@ -12,8 +12,8 @@ android {
         applicationId = "dev.kurokawa.localsend.expressive"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.2.1"
     }
     buildFeatures { compose = true }
     packaging {
@@ -21,6 +21,8 @@ android {
             // BouncyCastle (and jspecify) jars ship the same OSGi manifest path;
             // the APK merge cannot keep four copies of it.
             excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+            // Every Netty jar ships this same properties path.
+            excludes += "META-INF/io.netty.versions.properties"
         }
     }
     compileOptions {
