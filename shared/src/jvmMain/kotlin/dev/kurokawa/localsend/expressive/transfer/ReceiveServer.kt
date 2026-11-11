@@ -171,10 +171,14 @@ class ReceiveServer(
                 val sessionId = call.request.queryParameters["sessionId"]
                 val fileId = call.request.queryParameters["fileId"]
                 val token = call.request.queryParameters["token"]
-                val fileDto = session?.files?.get(fileId)
-                if (session == null || session.id != sessionId || fileDto == null ||
-                    session.tokens[fileId] != token
+                if (session == null || sessionId == null || fileId == null || token == null ||
+                    session.id != sessionId
                 ) {
+                    call.respond(HttpStatusCode.BadRequest)
+                    return@post
+                }
+                val fileDto = session.files[fileId]
+                if (fileDto == null || session.tokens[fileId] != token) {
                     call.respond(HttpStatusCode.BadRequest)
                     return@post
                 }
