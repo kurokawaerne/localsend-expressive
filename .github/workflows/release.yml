@@ -23,16 +23,49 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Make gradlew executable
         run: chmod +x gradlew
-      - name: Test, build APK and Linux packages
-        run: ./gradlew :shared:desktopTest :androidApp:assembleDebug :desktopApp:packageDeb :desktopApp:createDistributable
+      - name: Test and build APK + desktop distributable
+        run: ./gradlew :shared:desktopTest :androidApp:assembleDebug :desktopApp:createDistributable
       - name: Collect release assets
         run: |
           mkdir -p release-assets
           cp androidApp/build/outputs/apk/debug/androidApp-debug.apk release-assets/localsend-expressive-0.1.0-android.apk
-          DEB=$(find desktopApp/build/compose/binaries -name "*.deb" | head -1)
-          cp "$DEB" release-assets/localsend-expressive-0.1.0-linux.deb
           cd desktopApp/build/compose/binaries/main/app
           zip -qr "$GITHUB_WORKSPACE/release-assets/localsend-expressive-0.1.0-linux-portable.zip" localsend-expressive
+          cd "$GITHUB_WORKSPACE"
+          ls -lh release-assets
+      - name: Build Arch Linux package (.pkg.tar.zst)
+        run: |
+          set -e
+          APP_DIR=desktopApp/build/compose/binaries/main/app/localsend-expressive
+          PKGDIR="$PWD/pkgdir"
+          mkdir -p "$PKGDIR/opt" "$PKGDIR/usr/bin" "$PKGDIR/usr/share/applications"
+          cp -r "$APP_DIR" "$PKGDIR/opt/localsend-expressive"
+          ln -s /opt/localsend-expressive/bin/localsend-expressive "$PKGDIR/usr/bin/localsend-expressive"
+          cat > "$PKGDIR/usr/share/applications/localsend-expressive.desktop" <<'DESKTOP'
+          [Desktop Entry]
+          Type=Application
+          Name=LocalSend Expressive
+          Comment=Share files locally - Material 3 Expressive edition
+          Exec=localsend-expressive
+          Categories=Network;FileTransfer;
+          Terminal=false
+          DESKTOP
+          SIZE=$(du -sb "$PKGDIR" | cut -f1)
+          cat > "$PKGDIR/.PKGINFO" <<PKGINFO
+          pkgname = localsend-expressive
+          pkgbase = localsend-expressive
+          pkgver = 0.1.0-1
+          pkgdesc = Material 3 Expressive rewrite of LocalSend (Compose Multiplatform) for Android and Linux
+          url = https://github.com/kurokawaerne/localsend-expressive
+          builddate = $(date +%s)
+          packager = kurokawaerne
+          size = $SIZE
+          arch = x86_64
+          license = Apache
+          depend = glibc
+          PKGINFO
+          cd "$PKGDIR"
+          tar --zstd -cf "$GITHUB_WORKSPACE/release-assets/localsend-expressive-0.1.0-1-x86_64.pkg.tar.zst" .PKGINFO opt usr
           ls -lh "$GITHUB_WORKSPACE/release-assets"
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
@@ -44,8 +77,8 @@ jobs:
             First build of the Compose Multiplatform rewrite (M0 scaffold).
 
             - **Android**: debug-signed APK, installs alongside official LocalSend (package dev.kurokawa.localsend.expressive).
-            - **Linux portable**: unzip and run `localsend-expressive/bin/localsend-expressive` — works on Arch.
-            - **Linux .deb**: for Debian/Ubuntu-based systems.
+            - **Arch Linux**: `sudo pacman -U localsend-expressive-0.1.0-1-x86_64.pkg.tar.zst`, then run `localsend-expressive`.
+            - **Linux portable**: unzip and run `localsend-expressive/bin/localsend-expressive`.
 
             Discovery/transfer land in M1/M2 — this build is the UI shell + protocol foundation.
           files: release-assets/*
