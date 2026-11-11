@@ -8,8 +8,8 @@ ktor = "3.3.1"
 kotlinx-serialization = "1.9.0"
 kotlinx-coroutines = "1.10.2"
 androidx-activity-compose = "1.11.0"
-android-compileSdk = "35"
-android-targetSdk = "35"
+android-compileSdk = "36"
+android-targetSdk = "36"
 android-minSdk = "26"
 
 [libraries]
