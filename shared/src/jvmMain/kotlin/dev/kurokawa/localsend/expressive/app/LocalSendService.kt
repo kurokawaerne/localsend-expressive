@@ -444,12 +444,15 @@ class LocalSendService : LocalSendController {
     override fun probeDevice(ip: String) {
         val client = sendClient ?: return
         scope.launch {
-            val port = _settings.value.port
+            // Accept "host" or "host:port"; default to our own listen port.
+            val host = ip.substringBefore(':').trim()
+            val port = ip.substringAfter(':', "").trim().toIntOrNull()
+                ?: _settings.value.port
             // Unknown peer: /info first (no fingerprint to pin yet), then
             // /register with the learned identity.
             val probe = DiscoveredDevice(
                 RegisterDto(alias = "", fingerprint = "", port = port, protocol = _localDevice.value.protocol),
-                ip, System.currentTimeMillis(),
+                host, System.currentTimeMillis(),
             )
             val info = client.fetchInfo(probe) ?: return@launch
             val known = DiscoveredDevice(
@@ -463,9 +466,9 @@ class LocalSendService : LocalSendController {
                     protocol = _localDevice.value.protocol,
                     download = info.download,
                 ),
-                ip, System.currentTimeMillis(),
+                host, System.currentTimeMillis(),
             )
-            addDevice(known.info, ip)
+            addDevice(known.info, host)
             client.register(known, _localDevice.value)
         }
     }
