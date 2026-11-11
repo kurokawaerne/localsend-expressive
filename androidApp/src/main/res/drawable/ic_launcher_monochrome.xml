@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Monochrome layer for Android 13+ themed icons: a single-color
+     silhouette; the launcher tints it from the wallpaper palette. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:translateX="18.35"
+        android:translateY="18.35"
+        android:scaleX="2.97"
+        android:scaleY="2.97">
+        <path
+            android:fillColor="#000000"
+            android:pathData="M2.01,21L23,12L2.01,3L2,10l15,2L2,14z" />
+    </group>
+</vector>

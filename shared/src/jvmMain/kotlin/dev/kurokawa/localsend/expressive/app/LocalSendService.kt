@@ -125,6 +125,14 @@ class LocalSendService : LocalSendController {
             localProvider = { _localDevice.value },
             settingsProvider = { _settings.value },
             keyStoreProvider = { if (_settings.value.https) certManager.keyStore else null },
+            downloadsDirProvider = {
+                val custom = _settings.value.destinationFolder
+                if (custom.isNotBlank()) {
+                    File(custom).apply { mkdirs() }
+                } else {
+                    dev.kurokawa.localsend.expressive.platform.platformDownloadsDir()
+                }
+            },
             callbacks = serverCallbacks,
         ).also { it.start() }
 
@@ -251,6 +259,7 @@ class LocalSendService : LocalSendController {
 
     private suspend fun awaitOfferDecision(offer: IncomingOffer): Boolean {
         val s = _settings.value
+        if (s.quickSave) return true
         if (s.autoAcceptFavorites && offer.peer.fingerprint in s.favorites) return true
         val deferred = CompletableDeferred<Boolean>()
         offerDecision = deferred

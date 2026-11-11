@@ -60,6 +60,7 @@ class ReceiveServer(
     private val localProvider: () -> LocalDevice,
     private val settingsProvider: () -> AppSettings,
     private val keyStoreProvider: () -> KeyStore?,
+    private val downloadsDirProvider: () -> File = { platformDownloadsDir() },
     private val callbacks: Callbacks,
 ) {
     interface Callbacks {
@@ -237,7 +238,7 @@ class ReceiveServer(
                     return@post
                 }
 
-                val target = uniqueTarget(File(platformDownloadsDir(), sanitizeFileName(fileDto.fileName)))
+                val target = uniqueTarget(File(downloadsDirProvider(), sanitizeFileName(fileDto.fileName)))
                 val digest = MessageDigest.getInstance("SHA-256")
                 var receivedBytes = 0L
                 var failed = false
@@ -302,7 +303,7 @@ class ReceiveServer(
                     call.respond(HttpStatusCode.Forbidden)
                     return@post
                 }
-                val offered = (platformDownloadsDir().listFiles() ?: emptyArray())
+                val offered = (downloadsDirProvider().listFiles() ?: emptyArray())
                     .filter { it.isFile }
                     .associate { file ->
                         val id = UUID.randomUUID().toString()

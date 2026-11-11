@@ -17,6 +17,16 @@ data class AppSettings(
     val downloadApi: Boolean = false,
     /** Skip the accept prompt for senders whose fingerprint is a favorite. */
     val autoAcceptFavorites: Boolean = false,
+    /** Quick Save: skip the accept prompt for everyone (official feature). */
+    val quickSave: Boolean = false,
+    /** Close the receive progress automatically when a transfer finishes. */
+    val autoFinish: Boolean = true,
+    /** Custom receive folder; empty = platform default downloads folder. */
+    val destinationFolder: String = "",
+    /** UI theme: "system", "light" or "dark". */
+    val themeMode: String = "system",
+    /** Color source: "dynamic" (wallpaper/system on Android, seed on desktop) or "brand". */
+    val colorMode: String = "dynamic",
     /** Fingerprints of favorite devices. */
     val favorites: Set<String> = emptySet(),
     /** Stable random fingerprint used in HTTP mode (persisted so favorites keep matching). */
