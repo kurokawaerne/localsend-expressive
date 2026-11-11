@@ -61,6 +61,12 @@ interface LocalSendController {
     /** Send [files] to [target]; pass [pin] when the peer asked for one (401). */
     fun sendFiles(target: DiscoveredDevice, files: List<PickedFile>, pin: String? = null)
 
+    /** Send a plain text message (a first-class transfer in the protocol). */
+    fun sendText(target: DiscoveredDevice, text: String, pin: String? = null)
+
+    /** Probe a manually entered IP (legacy discovery fallback / direct connect). */
+    fun probeDevice(ip: String)
+
     fun cancelSend()
     fun clearSendState()
 

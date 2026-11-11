@@ -47,7 +47,11 @@ kotlin {
             // ("CIO Engine does not currently support HTTPS" — startup crash).
             implementation(libs.ktor.server.netty)
             implementation(libs.ktor.server.content.negotiation)
-            implementation(libs.ktor.client.cio)
+            // OkHttp engine for the client: JSSE TLS can PRESENT our
+            // self-signed client certificate. Official peers (v2.2) use
+            // mutual TLS — the Ktor CIO client cannot present certificates
+            // at all, which broke every send to the official app.
+            implementation(libs.ktor.client.okhttp)
             // Self-signed TLS certificate generation (HTTPS mode, M1).
             implementation(libs.bcprov)
             implementation(libs.bcpkix)
