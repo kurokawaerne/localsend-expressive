@@ -21,8 +21,9 @@ android {
             // BouncyCastle (and jspecify) jars ship the same OSGi manifest path;
             // the APK merge cannot keep four copies of it.
             excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
-            // Every Netty jar ships this same properties path.
+            // Every Netty jar ships these same paths.
             excludes += "META-INF/io.netty.versions.properties"
+            excludes += "META-INF/INDEX.LIST"
         }
     }
     compileOptions {
