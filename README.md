@@ -8,7 +8,7 @@ It implements the [LocalSend Protocol v2.2](https://github.com/localsend/protoco
 
 ## Status
 
-🚧 **M0 — scaffold.** Protocol design and roadmap are done; code is being set up. See [ROADMAP.md](ROADMAP.md) for architecture, the compatibility contract, and milestones.
+🚧 **v0.2.0 in development** (branch `v0.2.0`): M1–M5 are implemented — discovery, HTTPS send/receive, Download API, PIN, favorites, history and settings. Bug hunting against the official app is next. See [ROADMAP.md](ROADMAP.md) for architecture, the compatibility contract, and milestones.
 
 ## Planned stack
 
