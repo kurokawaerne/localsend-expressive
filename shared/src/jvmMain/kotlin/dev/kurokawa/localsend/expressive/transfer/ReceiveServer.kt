@@ -65,6 +65,9 @@ class ReceiveServer(
     interface Callbacks {
         fun onPeerRegistered(dto: RegisterDto, ip: String)
 
+        /** A text message arrived (message-only prepare-upload, answered 204). */
+        fun onMessage(peer: RegisterDto, text: String)
+
         /** Ask the user (or auto-accept rule) about an incoming offer. */
         suspend fun onOffer(offer: IncomingOffer): Boolean
 
@@ -76,6 +79,8 @@ class ReceiveServer(
     private class Session(
         val id: String,
         val peer: RegisterDto,
+        /** Uploads are only accepted from the IP that opened the session. */
+        val peerIp: String,
         val files: Map<String, FileDto>,
         val tokens: Map<String, String>,
     ) {
@@ -91,6 +96,9 @@ class ReceiveServer(
     private var activeSession: Session? = null
 
     private val downloadSessions = ConcurrentHashMap<String, Map<String, File>>()
+
+    /** Failed PIN attempts per peer IP: (consecutive failures, last failure millis). */
+    private val pinAttempts = ConcurrentHashMap<String, Pair<Int, Long>>()
 
     fun start() {
         val local = localProvider()
@@ -128,20 +136,58 @@ class ReceiveServer(
             post(ProtocolConstants.PATH_REGISTER) {
                 val peer = call.receive<RegisterDto>()
                 callbacks.onPeerRegistered(peer, call.request.local.remoteHost)
-                call.respond(localProvider().toRegisterDto())
+                // The official app answers /register with its InfoDto shape
+                // (no port/protocol fields) — match it exactly.
+                call.respond(localProvider().toInfoDto())
             }
 
             post(ProtocolConstants.PATH_PREPARE_UPLOAD) {
                 val settings = settingsProvider()
                 val request = call.receive<PrepareUploadRequestDto>()
+                val remoteIp = call.request.local.remoteHost
 
-                // PIN gate first (spec: 401), then the busy check (409).
-                if (settings.pin.isNotEmpty() &&
-                    call.request.queryParameters["pin"] != settings.pin
-                ) {
-                    call.respond(HttpStatusCode.Unauthorized)
+                // PIN gate first (spec: 401; 429 once a peer keeps guessing —
+                // the official app locks out after 3 failed attempts).
+                if (settings.pin.isNotEmpty()) {
+                    val given = call.request.queryParameters["pin"]
+                    if (given != settings.pin) {
+                        val (count, lastFail) = pinAttempts[remoteIp] ?: (0 to 0L)
+                        val now = System.currentTimeMillis()
+                        val failures = if (now - lastFail > PIN_COOLDOWN_MS) 1 else count + 1
+                        pinAttempts[remoteIp] = failures to now
+                        call.respond(
+                            if (failures >= MAX_PIN_FAILURES) {
+                                HttpStatusCode.TooManyRequests
+                            } else {
+                                HttpStatusCode.Unauthorized
+                            },
+                        )
+                        return@post
+                    }
+                    pinAttempts.remove(remoteIp)
+                }
+
+                if (request.files.isEmpty()) {
+                    call.respond(HttpStatusCode.BadRequest)
                     return@post
                 }
+
+                // Message-only transfer: every file carries its text in
+                // `preview` and expects no upload. The official app answers
+                // 204 and shows the text as a message — do the same.
+                val isMessageOnly = request.files.values.all { dto ->
+                    dto.preview != null &&
+                        (dto.fileType.startsWith("text") ||
+                            dto.size == dto.preview.toByteArray(Charsets.UTF_8).size.toLong())
+                }
+                if (isMessageOnly) {
+                    request.files.values.forEach { dto ->
+                        callbacks.onMessage(request.info, dto.preview.orEmpty())
+                    }
+                    call.respond(HttpStatusCode.NoContent)
+                    return@post
+                }
+
                 if (activeSession != null) {
                     call.respond(HttpStatusCode.Conflict)
                     return@post
@@ -150,7 +196,7 @@ class ReceiveServer(
                 val offer = IncomingOffer(
                     sessionId = UUID.randomUUID().toString(),
                     peer = request.info,
-                    peerIp = call.request.local.remoteHost,
+                    peerIp = remoteIp,
                     files = request.files.values.toList(),
                 )
                 val accepted = withTimeoutOrNull(OFFER_TIMEOUT_MS) {
@@ -162,7 +208,7 @@ class ReceiveServer(
                 }
 
                 val tokens = request.files.keys.associateWith { UUID.randomUUID().toString() }
-                val session = Session(offer.sessionId, request.info, request.files, tokens)
+                val session = Session(offer.sessionId, request.info, remoteIp, request.files, tokens)
                 activeSession = session
                 callbacks.onReceiveProgress(session.id, session.progress.values.toList())
                 call.respond(PrepareUploadResponseDto(session.id, tokens))
@@ -173,15 +219,21 @@ class ReceiveServer(
                 val sessionId = call.request.queryParameters["sessionId"]
                 val fileId = call.request.queryParameters["fileId"]
                 val token = call.request.queryParameters["token"]
-                if (session == null || sessionId == null || fileId == null || token == null ||
-                    session.id != sessionId
-                ) {
+                if (sessionId == null || fileId == null || token == null) {
                     call.respond(HttpStatusCode.BadRequest)
+                    return@post
+                }
+                // Wrong/unknown session, token or a different sender IP than
+                // the one that opened the session: 403 (official semantics).
+                if (session == null || session.id != sessionId ||
+                    session.peerIp != call.request.local.remoteHost
+                ) {
+                    call.respond(HttpStatusCode.Forbidden)
                     return@post
                 }
                 val fileDto = session.files[fileId]
                 if (fileDto == null || session.tokens[fileId] != token) {
-                    call.respond(HttpStatusCode.BadRequest)
+                    call.respond(HttpStatusCode.Forbidden)
                     return@post
                 }
 
@@ -318,5 +370,7 @@ class ReceiveServer(
     private companion object {
         const val BUFFER_SIZE = 64 * 1024
         const val OFFER_TIMEOUT_MS = 5 * 60 * 1000L
+        const val MAX_PIN_FAILURES = 3
+        const val PIN_COOLDOWN_MS = 60_000L
     }
 }
