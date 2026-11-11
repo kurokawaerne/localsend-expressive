@@ -46,6 +46,13 @@ kotlin {
             implementation(libs.ktor.server.cio)
             implementation(libs.ktor.server.content.negotiation)
             implementation(libs.ktor.client.cio)
+            // Self-signed TLS certificate generation (HTTPS mode, M1).
+            implementation(libs.bcprov)
+            implementation(libs.bcpkix)
+        }
+        androidMain.dependencies {
+            // rememberLauncherForActivityResult for the SAF file picker (M3).
+            implementation(libs.androidx.activity.compose)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))

@@ -12,10 +12,17 @@ android {
         applicationId = "dev.kurokawa.localsend.expressive"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = 2
+        versionName = "0.2.0"
     }
     buildFeatures { compose = true }
+    packaging {
+        resources {
+            // BouncyCastle (and jspecify) jars ship the same OSGi manifest path;
+            // the APK merge cannot keep four copies of it.
+            excludes += "META-INF/versions/9/OSGI-INF/MANIFEST.MF"
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

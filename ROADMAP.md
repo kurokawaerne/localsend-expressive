@@ -66,13 +66,15 @@ Each: discovery appears < 5s, text message, 1 small file, 1 file > 500 MB, multi
 
 ## 4. Milestones
 
-- **M0 — Scaffold:** repo, Gradle KMP build, empty shells run on Android + Linux, GitHub Actions (APK + desktop)
-- **M1 — Discovery:** multicast announce/listen + register + info. *Success: official app sees us, we see it.*
-- **M2 — Receive:** HTTPS server, accept dialog, upload endpoint, sha256 check, save file
-- **M3 — Send:** picker, prepare-upload, parallel upload (concurrency 2), progress, cancel
-- **M4 — Expressive UI:** full theme/component pass over M1–M3 screens
-- **M5 — Extras:** Download API (browser), PIN, favorites, history, settings (port, alias, download folder)
-- **M6 — Release:** signed APK, AppImage, Arch `.pkg.tar.zst`, GitHub Releases
+- **M0 — Scaffold:** ✅ repo, Gradle KMP build, empty shells run on Android + Linux, GitHub Actions (APK + desktop)
+- **M1 — Discovery:** ✅ multicast announce/listen + register + info, HTTPS with persisted self-signed cert (fingerprint = cert SHA-256), real Android MulticastLock, live device list in UI. *Success: official app sees us, we see it.*
+- **M2 — Receive:** ✅ HTTPS server, accept dialog, upload endpoint streamed to disk, sha256 check (422), busy 409, cancel, duplicate-name protection
+- **M3 — Send:** ✅ SAF/AWT picker, prepare-upload, per-file upload with progress, cancel, sha256 precomputed and sent (uploads sequential for now; official uses concurrency 2)
+- **M4 — Expressive UI:** ✅ expressive shapes/theme, device cards with favorites, transfer progress states, offer dialog, history list (deeper expressive components — FAB Menu, Loading Indicator, dynamic color — still to come)
+- **M5 — Extras:** ✅ Download API (prepare-download/download), PIN (401 + retry-with-PIN flow), favorites, history, settings (alias, port, PIN, HTTPS toggle, auto-accept favorites) persisted as JSON
+- **M6 — Release:** signed APK, AppImage, Arch `.pkg.tar.zst`, GitHub Releases — release workflow produces the Android APK, the Arch package and a portable zip (APK still debug-signed; signing is the remaining M6 item)
+
+**v0.2.0 (branch `v0.2.0`)** integrates M1–M5 in one pass. Next: bug hunting against the interop matrix in §2.
 
 Each milestone is sized to fit one of Ernest's ~2-hour power sessions and ends in a buildable, testable state.
 

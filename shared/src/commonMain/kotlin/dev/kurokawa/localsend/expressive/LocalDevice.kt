@@ -37,12 +37,15 @@ data class LocalDevice(
     )
 
     companion object {
+        /**
+         * Fallback identity with a random (HTTP-style) fingerprint.
+         * The running app builds its LocalDevice in LocalSendService instead,
+         * where the HTTPS fingerprint is the TLS certificate's SHA-256.
+         */
         fun create(deviceType: DeviceType, deviceModel: String? = null): LocalDevice = LocalDevice(
             alias = randomAlias(),
             deviceModel = deviceModel,
             deviceType = deviceType,
-            // TODO(M1): in HTTPS mode the fingerprint must be the SHA-256 of the
-            // generated TLS certificate. Random string is the HTTP-mode form.
             fingerprint = generateRandomFingerprint(),
         )
     }
