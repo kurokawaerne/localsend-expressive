@@ -1,16 +1,23 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Monochrome layer for Android 13+ themed icons: a single-color
-     silhouette; the launcher tints it from the wallpaper palette. -->
+<!-- Monochrome layer for Android 13+ themed icons: the LSEx mark as a
+     single-color silhouette; the launcher tints it from the wallpaper. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#000000"
+        android:strokeAlpha="0.55"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:pathData="M54,8 A46,46 0 1 1 16.3,80.4" />
     <group
-        android:translateX="18.35"
-        android:translateY="18.35"
-        android:scaleX="2.97"
-        android:scaleY="2.97">
+        android:translateX="19.5"
+        android:translateY="19.5"
+        android:scaleX="2.87"
+        android:scaleY="2.87">
         <path
             android:fillColor="#000000"
             android:pathData="M2.01,21L23,12L2.01,3L2,10l15,2L2,14z" />

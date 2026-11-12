@@ -1,18 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Paper-plane glyph (Material "send" path) centered in the adaptive-icon
-     safe zone: 24-unit path scaled by 2.97 and translated by 18.35 on a
-     108-unit canvas. -->
+<!-- LSEx mark v2: a paper plane on a send orbit — the ring suggests the
+     local network the file travels on. Ring + plane sit inside the
+     adaptive-icon safe zone on the 108-unit canvas. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeAlpha="0.55"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round"
+        android:pathData="M54,8 A46,46 0 1 1 16.3,80.4" />
     <group
         android:name="plane"
-        android:translateX="18.35"
-        android:translateY="18.35"
-        android:scaleX="2.97"
-        android:scaleY="2.97">
+        android:translateX="19.5"
+        android:translateY="19.5"
+        android:scaleX="2.87"
+        android:scaleY="2.87">
         <path
             android:fillColor="#FFFFFF"
             android:pathData="M2.01,21L23,12L2.01,3L2,10l15,2L2,14z" />

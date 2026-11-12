@@ -49,6 +49,8 @@ kotlin {
             implementation(libs.ktor.client.core)
             implementation(libs.ktor.client.content.negotiation)
             implementation(libs.ktor.serialization.json)
+            // QR codes for the share-via-link address (pure Java, both platforms).
+            implementation(libs.zxing.core)
         }
         jvmMain.dependencies {
             implementation(libs.ktor.server.core)
@@ -68,6 +70,8 @@ kotlin {
         androidMain.dependencies {
             // rememberLauncherForActivityResult for the SAF file picker (M3).
             implementation(libs.androidx.activity.compose)
+            // DocumentFile tree walking for the Folder picker.
+            implementation(libs.androidx.documentfile)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))

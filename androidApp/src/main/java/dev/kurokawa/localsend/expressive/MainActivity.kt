@@ -12,6 +12,9 @@ import dev.kurokawa.localsend.expressive.platform.offerSharedUris
 import dev.kurokawa.localsend.expressive.ui.AppRoot
 
 class MainActivity : ComponentActivity() {
+    private val notificationPermission =
+        registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) {}
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // Animated splash (core-splashscreen): must be installed before
         // super.onCreate; the theme's postSplashScreenTheme takes over after.
@@ -20,6 +23,15 @@ class MainActivity : ComponentActivity() {
         // androidMain platform code (multicast lock, storage, SAF) needs a Context.
         AppContextHolder.appContext = applicationContext
         handleShareIntent(intent)
+        // Persistent receive service + notification + wakelock (the
+        // official app runs the same way; v0.3.0 had none of this).
+        LsexForegroundService.start(applicationContext)
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU &&
+            checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) !=
+            android.content.pm.PackageManager.PERMISSION_GRANTED
+        ) {
+            notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
         val service = LocalSendService()
         setContent {
             AppRoot(service)
