@@ -171,6 +171,8 @@ import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.statusBars
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import dev.kurokawa.localsend.expressive.platform.ConnectivityPrefs
 import dev.kurokawa.localsend.expressive.platform.updateConnectivityPrefs
 import androidx.compose.ui.graphics.drawscope.Stroke
