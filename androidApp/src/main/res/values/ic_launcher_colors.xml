@@ -1,8 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Pale lavender, matching Ernest's splash mockup (the circle
-         behind the comparison arrows). -->
-    <color name="ic_launcher_background">#EFE7FB</color>
-    <!-- The splash itself is white, like his mockup. -->
-    <color name="splash_background">#FFFFFF</color>
+    <!-- Brand teal, matching the app's expressive seed color. -->
+    <color name="ic_launcher_background">#00696C</color>
 </resources>

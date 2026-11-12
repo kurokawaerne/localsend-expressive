@@ -6,7 +6,7 @@
     <!-- Animated splash via core-splashscreen (Minus-style): brand teal
          background, the send glyph scales/fades in, then the app theme. -->
     <style name="Theme.LocalSendExpressive.Splash" parent="Theme.SplashScreen">
-        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenBackground">@color/ic_launcher_background</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_animated</item>
         <item name="windowSplashScreenAnimationDuration">650</item>
         <item name="postSplashScreenTheme">@style/Theme.LocalSendExpressive</item>

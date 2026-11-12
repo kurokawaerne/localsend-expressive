@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Splash-screen glyph (v0.8.0): Ernest's static splash — a pale
-     lavender circle with the purple comparison arrows, on white.
-     One group named "plane" (pivot at the center) so the
-     animated-vector can settle it in with scale alone. -->
+<!-- Splash-screen glyph: the LSEx mark v3, white on the brand teal splash
+     background. The whole mark is one group named "plane" (pivot at the
+     center) so the animated-vector can spring it in with scale alone —
+     the v0.4.0 animator also targeted group alpha, which AVD groups don't
+     support, so the animation silently never played. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -13,35 +14,23 @@
         android:pivotX="54"
         android:pivotY="54">
         <path
-            android:fillColor="#EFE7FB"
-            android:pathData="M54,10 A44,44 0 1 1 53.9,10 Z" />
-        <path
             android:fillColor="@android:color/transparent"
-            android:strokeColor="#6750A4"
-            android:strokeWidth="7"
+            android:strokeColor="#FFFFFF"
+            android:strokeAlpha="0.55"
+            android:strokeWidth="4.5"
             android:strokeLineCap="round"
-            android:strokeLineJoin="round"
-            android:pathData="M78,44 L54,44" />
+            android:pathData="M24,54 A30,30 0 1 1 84,54 A30,30 0 1 1 24,54" />
         <path
-            android:fillColor="@android:color/transparent"
-            android:strokeColor="#6750A4"
-            android:strokeWidth="7"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round"
-            android:pathData="M67,31 L53,44 L67,57" />
-        <path
-            android:fillColor="@android:color/transparent"
-            android:strokeColor="#6750A4"
-            android:strokeWidth="7"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round"
-            android:pathData="M30,64 L54,64" />
-        <path
-            android:fillColor="@android:color/transparent"
-            android:strokeColor="#6750A4"
-            android:strokeWidth="7"
-            android:strokeLineCap="round"
-            android:strokeLineJoin="round"
-            android:pathData="M41,51 L55,64 L41,77" />
+            android:fillColor="#FFFFFF"
+            android:pathData="M77,29.5 A5.2,5.2 0 1 1 76.9,29.5 Z" />
+        <group
+            android:translateX="30"
+            android:translateY="30"
+            android:scaleX="2"
+            android:scaleY="2">
+            <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M2.01,21L23,12L2.01,3L2,10l15,2L2,14z" />
+        </group>
     </group>
 </vector>

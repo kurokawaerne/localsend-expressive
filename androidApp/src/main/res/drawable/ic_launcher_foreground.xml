@@ -1,40 +1,32 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- LSEx mark v4 (v0.8.0): Ernest's comparison-arrows glyph, exactly as
-     in his splash mockup — two opposing arrows, drawn inside the
-     adaptive-icon safe zone on the 108-unit canvas. -->
+<!-- LSEx mark v3 (v0.5.0): paper plane on a send orbit, drawn INSIDE the
+     adaptive-icon safe zone. The v2 mark put its ring at r=46 on the
+     108-unit canvas, so launcher masks cropped it and the icon looked
+     broken on Ernest's phone. Ring r=30, plane within r=26, satellite dot
+     riding the ring — everything survives circle/squircle masks. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <!-- top arrow, pointing left -->
     <path
         android:fillColor="@android:color/transparent"
-        android:strokeColor="#6750A4"
-        android:strokeWidth="8"
+        android:strokeColor="#FFFFFF"
+        android:strokeAlpha="0.55"
+        android:strokeWidth="4.5"
         android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M80,42 L52,42" />
+        android:pathData="M24,54 A30,30 0 1 1 84,54 A30,30 0 1 1 24,54" />
     <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#6750A4"
-        android:strokeWidth="8"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M66,27 L51,42 L66,57" />
-    <!-- bottom arrow, pointing right -->
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#6750A4"
-        android:strokeWidth="8"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M28,66 L56,66" />
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#6750A4"
-        android:strokeWidth="8"
-        android:strokeLineCap="round"
-        android:strokeLineJoin="round"
-        android:pathData="M42,51 L57,66 L42,81" />
+        android:fillColor="#FFFFFF"
+        android:pathData="M77,29.5 A5.2,5.2 0 1 1 76.9,29.5 Z" />
+    <group
+        android:name="plane"
+        android:translateX="30"
+        android:translateY="30"
+        android:scaleX="2"
+        android:scaleY="2">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M2.01,21L23,12L2.01,3L2,10l15,2L2,14z" />
+    </group>
 </vector>
