@@ -1325,6 +1325,16 @@ class LocalSendService : LocalSendController {
         store.saveHistory(_history.value)
     }
 
+    override fun removeHistoryEntry(entry: HistoryEntry) {
+        _history.value = _history.value.filter { it != entry }
+        store.saveHistory(_history.value)
+    }
+
+    override fun clearHistory() {
+        _history.value = emptyList()
+        store.saveHistory(_history.value)
+    }
+
     private companion object {
         const val ANNOUNCE_INTERVAL_MS = 10_000L
         // Official peers announce rarely (scan-time bursts), so entries

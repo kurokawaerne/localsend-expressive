@@ -129,4 +129,10 @@ interface LocalSendController {
 
     fun updateSettings(settings: AppSettings)
     fun toggleFavorite(fingerprint: String)
+
+    /** Remove one history entry (v0.8.0). */
+    fun removeHistoryEntry(entry: HistoryEntry)
+
+    /** Clear the whole history (v0.8.0). */
+    fun clearHistory()
 }
