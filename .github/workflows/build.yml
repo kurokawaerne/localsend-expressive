@@ -6,6 +6,18 @@ on:
   pull_request:
 
 jobs:
+  rust:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Rust core tests
+        working-directory: core-rust
+        run: cargo test
+      - name: Rust core JNI build check
+        working-directory: core-rust
+        run: cargo build --release --features jni
+
   build:
     runs-on: ubuntu-latest
     steps:
