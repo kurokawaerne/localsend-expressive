@@ -387,7 +387,7 @@ class LocalSendService : LocalSendController {
         if (s.autoAcceptFavorites && offer.peer.fingerprint in s.favorites) return allIds
         // Uploads arriving through the web page (receive via link) carry
         // deviceType "web"; the official auto-accept setting covers them.
-        if (s.shareViaLinkAutoAccept && offer.peer.deviceType.name == "web") return allIds
+        if (s.shareViaLinkAutoAccept && offer.peer.deviceType?.name == "web") return allIds
         val deferred = CompletableDeferred<Set<String>?>()
         offerDecision = deferred
         _incomingOffer.value = offer

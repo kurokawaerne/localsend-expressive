@@ -1808,6 +1808,7 @@ private fun IpAddressDialog(
     )
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AppPickerDialog(
     onDismiss: () -> Unit,
