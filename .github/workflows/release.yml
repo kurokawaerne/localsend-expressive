@@ -113,6 +113,7 @@ jobs:
           tag_name: ${{ inputs.tag }}
           name: LocalSend Expressive ${{ inputs.tag }}
           prerelease: true
+          files: release-assets/*
           body: |
             The design release: built from Ernest's v0.5.0 report and a proper study of the Material 3 Expressive kit (Google docs + the Figma Material 3 design kit) and Zapya's layout.
 
