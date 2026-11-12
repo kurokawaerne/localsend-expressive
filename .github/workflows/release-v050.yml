@@ -1,0 +1,124 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create"
+        required: true
+        default: "v0.5.0"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - name: Test Rust core
+        working-directory: core-rust
+        run: cargo test
+      - name: Build Rust core natives
+        continue-on-error: true
+        run: |
+          set -e
+          NDK_BIN="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android26-clang"
+          export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="$NDK_BIN/armv7a-linux-androideabi26-clang"
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$NDK_BIN/x86_64-linux-android26-clang"
+          cd core-rust
+          cargo build --release --features jni --target aarch64-linux-android
+          cargo build --release --features jni --target armv7-linux-androideabi
+          cargo build --release --features jni --target x86_64-linux-android
+          cargo build --release --features jni
+          cd ..
+          mkdir -p androidApp/src/main/jniLibs/arm64-v8a androidApp/src/main/jniLibs/armeabi-v7a androidApp/src/main/jniLibs/x86_64 desktopApp/src/main/resources/native
+          cp core-rust/target/aarch64-linux-android/release/liblsex_core.so androidApp/src/main/jniLibs/arm64-v8a/
+          cp core-rust/target/armv7-linux-androideabi/release/liblsex_core.so androidApp/src/main/jniLibs/armeabi-v7a/
+          cp core-rust/target/x86_64-linux-android/release/liblsex_core.so androidApp/src/main/jniLibs/x86_64/
+          cp core-rust/target/release/liblsex_core.so desktopApp/src/main/resources/native/
+          ls -lh androidApp/src/main/jniLibs/*/liblsex_core.so desktopApp/src/main/resources/native/
+      - name: Test and build APK + desktop distributable
+        run: ./gradlew :shared:desktopTest :androidApp:assembleDebug :desktopApp:createDistributable
+      - name: Collect release assets
+        run: |
+          mkdir -p release-assets
+          # Split APKs per ABI + universal (v0.5.0): pick the smallest one
+          # your device needs — arm64-v8a covers almost every modern phone.
+          ls androidApp/build/outputs/apk/debug/
+          cp androidApp/build/outputs/apk/debug/androidApp-arm64-v8a-debug.apk release-assets/localsend-expressive-0.5.0-android-arm64-v8a.apk
+          cp androidApp/build/outputs/apk/debug/androidApp-armeabi-v7a-debug.apk release-assets/localsend-expressive-0.5.0-android-armeabi-v7a.apk
+          cp androidApp/build/outputs/apk/debug/androidApp-x86_64-debug.apk release-assets/localsend-expressive-0.5.0-android-x86_64.apk
+          cp androidApp/build/outputs/apk/debug/androidApp-universal-debug.apk release-assets/localsend-expressive-0.5.0-android.apk
+          cd desktopApp/build/compose/binaries/main/app
+          zip -qr "$GITHUB_WORKSPACE/release-assets/localsend-expressive-0.5.0-linux-portable.zip" localsend-expressive
+          cd "$GITHUB_WORKSPACE"
+          ls -lh release-assets
+      - name: Build Arch Linux package (.pkg.tar.zst)
+        run: |
+          set -e
+          APP_DIR=desktopApp/build/compose/binaries/main/app/localsend-expressive
+          PKGDIR="$PWD/pkgdir"
+          mkdir -p "$PKGDIR/opt" "$PKGDIR/usr/bin" "$PKGDIR/usr/share/applications"
+          cp -r "$APP_DIR" "$PKGDIR/opt/localsend-expressive"
+          ln -s /opt/localsend-expressive/bin/localsend-expressive "$PKGDIR/usr/bin/localsend-expressive"
+          cat > "$PKGDIR/usr/share/applications/localsend-expressive.desktop" <<'DESKTOP'
+          [Desktop Entry]
+          Type=Application
+          Name=LocalSend Expressive
+          Comment=Share files locally - Material 3 Expressive edition
+          Exec=localsend-expressive
+          Icon=localsend-expressive
+          Categories=Network;FileTransfer;
+          Terminal=false
+          DESKTOP
+          SIZE=$(du -sb "$PKGDIR" | cut -f1)
+          cat > "$PKGDIR/.PKGINFO" <<PKGINFO
+          pkgname = localsend-expressive
+          pkgbase = localsend-expressive
+          pkgver = 0.5.0-1
+          pkgdesc = Material 3 Expressive rewrite of LocalSend (Compose Multiplatform) for Android and Linux
+          url = https://github.com/kurokawaerne/localsend-expressive
+          builddate = $(date +%s)
+          packager = kurokawaerne
+          size = $SIZE
+          arch = x86_64
+          license = Apache
+          depend = glibc
+          PKGINFO
+          cd "$PKGDIR"
+          tar --zstd -cf "$GITHUB_WORKSPACE/release-assets/localsend-expressive-0.5.0-1-x86_64.pkg.tar.zst" .PKGINFO opt usr
+          ls -lh "$GITHUB_WORKSPACE/release-assets"
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: LocalSend Expressive ${{ inputs.tag }}
+          prerelease: true
+          body: |
+            The one-view release: Send, Receive and Connect merged into a single Home, shaped by Ernest's full v0.4.0 test report.
+
+            - **One unified Home** (layout inspired by Zapya/Google Files, all Material 3 Expressive): compose content first — Files / Media / Apps / Text / Folder / Web tabs — then tap as many target devices as you want. Devices can be selected and unselected freely; favorites sort first.
+            - **Floating navigation bar** (Google Photos style) on phones; on wide screens/desktop a ChromeOS-style rail with the app floating in a rounded card.
+            - **Split APKs**: arm64-v8a, armeabi-v7a and x86_64 builds next to the universal one — download only your architecture.
+            - **Fixes from the report**: QR scanner works again (it looked up the activity in the wrong context inside dialogs); Wi-Fi Direct failures speak plain language and an existing group is adopted instead of erroring; discovery now announces and listens on EVERY network interface plus subnet broadcast copies, so PCs with VPNs/virtual NICs no longer stay invisible until a manual refresh; the receive notification has a **Stop** button; transfer start is faster (capability results are cached per device); the Rust core is linked 16 KB-page aligned (no more compatibility warning).
+            - **Received files, findable**: pick the receive folder with the system folder picker (SAF) and files land exactly there; every received file in History gets an Open button (and packages get Install). The built-in installer handles .apk and split sets (.apks/.xapk/.apkm) through PackageInstaller — no second app needed.
+            - **Sending view**: staged files are individual cards with rename/discard circular actions; the Ready-to-send section expands/collapses; transfers group per recipient device with dividers and expand/collapse; each file in flight has its own card, wavy progress and a quick cancel. History collapses too, and finished sends can be re-staged from History in one tap ("resend").
+            - **App picker**: real app icons, search, and a Hide system apps toggle.
+            - **Settings, Android-style**: grouped cards with a colored-circle icon per setting, background-colored dividers, more air; language/theme/colors are dropdown menus; Quick Save + Quick Save from Favorites are one connected button group (Off / Favorites / Everyone) — also on Home. The settings screen no longer stutters (it doesn't recompose with transfer activity anymore).
+            - **New icon + splash**: the mark was redrawn inside the adaptive-icon safe zone (the old ring was cropped by launcher masks), the splash animation actually plays (the old AVD targeted an unsupported property), and the header carries a styled two-tone LSEx wordmark.
+
+            - **Arch Linux**: `sudo pacman -U localsend-expressive-0.5.0-1-x86_64.pkg.tar.zst`, then run `localsend-expressive`.
+            - **Linux portable**: unzip and run `localsend-expressive/bin/localsend-expressive`.
+          files: release-assets/*
