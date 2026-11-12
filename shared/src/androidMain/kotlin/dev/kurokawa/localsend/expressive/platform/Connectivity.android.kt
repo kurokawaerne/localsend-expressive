@@ -371,9 +371,9 @@ actual class ConnectivityController {
                         if (prefs.p2pPassword.isNotBlank()) setPassphrase(prefs.p2pPassword)
                         setGroupOperatingBand(
                             when (prefs.p2pBand) {
-                                "2.4" -> android.net.wifi.p2p.WifiP2pConfig.GROUP_OPERATING_BAND_2GHZ
-                                "5" -> android.net.wifi.p2p.WifiP2pConfig.GROUP_OPERATING_BAND_5GHZ
-                                else -> android.net.wifi.p2p.WifiP2pConfig.GROUP_OPERATING_BAND_AUTO
+                                "2.4" -> android.net.wifi.p2p.WifiP2pConfig.GROUP_OWNER_BAND_2GHZ
+                                "5" -> android.net.wifi.p2p.WifiP2pConfig.GROUP_OWNER_BAND_5GHZ
+                                else -> android.net.wifi.p2p.WifiP2pConfig.GROUP_OWNER_BAND_AUTO
                             },
                         )
                     }
