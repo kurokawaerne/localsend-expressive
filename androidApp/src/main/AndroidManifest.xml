@@ -27,6 +27,8 @@
         android:maxSdkVersion="28" />
     <!-- The "App" selection tile lists installed apps to send their APKs. -->
     <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!-- Built-in installer for received .apk / split packages (v0.5.0). -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <application
         android:allowBackup="true"
@@ -58,6 +60,15 @@
             android:name=".LsexForegroundService"
             android:exported="false"
             android:foregroundServiceType="dataSync" />
+
+        <!-- PackageInstaller results for the built-in installer. -->
+        <receiver
+            android:name=".InstallReceiver"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="dev.kurokawa.localsend.expressive.INSTALL_RESULT" />
+            </intent-filter>
+        </receiver>
 
         <!-- Quick Settings quick-share tile. -->
         <service
