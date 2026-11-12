@@ -33,6 +33,21 @@ actual fun rememberClipboardText(): () -> String? {
 
 actual fun loadInstalledApps(): List<InstalledApp> = emptyList()
 
+@Composable
+actual fun AppIcon(packageName: String, modifier: androidx.compose.ui.Modifier) {
+    androidx.compose.foundation.layout.Box(
+        modifier = modifier,
+        contentAlignment = androidx.compose.ui.Alignment.Center,
+    ) {
+        androidx.compose.material3.Icon(
+            androidx.compose.material.icons.Icons.Filled.Apps,
+            contentDescription = null,
+        )
+    }
+}
+
+actual fun usesSafDestination(): Boolean = false
+
 actual fun supportsQuickShareTile(): Boolean = false
 
 actual fun systemLanguageCode(): String =

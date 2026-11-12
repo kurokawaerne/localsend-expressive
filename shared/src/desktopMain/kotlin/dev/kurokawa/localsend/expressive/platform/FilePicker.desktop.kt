@@ -45,6 +45,21 @@ actual fun rememberMediaPickerLauncher(onPicked: (List<PickedFile>) -> Unit): ()
     }
 }
 
+/** Receive-destination picker (v0.5.0): delivers the folder's absolute path. */
+@Composable
+actual fun rememberDestinationPickerLauncher(onPicked: (String) -> Unit): () -> Unit {
+    return remember {
+        {
+            val chooser = javax.swing.JFileChooser()
+            chooser.fileSelectionMode = javax.swing.JFileChooser.DIRECTORIES_ONLY
+            chooser.dialogTitle = "Select the receive folder"
+            if (chooser.showOpenDialog(null) == javax.swing.JFileChooser.APPROVE_OPTION) {
+                onPicked(chooser.selectedFile.absolutePath)
+            }
+        }
+    }
+}
+
 /** Folder picker: choose one directory; every file inside is picked recursively. */
 @Composable
 actual fun rememberFolderPickerLauncher(onPicked: (List<PickedFile>) -> Unit): () -> Unit {

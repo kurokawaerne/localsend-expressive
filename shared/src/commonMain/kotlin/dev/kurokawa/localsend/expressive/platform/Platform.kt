@@ -30,7 +30,16 @@ data class InstalledApp(
     /** Handle understood by openPickedInput (APK file path on Android). */
     val apkHandle: String,
     val apkSize: Long,
+    /** System (or updated system) app — the picker can hide these (v0.5.0). */
+    val isSystem: Boolean = false,
 )
+
+/** The app's launcher icon, drawn by the platform (v0.5.0: the picker shows real icons). */
+@Composable
+expect fun AppIcon(packageName: String, modifier: androidx.compose.ui.Modifier = androidx.compose.ui.Modifier)
+
+/** True on Android, where the receive folder is picked through SAF. */
+expect fun usesSafDestination(): Boolean
 
 /** Installed apps available for sending; empty on platforms without an app store model. */
 expect fun loadInstalledApps(): List<InstalledApp>
