@@ -72,6 +72,11 @@ kotlin {
             implementation(libs.androidx.activity.compose)
             // DocumentFile tree walking for the Folder picker.
             implementation(libs.androidx.documentfile)
+            // QR scanner: CameraX preview + analysis, decoded with ZXing.
+            implementation(libs.androidx.camera.core)
+            implementation(libs.androidx.camera.camera2)
+            implementation(libs.androidx.camera.lifecycle)
+            implementation(libs.androidx.camera.view)
         }
         commonTest.dependencies {
             implementation(kotlin("test"))

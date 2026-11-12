@@ -37,12 +37,18 @@ import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.Language
 import androidx.compose.material.icons.filled.Message
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material.icons.filled.Replay
+import androidx.compose.material.icons.filled.Router
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Wifi
+import androidx.compose.material.icons.filled.WifiOff
+import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -77,6 +83,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
@@ -84,6 +91,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import dev.kurokawa.localsend.expressive.LocalDevice
@@ -92,16 +100,25 @@ import dev.kurokawa.localsend.expressive.app.FileProgress
 import dev.kurokawa.localsend.expressive.app.HistoryEntry
 import dev.kurokawa.localsend.expressive.app.IncomingOffer
 import dev.kurokawa.localsend.expressive.app.LocalSendController
+import dev.kurokawa.localsend.expressive.app.OutboxFile
+import dev.kurokawa.localsend.expressive.app.OutboxJob
 import dev.kurokawa.localsend.expressive.app.TransferStatus
 import dev.kurokawa.localsend.expressive.discovery.DiscoveredDevice
+import dev.kurokawa.localsend.expressive.platform.ConnectivityController
 import dev.kurokawa.localsend.expressive.platform.InstalledApp
 import dev.kurokawa.localsend.expressive.platform.PickedFile
+import dev.kurokawa.localsend.expressive.platform.QrScannerView
+import dev.kurokawa.localsend.expressive.platform.joinWifiNetwork
+import dev.kurokawa.localsend.expressive.platform.openUrl
+import dev.kurokawa.localsend.expressive.platform.parseWifiQr
 import dev.kurokawa.localsend.expressive.platform.clearQuickShareRequest
 import dev.kurokawa.localsend.expressive.platform.clearSharedFiles
 import dev.kurokawa.localsend.expressive.platform.loadInstalledApps
 import dev.kurokawa.localsend.expressive.platform.platformDeviceType
 import dev.kurokawa.localsend.expressive.platform.quickShareRequests
 import dev.kurokawa.localsend.expressive.platform.rememberClipboardText
+import dev.kurokawa.localsend.expressive.platform.rustCoreActive
+import dev.kurokawa.localsend.expressive.platform.wifiQrPayload
 import dev.kurokawa.localsend.expressive.platform.rememberFilePickerLauncher
 import dev.kurokawa.localsend.expressive.platform.rememberFolderPickerLauncher
 import dev.kurokawa.localsend.expressive.platform.rememberMediaPickerLauncher
@@ -111,7 +128,10 @@ import dev.kurokawa.localsend.expressive.platform.systemLanguageCode
 import dev.kurokawa.localsend.expressive.protocol.DeviceType
 import dev.kurokawa.localsend.expressive.protocol.ProtocolConstants
 import dev.kurokawa.localsend.expressive.theme.LocalSendExpressiveTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 private enum class Tab { Send, Receive, Settings }
 
@@ -326,7 +346,9 @@ private fun SendScreen(
     var showTroubleshoot by remember { mutableStateOf(false) }
     var infoDevice by remember { mutableStateOf<DiscoveredDevice?>(null) }
     var pasteNote by remember { mutableStateOf<String?>(null) }
+    var lastText by remember { mutableStateOf("") }
     val sendState by controller.sendState.collectAsState()
+    val outbox by controller.outbox.collectAsState()
     val scanning by controller.scanning.collectAsState()
     val picker = rememberFilePickerLauncher { pickedFiles = pickedFiles + it }
     val mediaPicker = rememberMediaPickerLauncher { pickedFiles = pickedFiles + it }
@@ -436,6 +458,7 @@ private fun SendScreen(
                         when {
                             text.isNullOrBlank() -> pasteNote = "The clipboard is empty."
                             selected != null -> {
+                                lastText = text
                                 controller.sendText(selected, text)
                                 pasteNote = "Clipboard sent to ${selected.info.alias}."
                             }
@@ -522,8 +545,10 @@ private fun SendScreen(
             }
         }
 
+        // Text sends keep their own ephemeral card; file sends live in the
+        // outbox section below (persistent, retryable per file).
         val state = sendState
-        if (state != null) {
+        if (state != null && state.jobId == null) {
             item {
                 Card(
                     Modifier.fillMaxWidth(),
@@ -558,8 +583,9 @@ private fun SendScreen(
                             )
                             Button(
                                 onClick = {
-                                    selected?.let { controller.sendFiles(it, pickedFiles, pin) }
+                                    controller.sendText(state.target, lastText, pin)
                                 },
+                                enabled = lastText.isNotBlank(),
                                 modifier = Modifier.fillMaxWidth(),
                             ) { Text("Retry with PIN") }
                         }
@@ -598,6 +624,34 @@ private fun SendScreen(
                 }
             }
         }
+
+        if (outbox.isNotEmpty()) {
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Outbox",
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (outbox.any { it.hasFailures }) {
+                        TextButton(onClick = { controller.retryAllFailed() }) {
+                            Icon(Icons.Filled.Replay, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Retry all")
+                        }
+                    }
+                }
+                Text(
+                    "Sends are saved here — retry the whole job or a single file, " +
+                        "even after closing the app.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            items(outbox, key = { it.id }) { job ->
+                OutboxJobCard(controller, job)
+            }
+        }
     }
 
     if (showTextDialog) {
@@ -606,6 +660,7 @@ private fun SendScreen(
             initialText = prefillText,
             onDismiss = { showTextDialog = false },
             onSend = { text ->
+                lastText = text
                 selected?.let { controller.sendText(it, text) }
                 showTextDialog = false
             },
@@ -824,6 +879,9 @@ private fun ReceiveScreen(
                     }
                 }
             }
+        }
+        item {
+            ConnectivityCard(controller, local, localIp)
         }
         lastSavedTo?.let { saved ->
             item {
@@ -1343,6 +1401,24 @@ private fun SettingsScreen(
                             controller.updateSettings(settings.copy(createChecksums = it))
                         },
                     )
+                    HorizontalDivider()
+                    SettingsSwitch(
+                        title = "Auto-retry sends",
+                        subtitle = "Retry a dropped send a few times before parking it in the outbox",
+                        checked = settings.autoRetry,
+                        onCheckedChange = {
+                            controller.updateSettings(settings.copy(autoRetry = it))
+                        },
+                    )
+                    HorizontalDivider()
+                    SettingsSwitch(
+                        title = "Resumable chunked sends",
+                        subtitle = "With LSEx peers, send in 1 MiB chunks that resume after a disconnection",
+                        checked = settings.chunkedTransfers,
+                        onCheckedChange = {
+                            controller.updateSettings(settings.copy(chunkedTransfers = it))
+                        },
+                    )
                 }
             }
         }
@@ -1509,7 +1585,12 @@ private fun SettingsScreen(
         item {
             Text(
                 "LSEx 0.4.0 · LocalSend Protocol ${ProtocolConstants.VERSION} · " +
-                    "Unofficial Material 3 Expressive rewrite — not affiliated with the LocalSend project.",
+                    (if (rustCoreActive()) {
+                        "Rust core active"
+                    } else {
+                        "Rust core not loaded (Kotlin fallback)"
+                    }) +
+                    " · Unofficial Material 3 Expressive rewrite — not affiliated with the LocalSend project.",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -1982,4 +2063,384 @@ private fun formatSize(bytes: Long): String = when {
     bytes < 1024 * 1024 -> "${bytes / 1024} KB"
     bytes < 1024 * 1024 * 1024 -> "${"%.1f".format(bytes / 1024.0 / 1024.0)} MB"
     else -> "${"%.2f".format(bytes / 1024.0 / 1024.0 / 1024.0)} GB"
+}
+
+// ── Outbox (persistent sends: global + per-file retry) ─────────────────────
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun OutboxJobCard(controller: LocalSendController, job: OutboxJob) {
+    var pin by remember(job.id) { mutableStateOf("") }
+    val isActiveJob = job.files.any { it.status == TransferStatus.ACTIVE }
+    val doneCount = job.files.count { it.status == TransferStatus.DONE }
+    val failedCount = job.files.count { it.status == TransferStatus.FAILED }
+    val summary = when {
+        job.finished -> "Sent ${formatSize(job.files.sumOf { it.size })}"
+        failedCount > 0 -> "$doneCount of ${job.files.size} sent · $failedCount failed"
+        else -> "$doneCount of ${job.files.size} sent"
+    }
+    Card(
+        Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ),
+    ) {
+        Column(
+            Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "To ${job.targetAlias}",
+                        style = MaterialTheme.typography.titleMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (job.chunked) InfoChip("Resumable")
+            }
+            job.files.forEach { file ->
+                OutboxFileRow(controller, job, file, enabled = !isActiveJob)
+            }
+            if (job.needsPin) {
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { pin = it },
+                    label = { Text("PIN") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(
+                    onClick = { controller.retryOutboxJob(job.id, pin) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Retry with PIN") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (isActiveJob) {
+                    OutlinedButton(onClick = { controller.cancelSend() }) {
+                        Text("Cancel")
+                    }
+                } else {
+                    if (!job.finished &&
+                        job.files.any { it.status != TransferStatus.DONE }
+                    ) {
+                        OutlinedButton(onClick = { controller.retryOutboxJob(job.id) }) {
+                            Icon(Icons.Filled.Replay, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Retry")
+                        }
+                    }
+                    TextButton(onClick = { controller.dismissOutboxJob(job.id) }) {
+                        Text(if (job.finished) "Dismiss" else "Remove")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun OutboxFileRow(
+    controller: LocalSendController,
+    job: OutboxJob,
+    file: OutboxFile,
+    enabled: Boolean,
+) {
+    Column(Modifier.fillMaxWidth()) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Column(Modifier.weight(1f)) {
+                Text(
+                    file.displayPath ?: file.name,
+                    style = MaterialTheme.typography.bodyMedium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    when (file.status) {
+                        TransferStatus.DONE -> formatSize(file.size)
+                        TransferStatus.WAITING -> "Waiting · ${formatSize(file.size)}"
+                        TransferStatus.CANCELLED -> "Cancelled · ${formatSize(file.size)}"
+                        else ->
+                            "${formatSize(file.confirmedBytes)} / ${formatSize(file.size)}"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+            when (file.status) {
+                TransferStatus.DONE -> Icon(
+                    Icons.Filled.CheckCircle,
+                    contentDescription = "Done",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+                TransferStatus.FAILED -> if (enabled) {
+                    IconButton(onClick = { controller.retryOutboxFile(job.id, file.fileId) }) {
+                        Icon(
+                            Icons.Filled.Replay,
+                            contentDescription = "Retry this file",
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                } else {
+                    Icon(
+                        Icons.Filled.Error,
+                        contentDescription = "Failed",
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                }
+                TransferStatus.ACTIVE -> LoadingIndicator(Modifier.size(20.dp))
+                else -> Unit
+            }
+        }
+        if (file.status == TransferStatus.ACTIVE ||
+            (file.confirmedBytes > 0 && file.status != TransferStatus.DONE)
+        ) {
+            LinearWavyProgressIndicator(
+                progress = {
+                    if (file.size > 0) {
+                        (file.confirmedBytes.toFloat() / file.size).coerceIn(0f, 1f)
+                    } else {
+                        0f
+                    }
+                },
+                modifier = Modifier.fillMaxWidth(),
+            )
+        }
+        if (file.status == TransferStatus.FAILED) {
+            file.lastError?.let { error ->
+                Text(
+                    error,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.error,
+                )
+            }
+        }
+    }
+}
+
+// ── Connectivity shortcuts (Wi-Fi / hotspot / Wi-Fi Direct + QR) ───────────
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ConnectivityCard(
+    controller: LocalSendController,
+    local: LocalDevice,
+    localIp: String?,
+) {
+    val connectivity = remember { ConnectivityController() }
+    val connState by connectivity.state.collectAsState()
+    val scope = rememberCoroutineScope()
+    var showScanner by remember { mutableStateOf(false) }
+    var scanNote by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(Unit) { connectivity.refresh() }
+
+    val hotspot = connState.hotspot
+    val direct = connState.wifiDirect
+    val qrPayload = when {
+        hotspot != null -> wifiQrPayload(hotspot.ssid, hotspot.password)
+        direct != null -> wifiQrPayload(direct.ssid, direct.password)
+        localIp != null -> "lsex://connect?host=$localIp&port=${local.port}"
+        else -> null
+    }
+    val qrCaption = when {
+        hotspot != null -> "Scan to join “${hotspot.ssid}”"
+        direct != null -> "Scan to join “${direct.ssid}”"
+        else -> "Scan with LSEx to connect to ${local.alias}"
+    }
+    val activePassword = hotspot?.password ?: direct?.password
+
+    GroupCard {
+        Column(
+            Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    "Connectivity",
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { connectivity.refresh() }) {
+                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh connectivity")
+                }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                ConnectivityTile(
+                    icon = if (connState.wifiEnabled == false) {
+                        Icons.Filled.WifiOff
+                    } else {
+                        Icons.Filled.Wifi
+                    },
+                    label = when (connState.wifiEnabled) {
+                        true -> "WiFi on"
+                        false -> "WiFi off"
+                        null -> "WiFi"
+                    },
+                    active = connState.wifiEnabled == true,
+                    modifier = Modifier.weight(1f),
+                ) { connectivity.toggleWifi() }
+                ConnectivityTile(
+                    icon = Icons.Filled.WifiTethering,
+                    label = "Hotspot",
+                    active = hotspot != null,
+                    modifier = Modifier.weight(1f),
+                ) { connectivity.toggleHotspot() }
+                ConnectivityTile(
+                    icon = Icons.Filled.Router,
+                    label = "WiFi Direct",
+                    active = direct != null,
+                    modifier = Modifier.weight(1f),
+                ) { connectivity.toggleWifiDirect() }
+            }
+            if (connState.busy) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    LoadingIndicator(Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text(
+                        "Working…",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+            qrPayload?.let { payload ->
+                Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    QrCode(payload)
+                }
+                Text(
+                    qrCaption,
+                    style = MaterialTheme.typography.bodyMedium,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                if (!activePassword.isNullOrEmpty()) {
+                    Text(
+                        "Password: $activePassword",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+            }
+            OutlinedButton(
+                onClick = { showScanner = true },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Icon(Icons.Filled.QrCodeScanner, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Text("Scan QR — join WiFi, open a web share, connect")
+            }
+            connState.message?.let { message ->
+                Text(
+                    message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            scanNote?.let { note ->
+                Text(
+                    note,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+    }
+
+    if (showScanner) {
+        AlertDialog(
+            onDismissRequest = { showScanner = false },
+            title = { Text("Scan a QR code") },
+            text = {
+                QrScannerView(
+                    onCode = { code ->
+                        showScanner = false
+                        val wifi = parseWifiQr(code)
+                        when {
+                            wifi != null -> scope.launch {
+                                scanNote = withContext(Dispatchers.IO) {
+                                    joinWifiNetwork(wifi.first, wifi.second, wifi.third)
+                                }
+                            }
+                            code.startsWith("http://") || code.startsWith("https://") -> {
+                                openUrl(code)
+                                scanNote = "Opened the link in your browser."
+                            }
+                            code.startsWith("lsex://") -> {
+                                val params = code.substringAfter('?', "")
+                                    .split('&')
+                                    .mapNotNull { part ->
+                                        val kv = part.split('=', limit = 2)
+                                        if (kv.size == 2) kv[0] to kv[1] else null
+                                    }
+                                    .toMap()
+                                val host = params["host"]
+                                val port = params["port"]
+                                if (host != null) {
+                                    controller.probeDevice(
+                                        if (port != null) "$host:$port" else host,
+                                    )
+                                    scanNote = "Connecting to $host… watch the device list."
+                                } else {
+                                    scanNote = "That LSEx code has no address in it."
+                                }
+                            }
+                            else -> scanNote = "Scanned: ${code.take(80)}"
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth().height(320.dp),
+                )
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showScanner = false }) { Text("Close") }
+            },
+        )
+    }
+}
+
+@Composable
+private fun ConnectivityTile(
+    icon: ImageVector,
+    label: String,
+    active: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Card(
+        onClick = onClick,
+        modifier = modifier.height(76.dp),
+        shape = MaterialTheme.shapes.large,
+        colors = CardDefaults.cardColors(
+            containerColor = if (active) scheme.primaryContainer else scheme.surfaceContainerHigh,
+            contentColor = if (active) scheme.onPrimaryContainer else scheme.onSurface,
+        ),
+    ) {
+        Column(
+            Modifier.fillMaxSize().padding(10.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+        ) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = if (active) scheme.onPrimaryContainer else scheme.primary,
+                modifier = Modifier.size(24.dp),
+            )
+            Spacer(Modifier.height(5.dp))
+            Text(label, style = MaterialTheme.typography.labelLarge)
+        }
+    }
 }

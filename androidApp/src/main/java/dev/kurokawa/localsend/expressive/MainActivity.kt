@@ -8,12 +8,20 @@ import androidx.activity.compose.setContent
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import dev.kurokawa.localsend.expressive.app.LocalSendService
 import dev.kurokawa.localsend.expressive.platform.AppContextHolder
+import dev.kurokawa.localsend.expressive.platform.PermissionGate
 import dev.kurokawa.localsend.expressive.platform.offerSharedUris
 import dev.kurokawa.localsend.expressive.ui.AppRoot
 
 class MainActivity : ComponentActivity() {
     private val notificationPermission =
         registerForActivityResult(androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) {}
+
+    // Shared-module platform code (hotspot / Wi-Fi Direct toggles) asks for
+    // runtime permissions through this bridge.
+    private val multiplePermissions =
+        registerForActivityResult(
+            androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions(),
+        ) { grants -> PermissionGate.onResult(grants) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Animated splash (core-splashscreen): must be installed before
@@ -22,6 +30,7 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         // androidMain platform code (multicast lock, storage, SAF) needs a Context.
         AppContextHolder.appContext = applicationContext
+        PermissionGate.launcher = { permissions -> multiplePermissions.launch(permissions) }
         handleShareIntent(intent)
         // Persistent receive service + notification + wakelock (the
         // official app runs the same way; v0.3.0 had none of this).
