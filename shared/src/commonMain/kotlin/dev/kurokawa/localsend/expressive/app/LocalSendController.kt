@@ -37,6 +37,8 @@ data class SendState(
     val active: Boolean = true,
     val error: String? = null,
     val needsPin: Boolean = false,
+    /** The outbox job this state mirrors (null for ephemeral text sends). */
+    val jobId: String? = null,
 )
 
 /**
@@ -64,6 +66,9 @@ interface LocalSendController {
     /** This device's LAN IPv4 address (for the share-via-link URL), if any. */
     val localIpAddress: StateFlow<String?>
 
+    /** Persistent send queue: survives restarts; retry whole jobs or single files. */
+    val outbox: StateFlow<List<OutboxJob>>
+
     fun start()
     fun stop()
 
@@ -90,6 +95,18 @@ interface LocalSendController {
 
     fun cancelSend()
     fun clearSendState()
+
+    /** Re-run a whole outbox job (every file that isn't DONE). */
+    fun retryOutboxJob(jobId: String, pin: String? = null)
+
+    /** Re-run one file of an outbox job. */
+    fun retryOutboxFile(jobId: String, fileId: String, pin: String? = null)
+
+    /** Global retry: re-run every failed/interrupted file in every job. */
+    fun retryAllFailed()
+
+    /** Remove a job from the outbox (e.g. once finished, or given up on). */
+    fun dismissOutboxJob(jobId: String)
 
     fun updateSettings(settings: AppSettings)
     fun toggleFavorite(fingerprint: String)

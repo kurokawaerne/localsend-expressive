@@ -97,3 +97,24 @@ data class PrepareDownloadResponseDto(
     val sessionId: String,
     val files: Map<String, FileDto>,
 )
+
+/** LSEx extension: answer to GET /api/lsex/v1/capabilities. */
+@Serializable
+data class LsexCapabilitiesDto(
+    /** Chunked resumable uploads are available on this peer. */
+    val chunked: Boolean = true,
+    /** Chunk size the receiver prefers (bytes). */
+    val chunkSize: Long = 1024L * 1024L,
+    /** Extension version. */
+    val version: String = "1",
+)
+
+/** LSEx extension: how much of one file the receiver has safely staged. */
+@Serializable
+data class ChunkStatusDto(
+    val fileId: String,
+    /** Contiguous bytes staged on the receiver, from offset 0. */
+    val received: Long,
+    /** Total file size the receiver expects. */
+    val size: Long,
+)

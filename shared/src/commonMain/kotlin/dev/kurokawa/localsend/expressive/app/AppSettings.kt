@@ -62,6 +62,11 @@ data class AppSettings(
     val saveWindowPlacement: Boolean = true,
     /** Desktop: closing the window minimizes to the tray instead of quitting. */
     val minimizeToTray: Boolean = false,
+    // ── v0.4.0: resumable transfers ──
+    /** Retry failed sends automatically (backoff), before parking them in the outbox. */
+    val autoRetry: Boolean = true,
+    /** Use the LSEx chunked/resumable extension when the peer supports it. */
+    val chunkedTransfers: Boolean = true,
 )
 
 /** One finished (or failed) transfer, shown in the history list. */
