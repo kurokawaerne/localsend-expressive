@@ -40,6 +40,9 @@ actual fun createReceiveTarget(
     }
 }
 
+actual fun chunkStagingDir(): File =
+    File(dev.kurokawa.localsend.expressive.platform.platformDataDir(), "chunks")
+
 /** Avoid clobbering an existing file: "name (1).ext", "name (2).ext", … */
 private fun uniqueFile(file: File): File {
     if (!file.exists()) return file

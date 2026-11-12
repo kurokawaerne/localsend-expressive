@@ -5,8 +5,10 @@ import dev.kurokawa.localsend.expressive.app.AppSettings
 import dev.kurokawa.localsend.expressive.app.FileProgress
 import dev.kurokawa.localsend.expressive.app.IncomingOffer
 import dev.kurokawa.localsend.expressive.app.TransferStatus
+import dev.kurokawa.localsend.expressive.protocol.ChunkStatusDto
 import dev.kurokawa.localsend.expressive.protocol.FileDto
 import dev.kurokawa.localsend.expressive.protocol.LocalSendJson
+import dev.kurokawa.localsend.expressive.protocol.LsexCapabilitiesDto
 import dev.kurokawa.localsend.expressive.protocol.PrepareDownloadResponseDto
 import dev.kurokawa.localsend.expressive.protocol.PrepareUploadRequestDto
 import dev.kurokawa.localsend.expressive.protocol.PrepareUploadResponseDto
@@ -32,6 +34,7 @@ import io.ktor.server.response.respond
 import io.ktor.server.response.respondText
 import io.ktor.server.routing.get
 import io.ktor.server.routing.post
+import io.ktor.server.routing.put
 import io.ktor.server.routing.routing
 import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.readAvailable
@@ -94,6 +97,22 @@ class ReceiveServer(
             files.mapValues { (id, f) -> FileProgress(id, f.fileName, f.size) },
         )
         val received: MutableSet<String> = ConcurrentHashMap.newKeySet()
+
+        /** Chunk staging per file (LSEx resumable extension only). */
+        val staging: MutableMap<String, ChunkStaging> = ConcurrentHashMap()
+
+        /** Last upload activity; idle sessions expire so a dead sender can't block the slot forever. */
+        @Volatile
+        var lastActivityMillis: Long = System.currentTimeMillis()
+
+        fun touch() {
+            lastActivityMillis = System.currentTimeMillis()
+        }
+
+        fun abortStaging() {
+            staging.values.forEach { runCatching { it.abort() } }
+            staging.clear()
+        }
     }
 
     private var server: EmbeddedServer<*, *>? = null
@@ -107,6 +126,9 @@ class ReceiveServer(
     private val pinAttempts = ConcurrentHashMap<String, Pair<Int, Long>>()
 
     fun start() {
+        // Sessions live in memory, so staged chunks from a previous run
+        // can never be resumed — start from a clean staging area.
+        clearChunkStaging()
         val local = localProvider()
         val keyStore = keyStoreProvider()
         // Netty engine: it terminates TLS. (Ktor's CIO server cannot do HTTPS
@@ -128,8 +150,29 @@ class ReceiveServer(
     fun stop() {
         server?.stop(500, 1000)
         server = null
+        activeSession?.abortStaging()
         activeSession = null
         downloadSessions.clear()
+    }
+
+    /**
+     * Shared validation for the LSEx chunk routes: the session must be the
+     * active one, the token must match, the file must belong to the
+     * session, and the caller must be the IP that opened the session.
+     * Returns (session, fileDto) or null (caller answers 403).
+     */
+    private fun chunkSession(
+        sessionId: String?,
+        fileId: String?,
+        token: String?,
+        remoteIp: String,
+    ): Pair<Session, FileDto>? {
+        val session = activeSession ?: return null
+        if (sessionId == null || fileId == null || token == null) return null
+        if (session.id != sessionId || session.peerIp != remoteIp) return null
+        val fileDto = session.files[fileId] ?: return null
+        if (session.tokens[fileId] != token) return null
+        return session to fileDto
     }
 
     private fun Application.module() {
@@ -201,6 +244,30 @@ class ReceiveServer(
                     }
                     call.respond(HttpStatusCode.NoContent)
                     return@post
+                }
+
+                // A session whose sender vanished (app killed, Wi-Fi drop)
+                // must not block the single session slot forever: expire it
+                // after an idle timeout so a retry can start fresh.
+                val current = activeSession
+                if (current != null &&
+                    System.currentTimeMillis() - current.lastActivityMillis > SESSION_IDLE_TIMEOUT_MS
+                ) {
+                    current.abortStaging()
+                    activeSession = null
+                }
+
+                // The SAME peer (same fingerprint, same IP) re-preparing —
+                // e.g. its app restarted mid-send and it is retrying —
+                // replaces its own stale session immediately instead of
+                // eating a 409. A different peer still gets the 409.
+                val stale = activeSession
+                if (stale != null &&
+                    stale.peer.fingerprint == request.info.fingerprint &&
+                    stale.peerIp == remoteIp
+                ) {
+                    stale.abortStaging()
+                    activeSession = null
                 }
 
                 if (activeSession != null) {
@@ -307,6 +374,7 @@ class ReceiveServer(
                     return@post
                 }
                 runCatching { target.commit() }
+                session.touch()
 
                 session.received += fileId
                 session.progress[fileId] = FileProgress(
@@ -321,9 +389,175 @@ class ReceiveServer(
                 call.respond(HttpStatusCode.OK)
             }
 
+            // ── LSEx extension: chunked, resumable uploads ──────────────
+            // Probed by LSEx senders before uploading; official peers never
+            // call these and keep using the whole-file /upload above.
+
+            get(ProtocolConstants.PATH_LSEX_CAPABILITIES) {
+                if (!ipAllowed(call.request.local.remoteHost)) {
+                    call.respond(HttpStatusCode.Forbidden)
+                    return@get
+                }
+                call.respond(
+                    LsexCapabilitiesDto(chunked = true, chunkSize = TransferMath.CHUNK_SIZE),
+                )
+            }
+
+            get(ProtocolConstants.PATH_LSEX_UPLOAD_STATUS) {
+                val remoteIp = call.request.local.remoteHost
+                if (!ipAllowed(remoteIp)) {
+                    call.respond(HttpStatusCode.Forbidden)
+                    return@get
+                }
+                val q = call.request.queryParameters
+                val (session, fileDto) = chunkSession(
+                    q["sessionId"], q["fileId"], q["token"], remoteIp,
+                ) ?: run {
+                    call.respond(HttpStatusCode.Forbidden)
+                    return@get
+                }
+                val fileId = q["fileId"]!!
+                val received = session.staging[fileId]?.contiguousLength() ?: 0L
+                call.respond(ChunkStatusDto(fileId, received, fileDto.size))
+            }
+
+            put(ProtocolConstants.PATH_LSEX_UPLOAD_CHUNK) {
+                val remoteIp = call.request.local.remoteHost
+                if (!ipAllowed(remoteIp)) {
+                    call.respond(HttpStatusCode.Forbidden)
+                    return@put
+                }
+                val q = call.request.queryParameters
+                val offset = q["offset"]?.toLongOrNull()
+                val (session, fileDto) = chunkSession(
+                    q["sessionId"], q["fileId"], q["token"], remoteIp,
+                ) ?: run {
+                    call.respond(HttpStatusCode.Forbidden)
+                    return@put
+                }
+                val fileId = q["fileId"]!!
+                if (offset == null || offset < 0 || offset > fileDto.size) {
+                    call.respond(HttpStatusCode.BadRequest)
+                    return@put
+                }
+                // Read the whole chunk (≤ 1 MiB by protocol; cap generously).
+                val body = java.io.ByteArrayOutputStream()
+                val channel = call.receiveChannel()
+                val buffer = ByteArray(BUFFER_SIZE)
+                var overflow = false
+                while (true) {
+                    val n = channel.readAvailable(buffer, 0, buffer.size)
+                    if (n == -1) break
+                    if (n > 0) {
+                        body.write(buffer, 0, n)
+                        if (body.size() > MAX_CHUNK_BYTES) {
+                            overflow = true
+                            break
+                        }
+                    }
+                }
+                val bytes = body.toByteArray()
+                if (overflow || offset + bytes.size > fileDto.size) {
+                    call.respond(HttpStatusCode.BadRequest)
+                    return@put
+                }
+                // Per-chunk integrity: a torn chunk is rejected before it
+                // ever touches the staging file (422, like a bad checksum).
+                val chunkSha = call.request.headers[ProtocolConstants.HEADER_CHUNK_SHA256]
+                if (chunkSha != null &&
+                    !TransferMath.sha256Hex(bytes).equals(chunkSha, ignoreCase = true)
+                ) {
+                    call.respond(HttpStatusCode.UnprocessableEntity)
+                    return@put
+                }
+                val staging = session.staging.computeIfAbsent(fileId) {
+                    createChunkStaging(session.id, fileId)
+                }
+                staging.writeAt(offset, bytes, 0, bytes.size)
+                session.touch()
+                val receivedNow = staging.contiguousLength()
+                session.progress[fileId] = FileProgress(
+                    fileId, fileDto.fileName, fileDto.size, receivedNow, TransferStatus.ACTIVE,
+                )
+                callbacks.onReceiveProgress(session.id, session.progress.values.toList())
+                call.respond(ChunkStatusDto(fileId, receivedNow, fileDto.size))
+            }
+
+            post(ProtocolConstants.PATH_LSEX_FINISH_FILE) {
+                val remoteIp = call.request.local.remoteHost
+                if (!ipAllowed(remoteIp)) {
+                    call.respond(HttpStatusCode.Forbidden)
+                    return@post
+                }
+                val q = call.request.queryParameters
+                val (session, fileDto) = chunkSession(
+                    q["sessionId"], q["fileId"], q["token"], remoteIp,
+                ) ?: run {
+                    call.respond(HttpStatusCode.Forbidden)
+                    return@post
+                }
+                val fileId = q["fileId"]!!
+                val staging = session.staging[fileId]
+                if (staging == null || staging.contiguousLength() != fileDto.size) {
+                    // Not all bytes are staged yet — the sender keeps going.
+                    call.respond(HttpStatusCode.Conflict)
+                    return@post
+                }
+                val settings = settingsProvider()
+                val target = createReceiveTarget(
+                    relativePath = sanitizeRelativePath(fileDto.fileName),
+                    mimeType = fileDto.fileType,
+                    size = fileDto.size,
+                    saveToGallery = settings.saveToGallery,
+                    destinationFolder = settings.destinationFolder,
+                )
+                val digest = MessageDigest.getInstance("SHA-256")
+                val copied = runCatching { staging.publishTo(target, digest) }.getOrElse {
+                    runCatching { target.abort() }
+                    call.respond(HttpStatusCode.InternalServerError)
+                    return@post
+                }
+                session.staging.remove(fileId)
+                val expectedSha = fileDto.sha256
+                val shaMismatch = settings.verifyChecksums && expectedSha != null &&
+                    !sha256Hex(digest.digest()).equals(expectedSha, ignoreCase = true)
+                if (copied != fileDto.size || shaMismatch) {
+                    runCatching { target.abort() }
+                    session.progress[fileId] = FileProgress(
+                        fileId, fileDto.fileName, fileDto.size, copied, TransferStatus.FAILED,
+                    )
+                    callbacks.onReceiveProgress(session.id, session.progress.values.toList())
+                    call.respond(
+                        if (shaMismatch) {
+                            HttpStatusCode.UnprocessableEntity
+                        } else {
+                            HttpStatusCode.InternalServerError
+                        },
+                    )
+                    return@post
+                }
+                runCatching { target.commit() }
+                session.touch()
+                session.received += fileId
+                session.progress[fileId] = FileProgress(
+                    fileId, fileDto.fileName, fileDto.size, copied, TransferStatus.DONE,
+                )
+                callbacks.onReceiveProgress(session.id, session.progress.values.toList())
+                callbacks.onFileReceived(session.id, session.peer, fileDto, target.displayName)
+                if (session.received.size == session.files.size) {
+                    session.abortStaging()
+                    activeSession = null
+                    callbacks.onSessionFinished(session.id, session.peer)
+                }
+                call.respond(HttpStatusCode.OK)
+            }
+
             post(ProtocolConstants.PATH_CANCEL) {
                 val sessionId = call.request.queryParameters["sessionId"]
-                if (activeSession?.id == sessionId) activeSession = null
+                if (activeSession?.id == sessionId) {
+                    activeSession?.abortStaging()
+                    activeSession = null
+                }
                 if (sessionId != null) downloadSessions.remove(sessionId)
                 call.respond(HttpStatusCode.OK)
             }
@@ -411,5 +645,9 @@ class ReceiveServer(
         const val OFFER_TIMEOUT_MS = 5 * 60 * 1000L
         const val MAX_PIN_FAILURES = 3
         const val PIN_COOLDOWN_MS = 60_000L
+        /** Hard cap on one chunk body (protocol chunk is 1 MiB). */
+        const val MAX_CHUNK_BYTES = 16 * 1024 * 1024
+        /** A receive session with no upload activity for this long is expired. */
+        const val SESSION_IDLE_TIMEOUT_MS = 10 * 60 * 1000L
     }
 }

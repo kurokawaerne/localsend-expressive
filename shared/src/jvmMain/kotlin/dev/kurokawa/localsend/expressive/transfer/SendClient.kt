@@ -2,9 +2,11 @@ package dev.kurokawa.localsend.expressive.transfer
 
 import dev.kurokawa.localsend.expressive.LocalDevice
 import dev.kurokawa.localsend.expressive.discovery.DiscoveredDevice
+import dev.kurokawa.localsend.expressive.protocol.ChunkStatusDto
 import dev.kurokawa.localsend.expressive.protocol.FileDto
 import dev.kurokawa.localsend.expressive.protocol.InfoDto
 import dev.kurokawa.localsend.expressive.protocol.LocalSendJson
+import dev.kurokawa.localsend.expressive.protocol.LsexCapabilitiesDto
 import dev.kurokawa.localsend.expressive.protocol.PrepareUploadRequestDto
 import dev.kurokawa.localsend.expressive.protocol.PrepareUploadResponseDto
 import dev.kurokawa.localsend.expressive.protocol.ProtocolConstants
@@ -14,8 +16,10 @@ import io.ktor.client.call.body
 import io.ktor.client.engine.okhttp.OkHttp
 import io.ktor.client.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.client.request.get
+import io.ktor.client.request.header
 import io.ktor.client.request.parameter
 import io.ktor.client.request.post
+import io.ktor.client.request.put
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.HttpResponse
 import io.ktor.http.ContentType
@@ -79,6 +83,12 @@ class SendClient(
                 config {
                     sslSocketFactory(sslContext.socketFactory, trustManager)
                     hostnameVerifier { _, _ -> true }
+                    // Generous timeouts: a stalled chunk should fail (and be
+                    // retried/resumed), never hang a send forever; a healthy
+                    // LAN chunk takes well under a second.
+                    connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+                    readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+                    writeTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
                 }
             }
         }
@@ -189,6 +199,83 @@ class SendClient(
         }
         if (!response.status.isSuccess()) {
             throw SendException(response.status, "upload failed: ${response.status}")
+        }
+    }
+
+    // ── LSEx extension: chunked, resumable uploads ─────────────────────
+    // Probed per peer; official peers answer 404/null and the caller falls
+    // back to the classic whole-file upload above.
+
+    /** GET capabilities — null when the peer is not an LSEx build. */
+    suspend fun lsexCapabilities(peer: DiscoveredDevice): LsexCapabilitiesDto? =
+        runCatching {
+            pinFingerprint(peer)
+            val response = client.get("${base(peer)}${ProtocolConstants.PATH_LSEX_CAPABILITIES}")
+            if (!response.status.isSuccess()) null else response.body<LsexCapabilitiesDto>()
+        }.getOrNull()
+
+    /** Bytes of [fileId] the receiver has safely staged (resume point). */
+    suspend fun chunkStatus(
+        peer: DiscoveredDevice,
+        sessionId: String,
+        fileId: String,
+        token: String,
+    ): Long? = runCatching {
+        pinFingerprint(peer)
+        val response = client.get("${base(peer)}${ProtocolConstants.PATH_LSEX_UPLOAD_STATUS}") {
+            parameter("sessionId", sessionId)
+            parameter("fileId", fileId)
+            parameter("token", token)
+        }
+        if (!response.status.isSuccess()) null else response.body<ChunkStatusDto>().received
+    }.getOrNull()
+
+    /**
+     * PUT one chunk at [offset]. Returns the receiver's new confirmed byte
+     * count. Throws [SendException] on a protocol rejection (403/422/…);
+     * transport failures surface as their original exception so the caller
+     * can treat them as "connection dropped — resume later".
+     */
+    suspend fun uploadChunk(
+        peer: DiscoveredDevice,
+        sessionId: String,
+        fileId: String,
+        token: String,
+        offset: Long,
+        bytes: ByteArray,
+        sha256Hex: String,
+    ): Long {
+        pinFingerprint(peer)
+        val response = client.put("${base(peer)}${ProtocolConstants.PATH_LSEX_UPLOAD_CHUNK}") {
+            parameter("sessionId", sessionId)
+            parameter("fileId", fileId)
+            parameter("token", token)
+            parameter("offset", offset)
+            header(ProtocolConstants.HEADER_CHUNK_SHA256, sha256Hex)
+            contentType(ContentType.Application.OctetStream)
+            setBody(bytes)
+        }
+        if (!response.status.isSuccess()) {
+            throw SendException(response.status, "chunk upload failed: ${response.status}")
+        }
+        return response.body<ChunkStatusDto>().received
+    }
+
+    /** POST finish-file: the receiver publishes the fully staged file. */
+    suspend fun finishChunkedFile(
+        peer: DiscoveredDevice,
+        sessionId: String,
+        fileId: String,
+        token: String,
+    ) {
+        pinFingerprint(peer)
+        val response = client.post("${base(peer)}${ProtocolConstants.PATH_LSEX_FINISH_FILE}") {
+            parameter("sessionId", sessionId)
+            parameter("fileId", fileId)
+            parameter("token", token)
+        }
+        if (!response.status.isSuccess()) {
+            throw SendException(response.status, "finish-file failed: ${response.status}")
         }
     }
 

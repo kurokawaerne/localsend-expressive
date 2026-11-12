@@ -10,6 +10,14 @@ import java.io.File
 import java.io.FileOutputStream
 import java.io.OutputStream
 
+actual fun chunkStagingDir(): File {
+    val context = AppContextHolder.appContext
+        ?: error("AppContextHolder not initialised — MainActivity must set it first")
+    // Cache dir: staging is transient by design (sessions are in-memory);
+    // finished files are published into MediaStore by publishTo.
+    return File(context.cacheDir, "lsex-chunks")
+}
+
 /**
  * Android: write through MediaStore so received files are VISIBLE —
  * public Downloads by default, Pictures/Movies/Music when "Save to
