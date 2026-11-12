@@ -222,6 +222,12 @@ private fun stringsFor(language: String): UiStrings = when (language) {
 
 @Composable
 fun AppRoot(controller: LocalSendController, onReady: () -> Unit = {}) {
+    // v0.8.0 REGRESSION FIX: the v0.6.0 rewrite of this root dropped the
+    // start() call entirely — nothing ever started the receive server,
+    // multicast discovery or the multicast lock, so the app discovered
+    // nobody and nobody discovered it, on Android and desktop alike.
+    // start() is idempotent; the engine lives for the app's lifetime.
+    LaunchedEffect(controller) { controller.start() }
     val settings by controller.settings.collectAsState()
     LocalSendExpressiveTheme(settings) {
         CompositionLocalProvider(LocalStrings provides stringsFor(settings.language)) {

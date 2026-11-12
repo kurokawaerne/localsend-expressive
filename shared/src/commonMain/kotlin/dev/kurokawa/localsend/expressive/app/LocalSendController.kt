@@ -106,6 +106,15 @@ interface LocalSendController {
     fun cancelSend()
     fun clearSendState()
 
+    /** Pause a job (v0.8.0): in-flight work stops, state is kept for resume. */
+    fun pauseOutboxJob(jobId: String)
+
+    /** Resume a paused job (v0.8.0): chunked files continue from their offset. */
+    fun resumeOutboxJob(jobId: String)
+
+    /** How many incoming offers are queued behind the one being shown (v0.8.0). */
+    val queuedOfferCount: StateFlow<Int>
+
     /** Re-run a whole outbox job (every file that isn't DONE). */
     fun retryOutboxJob(jobId: String, pin: String? = null)
 

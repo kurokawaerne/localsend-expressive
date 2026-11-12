@@ -625,30 +625,198 @@ class ReceiveServer(
                 })
             }
 
-            // Share-via-link landing page for browsers (the official app
-            // serves one too): lists the shared files with download links.
+            // Share / receive via link: the full web page (v0.8.0, the
+            // official app serves an equivalent one). The page talks to
+            // the same Protocol v2.2 endpoints the apps use: downloads go
+            // through /prepare-download + /download; uploads from the
+            // browser go through /prepare-upload + /upload with a
+            // synthetic "web" peer, so the app's normal approval flow
+            // (accept dialog, Quick Save, PIN, link auto-accept) applies
+            // to browser uploads exactly like to app sends.
             get("/") {
                 if (!settingsProvider().downloadApi) {
                     call.respond(HttpStatusCode.NotFound)
                     return@get
                 }
-                val alias = localProvider().alias
-                val shared = webShareProvider()
-                val items = shared.joinToString("") { f ->
-                    "<li>${f.name} (${f.size} bytes)</li>"
-                }.ifEmpty { "<li><i>Nothing shared yet — pick files in the LSEx Receive tab.</i></li>" }
-                call.respondText(
-                    "<!doctype html><html><head><meta charset=\"utf-8\">" +
-                        "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">" +
-                        "<title>LSEx — $alias</title></head><body style=\"font-family:sans-serif;margin:2em\">" +
-                        "<h1>LSEx — $alias</h1><p>Files shared via link:</p><ul>$items</ul>" +
-                        "<p>Use the LocalSend app or the Download API " +
-                        "(POST /api/localsend/v2/prepare-download) to fetch them.</p></body></html>",
-                    ContentType.Text.Html,
-                )
+                call.respondText(webLinkPage(localProvider().alias), ContentType.Text.Html)
             }
         }
     }
+
+    /**
+     * The via-link web page. Deliberately written without any dollar
+     * signs or template literals so it can live in a Kotlin raw string.
+     */
+    private fun webLinkPage(alias: String): String = """
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LocalSend Expressive — ${alias}</title>
+<style>
+  :root { color-scheme: light dark; }
+  body { font-family: system-ui, sans-serif; margin: 0; background: #f6f2fa; color: #1c1b1f; }
+  @media (prefers-color-scheme: dark) { body { background: #141218; color: #e6e1e5; } .card { background: #211f26 !important; } }
+  header { padding: 28px 20px 8px; max-width: 720px; margin: 0 auto; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  .sub { opacity: .7; margin: 0 0 8px; }
+  main { max-width: 720px; margin: 0 auto; padding: 12px 20px 40px; display: grid; gap: 16px; }
+  .card { background: #fff; border-radius: 24px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
+  .card h2 { margin: 0 0 12px; font-size: 18px; }
+  #drop { border: 2px dashed #6750a4; border-radius: 16px; padding: 28px; text-align: center; cursor: pointer; }
+  #drop.over { background: rgba(103,80,164,.12); }
+  button, .dl { background: #6750a4; color: #fff; border: 0; border-radius: 999px; padding: 10px 20px; font-size: 14px; cursor: pointer; text-decoration: none; display: inline-block; }
+  ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
+  li { display: flex; align-items: center; gap: 12px; }
+  li .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar { height: 6px; border-radius: 3px; background: rgba(103,80,164,.25); overflow: hidden; flex: 1; }
+  .bar i { display: block; height: 100%; width: 0; background: #6750a4; }
+  .note { font-size: 13px; opacity: .7; }
+  .err { color: #b3261e; }
+</style>
+</head>
+<body>
+<header>
+  <h1>LocalSend Expressive</h1>
+  <p class="sub">Connected to <b>${alias}</b> via link</p>
+</header>
+<main>
+  <section class="card">
+    <h2>Send files to this device</h2>
+    <div id="drop">Drop files here, or tap to choose<input type="file" id="pick" multiple hidden></div>
+    <p class="note">The device may ask its owner to approve the transfer first.</p>
+    <ul id="uploads"></ul>
+    <p id="upmsg" class="note"></p>
+  </section>
+  <section class="card">
+    <h2>Files shared with you</h2>
+    <ul id="downloads"></ul>
+    <p id="dlmsg" class="note">Loading…</p>
+  </section>
+</main>
+<script>
+var API = '/api/localsend/v2';
+var fp = localStorage.getItem('lsex-web-fp');
+if (!fp) {
+  fp = '';
+  var hex = '0123456789abcdef';
+  for (var i = 0; i < 64; i++) fp += hex.charAt(Math.floor(Math.random() * 16));
+  localStorage.setItem('lsex-web-fp', fp);
+}
+function fmt(n) {
+  if (n < 1024) return n + ' B';
+  var u = ['KB','MB','GB','TB'], i = -1;
+  do { n = n / 1024; i++; } while (n >= 1024 && i < u.length - 1);
+  return n.toFixed(1) + ' ' + u[i];
+}
+function loadDownloads() {
+  fetch(API + '/prepare-download', { method: 'POST' })
+    .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+    .then(function(data) {
+      var ul = document.getElementById('downloads');
+      ul.innerHTML = '';
+      var ids = Object.keys(data.files || {});
+      document.getElementById('dlmsg').textContent = ids.length ? '' : 'Nothing is shared right now. Ask the owner to pick files for link sharing.';
+      ids.forEach(function(id) {
+        var f = data.files[id];
+        var li = document.createElement('li');
+        var a = document.createElement('a');
+        a.className = 'dl'; a.textContent = 'Download';
+        a.href = API + '/download?sessionId=' + encodeURIComponent(data.sessionId) + '&fileId=' + encodeURIComponent(id);
+        var name = document.createElement('span');
+        name.className = 'name'; name.textContent = f.fileName + ' (' + fmt(f.size) + ')';
+        li.appendChild(name); li.appendChild(a); ul.appendChild(li);
+      });
+    })
+    .catch(function(e) { document.getElementById('dlmsg').textContent = 'Could not load the shared files: ' + e.message; });
+}
+var drop = document.getElementById('drop');
+var pick = document.getElementById('pick');
+drop.addEventListener('click', function() { pick.click(); });
+drop.addEventListener('dragover', function(e) { e.preventDefault(); drop.classList.add('over'); });
+drop.addEventListener('dragleave', function() { drop.classList.remove('over'); });
+drop.addEventListener('drop', function(e) { e.preventDefault(); drop.classList.remove('over'); sendFiles(e.dataTransfer.files); });
+pick.addEventListener('change', function() { sendFiles(pick.files); pick.value = ''; });
+function sendFiles(fileList) {
+  var files = Array.prototype.slice.call(fileList);
+  if (!files.length) return;
+  var msg = document.getElementById('upmsg');
+  msg.textContent = 'Asking the device…';
+  msg.className = 'note';
+  var dtoFiles = {};
+  files.forEach(function(f, i) {
+    var id = 'web-' + Date.now() + '-' + i;
+    f._lsexId = id;
+    dtoFiles[id] = { id: id, fileName: f.name, size: f.size, fileType: f.type || 'other' };
+  });
+  var info = {
+    alias: 'Web browser', version: '2.2', deviceModel: navigator.platform || 'Browser',
+    deviceType: 'web', fingerprint: fp, port: 53317,
+    protocol: location.protocol.replace(':', ''), download: false, announce: false
+  };
+  var pin = '';
+  function attempt() {
+    var url = API + '/prepare-upload' + (pin ? ('?pin=' + encodeURIComponent(pin)) : '');
+    fetch(url, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ info: info, files: dtoFiles })
+    }).then(function(r) {
+      if (r.status === 401 || r.status === 429) {
+        pin = window.prompt('This device asks for a PIN:') || '';
+        if (pin) { attempt(); return; }
+        throw new Error('A PIN is required.');
+      }
+      if (r.status === 403) throw new Error('The owner declined the transfer.');
+      if (r.status === 409) throw new Error('The device is busy with another transfer — try again in a moment.');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.json();
+    }).then(function(session) {
+      if (!session) return;
+      msg.textContent = 'Accepted — sending…';
+      files.forEach(function(f) { uploadOne(session, f, msg); });
+    }).catch(function(e) { msg.textContent = e.message; msg.className = 'note err'; });
+  }
+  attempt();
+}
+function uploadOne(session, f, msg) {
+  var token = session.files[f._lsexId];
+  var ul = document.getElementById('uploads');
+  var li = document.createElement('li');
+  if (!token) {
+    li.innerHTML = '';
+    var skip = document.createElement('span');
+    skip.className = 'name'; skip.textContent = f.name + ' — not accepted';
+    li.appendChild(skip); ul.appendChild(li);
+    return;
+  }
+  var name = document.createElement('span');
+  name.className = 'name'; name.textContent = f.name;
+  var bar = document.createElement('div'); bar.className = 'bar';
+  var fill = document.createElement('i'); bar.appendChild(fill);
+  var pct = document.createElement('span'); pct.textContent = '0%';
+  li.appendChild(name); li.appendChild(bar); li.appendChild(pct);
+  ul.appendChild(li);
+  var xhr = new XMLHttpRequest();
+  xhr.open('POST', API + '/upload?sessionId=' + encodeURIComponent(session.sessionId) + '&fileId=' + encodeURIComponent(f._lsexId) + '&token=' + encodeURIComponent(token));
+  xhr.upload.onprogress = function(e) {
+    if (e.lengthComputable) {
+      var p = Math.round(e.loaded * 100 / e.total);
+      fill.style.width = p + '%'; pct.textContent = p + '%';
+    }
+  };
+  xhr.onload = function() {
+    if (xhr.status >= 200 && xhr.status < 300) { fill.style.width = '100%'; pct.textContent = 'Done'; }
+    else { pct.textContent = 'Failed (' + xhr.status + ')'; pct.className = 'err'; }
+  };
+  xhr.onerror = function() { pct.textContent = 'Failed'; pct.className = 'err'; };
+  xhr.send(f);
+}
+loadDownloads();
+</script>
+</body>
+</html>
+"""
 
     private companion object {
         const val BUFFER_SIZE = 64 * 1024

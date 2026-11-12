@@ -59,6 +59,8 @@ data class OutboxJob(
     val files: List<OutboxFile> = emptyList(),
     /** The peer asked for a PIN (401) — the job waits for the user. */
     val needsPin: Boolean = false,
+    /** User-paused (v0.8.0): the runner skips paused jobs; resume re-queues them. */
+    val paused: Boolean = false,
     /** Every file is DONE: the job is complete and can be dismissed. */
     val finished: Boolean = false,
 ) {

@@ -77,6 +77,33 @@ data class AppSettings(
     val destinationTreeUri: String = "",
     /** App picker: hide system apps (they're rarely what you want to send). */
     val hideSystemApps: Boolean = true,
+    // ── v0.8.0 ──
+    /**
+     * Avatar shown for this device (Settings → avatar picker). Empty =
+     * the platform default (the device-type glyph). Otherwise an id from
+     * the built-in avatar set (Material Symbols names).
+     */
+    val avatar: String = "",
+    /** Receive queue default order: "smallest" (default), "arrival", "largest" or "name". */
+    val receiveOrder: String = "smallest",
+    /**
+     * Persistent "send to multiple devices" mode (Share page split-button
+     * menu). When on, device taps multi-select and Send targets all of
+     * them. Stays as set until the user changes it in the same menu.
+     */
+    val multiDeviceSend: Boolean = false,
+    /** Preferred hotspot SSID (desktop applies it; Android's local-only hotspot assigns its own). */
+    val hotspotSsid: String = "",
+    /** Preferred hotspot password; empty = open network where the platform allows it. */
+    val hotspotPassword: String = "",
+    /** Preferred hotspot band: "auto", "2.4" or "5" (GHz). */
+    val hotspotBand: String = "auto",
+    /** Wi-Fi Direct group name (Android 10+ honors it via WifiP2pConfig). */
+    val p2pName: String = "",
+    /** Wi-Fi Direct group passphrase; empty = system-generated. */
+    val p2pPassword: String = "",
+    /** Wi-Fi Direct band: "auto", "2.4" or "5" (GHz). */
+    val p2pBand: String = "auto",
 )
 
 /** One finished (or failed) transfer, shown in the history list. */
