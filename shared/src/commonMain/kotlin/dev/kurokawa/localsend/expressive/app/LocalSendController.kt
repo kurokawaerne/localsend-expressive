@@ -52,11 +52,32 @@ interface LocalSendController {
     val sendState: StateFlow<SendState?>
     val history: StateFlow<List<HistoryEntry>>
 
+    /** True while an active discovery scan burst is running. */
+    val scanning: StateFlow<Boolean>
+
+    /** Files currently offered through share-via-link (Download API). */
+    val webShareFiles: StateFlow<List<PickedFile>>
+
+    /** Display path of the most recently received file (e.g. "Download/Photos/a.jpg"). */
+    val lastSavedTo: StateFlow<String?>
+
+    /** This device's LAN IPv4 address (for the share-via-link URL), if any. */
+    val localIpAddress: StateFlow<String?>
+
     fun start()
     fun stop()
 
-    /** Answer a pending [incomingOffer]. */
-    fun respondOffer(accept: Boolean)
+    /**
+     * Answer a pending [incomingOffer] with the accepted file ids
+     * (per-file selection), or null to decline the whole offer.
+     */
+    fun respondOffer(acceptedFileIds: Set<String>?)
+
+    /** Re-announce in a burst and mark scanning active for the discovery timeout. */
+    fun refreshDiscovery()
+
+    /** Choose which picked files share-via-link serves. */
+    fun setWebShareFiles(files: List<PickedFile>)
 
     /** Send [files] to [target]; pass [pin] when the peer asked for one (401). */
     fun sendFiles(target: DiscoveredDevice, files: List<PickedFile>, pin: String? = null)

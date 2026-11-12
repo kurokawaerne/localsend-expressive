@@ -27,9 +27,7 @@ import io.ktor.serialization.kotlinx.json.json
 import io.ktor.utils.io.ByteWriteChannel
 import io.ktor.utils.io.writeFully
 import java.io.InputStream
-import java.security.KeyStore
 import java.security.SecureRandom
-import javax.net.ssl.KeyManagerFactory
 import javax.net.ssl.SSLContext
 
 /** A protocol-level failure carrying the peer's HTTP status. */
@@ -58,15 +56,20 @@ data class PreparedResult(
  */
 class SendClient(
     private val trustManager: FingerprintTrustManager,
-    private val keyStoreProvider: () -> KeyStore?,
+    private val certManagerProvider: () -> CertManager?,
 ) {
     private val clientDelegate = lazy {
-        val keyStore = keyStoreProvider()
-        val keyManagers = keyStore?.let { store ->
-            KeyManagerFactory.getInstance(KeyManagerFactory.getDefaultAlgorithm()).apply {
-                init(store, CertManager.PASSWORD.toCharArray())
-            }.keyManagers
-        }
+        // Mutual TLS identity, offered through a key manager that ALWAYS
+        // presents our one certificate — the platform KeyManagerFactory's
+        // alias filtering is provider-specific and, when it misfires,
+        // sends an empty Certificate message, which official peers abort
+        // with TLSV1_ALERT_CERTIFICATE_REQUIRED (the v0.3.0 send bug).
+        val keyManagers = certManagerProvider()
+            ?.takeIf { it.isInitialized }
+            ?.let { manager ->
+                val (key, chain) = manager.clientIdentity()
+                arrayOf(AlwaysOfferKeyManager(key, chain))
+            }
         val sslContext = SSLContext.getInstance("TLS").apply {
             init(keyManagers, arrayOf(trustManager), SecureRandom())
         }

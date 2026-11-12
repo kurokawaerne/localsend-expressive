@@ -23,8 +23,9 @@ class MulticastDiscovery(
     private val local: LocalDevice,
     private val onPeer: (dto: RegisterDto, ip: String) -> Unit,
     private val onAnnouncement: (dto: RegisterDto, ip: String) -> Unit = onPeer,
+    groupAddress: String = ProtocolConstants.MULTICAST_ADDRESS,
 ) {
-    private val group: InetAddress = InetAddress.getByName(ProtocolConstants.MULTICAST_ADDRESS)
+    private val group: InetAddress = InetAddress.getByName(groupAddress)
 
     /** Send one announcement for this device. Call periodically while discovering. */
     suspend fun announce() = withContext(Dispatchers.IO) {

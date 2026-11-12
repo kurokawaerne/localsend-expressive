@@ -36,3 +36,20 @@ fun guessFileType(fileName: String): String =
 /** Strip any directory part a (possibly hostile) peer put in a file name. */
 fun sanitizeFileName(name: String): String =
     File(name).name.ifBlank { "file" }
+
+/**
+ * Sanitize a peer-supplied relative path (folder sends put the folder
+ * structure in FileDto.fileName, e.g. "Photos/2026/img 1.jpg"). Each
+ * segment is cleaned, "." and ".." are dropped (no escaping the receive
+ * folder, ever), and the result is joined with '/'.
+ */
+fun sanitizeRelativePath(name: String): String {
+    val segments = name.replace('\\', '/').split('/')
+        .map { it.trim() }
+        .filter { it.isNotEmpty() && it != "." && it != ".." }
+        .map { segment ->
+            segment.replace(Regex("[\\\\/:*?\"<>|\\u0000-\\u001F]"), "_")
+                .ifBlank { "_" }
+        }
+    return segments.joinToString("/").ifBlank { "file" }
+}

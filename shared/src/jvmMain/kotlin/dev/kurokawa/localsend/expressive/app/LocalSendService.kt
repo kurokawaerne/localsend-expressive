@@ -9,6 +9,7 @@ import dev.kurokawa.localsend.expressive.platform.openPickedInput
 import dev.kurokawa.localsend.expressive.platform.platformDeviceModel
 import dev.kurokawa.localsend.expressive.platform.platformDeviceType
 import dev.kurokawa.localsend.expressive.protocol.FileDto
+import dev.kurokawa.localsend.expressive.protocol.ProtocolConstants
 import dev.kurokawa.localsend.expressive.protocol.RegisterDto
 import dev.kurokawa.localsend.expressive.protocol.generateRandomFingerprint
 import dev.kurokawa.localsend.expressive.randomAlias
@@ -31,7 +32,6 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import java.io.File
 import java.security.MessageDigest
 import java.util.UUID
 
@@ -69,6 +69,18 @@ class LocalSendService : LocalSendController {
     private val _history = MutableStateFlow(store.loadHistory())
     override val history: StateFlow<List<HistoryEntry>> = _history
 
+    private val _scanning = MutableStateFlow(false)
+    override val scanning: StateFlow<Boolean> = _scanning
+
+    private val _webShareFiles = MutableStateFlow<List<PickedFile>>(emptyList())
+    override val webShareFiles: StateFlow<List<PickedFile>> = _webShareFiles
+
+    private val _lastSavedTo = MutableStateFlow<String?>(null)
+    override val lastSavedTo: StateFlow<String?> = _lastSavedTo
+
+    private val _localIpAddress = MutableStateFlow<String?>(null)
+    override val localIpAddress: StateFlow<String?> = _localIpAddress
+
     private var running = false
     private var server: ReceiveServer? = null
     private var discovery: MulticastDiscovery? = null
@@ -79,7 +91,7 @@ class LocalSendService : LocalSendController {
     private var currentSendSession: Pair<DiscoveredDevice, String>? = null
 
     @Volatile
-    private var offerDecision: CompletableDeferred<Boolean>? = null
+    private var offerDecision: CompletableDeferred<Set<String>?>? = null
 
     // ── lifecycle ──────────────────────────────────────────────────────────
 
@@ -105,7 +117,7 @@ class LocalSendService : LocalSendController {
         // mutual TLS and expect us to present this certificate.
         runCatching { certManager.ensure() }
         sendClient = SendClient(trustManager) {
-            if (certManager.isInitialized) certManager.keyStore else null
+            if (certManager.isInitialized) certManager else null
         }
         startNetworking()
     }
@@ -121,31 +133,51 @@ class LocalSendService : LocalSendController {
 
     private fun startNetworking() {
         val local = _localDevice.value
-        server = ReceiveServer(
-            localProvider = { _localDevice.value },
-            settingsProvider = { _settings.value },
-            keyStoreProvider = { if (_settings.value.https) certManager.keyStore else null },
-            downloadsDirProvider = {
-                val custom = _settings.value.destinationFolder
-                if (custom.isNotBlank()) {
-                    File(custom).apply { mkdirs() }
-                } else {
-                    dev.kurokawa.localsend.expressive.platform.platformDownloadsDir()
-                }
-            },
-            callbacks = serverCallbacks,
-        ).also { it.start() }
+        _localIpAddress.value = computeLocalIp()
+        if (_settings.value.serverEnabled) {
+            server = ReceiveServer(
+                localProvider = { _localDevice.value },
+                settingsProvider = { _settings.value },
+                keyStoreProvider = { if (_settings.value.https) certManager.keyStore else null },
+                ipAllowed = { ip -> ipAllowed(ip) },
+                webShareProvider = {
+                    _webShareFiles.value.map { picked ->
+                        dev.kurokawa.localsend.expressive.transfer.WebShareFile(
+                            name = picked.name,
+                            size = picked.size,
+                        ) { openPickedInput(picked.handle) }
+                    }
+                },
+                callbacks = serverCallbacks,
+            ).also { it.start() }
+        }
 
         val disc = MulticastDiscovery(
             local = local,
-            onPeer = { dto, ip -> addDevice(dto, ip) },
-            onAnnouncement = { dto, ip -> onAnnouncement(dto, ip) },
+            groupAddress = _settings.value.multicastAddress
+                .ifBlank { ProtocolConstants.MULTICAST_ADDRESS },
+            onPeer = { dto, ip -> if (ipAllowed(ip)) addDevice(dto, ip) },
+            onAnnouncement = { dto, ip -> if (ipAllowed(ip)) onAnnouncement(dto, ip) },
         )
         discovery = disc
         listenJob = scope.launch {
-            runCatching { disc.listen() }
+            // The listener must survive socket errors (Wi-Fi roam, sleep):
+            // restart it with a small backoff instead of dying silently —
+            // a dead listener was half of the "devices randomly disappear"
+            // report.
+            while (isActive) {
+                runCatching { disc.listen() }
+                delay(2_000)
+            }
         }
         announceJob = scope.launch {
+            // Burst at start so peers see us immediately, then a steady
+            // cadence. Official peers do not heartbeat, so our announces
+            // (and their /register answers) are what keep entries fresh.
+            repeat(3) {
+                runCatching { disc.announce() }
+                delay(400)
+            }
             while (isActive) {
                 runCatching { disc.announce() }
                 pruneDevices()
@@ -153,6 +185,65 @@ class LocalSendService : LocalSendController {
             }
         }
     }
+
+    override fun refreshDiscovery() {
+        val disc = discovery ?: return
+        scope.launch {
+            _scanning.value = true
+            try {
+                repeat(3) {
+                    runCatching { disc.announce() }
+                    delay(350)
+                }
+                delay(_settings.value.discoveryTimeoutSec.coerceIn(2, 30) * 1000L)
+            } finally {
+                _scanning.value = false
+            }
+        }
+    }
+
+    override fun setWebShareFiles(files: List<PickedFile>) {
+        _webShareFiles.value = files
+    }
+
+    /** Network allow/block lists (settings): exact IPs or CIDR ranges. */
+    fun ipAllowed(ip: String): Boolean {
+        val s = _settings.value
+        if (ipMatchesAny(ip, s.networkBlacklist)) return false
+        val whitelist = s.networkWhitelist.split(',', ' ', ';').filter { it.isNotBlank() }
+        if (whitelist.isEmpty()) return true
+        return ipMatchesAny(ip, s.networkWhitelist)
+    }
+
+    private fun ipMatchesAny(ip: String, list: String): Boolean =
+        list.split(',', ' ', ';').filter { it.isNotBlank() }.any { entry -> ipMatches(ip, entry.trim()) }
+
+    private fun ipMatches(ip: String, entry: String): Boolean {
+        if (!entry.contains('/')) return ip == entry
+        return runCatching {
+            val (network, prefixText) = entry.split('/')
+            val prefix = prefixText.toInt()
+            val ipBytes = java.net.InetAddress.getByName(ip).address
+            val netBytes = java.net.InetAddress.getByName(network).address
+            if (ipBytes.size != netBytes.size) return false
+            var bits = prefix
+            for (i in ipBytes.indices) {
+                if (bits <= 0) break
+                val mask = if (bits >= 8) 0xFF else (0xFF shl (8 - bits)) and 0xFF
+                if ((ipBytes[i].toInt() and mask) != (netBytes[i].toInt() and mask)) return false
+                bits -= 8
+            }
+            true
+        }.getOrDefault(false)
+    }
+
+    private fun computeLocalIp(): String? = runCatching {
+        java.net.NetworkInterface.getNetworkInterfaces().asSequence()
+            .filter { it.isUp && !it.isLoopback && !it.isVirtual }
+            .flatMap { it.inetAddresses.asSequence() }
+            .firstOrNull { it is java.net.Inet4Address && it.isSiteLocalAddress }
+            ?.hostAddress
+    }.getOrNull()
 
     private fun stopNetworking() {
         listenJob?.cancel()
@@ -244,24 +335,29 @@ class LocalSendService : LocalSendController {
             addHistory(peer.alias, text.take(120), text.toByteArray(Charsets.UTF_8).size.toLong(), incoming = true, success = true)
         }
 
-        override suspend fun onOffer(offer: IncomingOffer): Boolean = awaitOfferDecision(offer)
+        override suspend fun onOffer(offer: IncomingOffer): Set<String>? = awaitOfferDecision(offer)
 
         override fun onReceiveProgress(sessionId: String, files: List<FileProgress>) {
             _incomingProgress.value = files
         }
 
-        override fun onFileReceived(sessionId: String, peer: RegisterDto, file: FileDto, savedTo: File) {
+        override fun onFileReceived(sessionId: String, peer: RegisterDto, file: FileDto, savedToDisplay: String) {
+            _lastSavedTo.value = savedToDisplay
             addHistory(peer.alias, file.fileName, file.size, incoming = true, success = true)
         }
 
         override fun onSessionFinished(sessionId: String, peer: RegisterDto) = Unit
     }
 
-    private suspend fun awaitOfferDecision(offer: IncomingOffer): Boolean {
+    private suspend fun awaitOfferDecision(offer: IncomingOffer): Set<String>? {
         val s = _settings.value
-        if (s.quickSave) return true
-        if (s.autoAcceptFavorites && offer.peer.fingerprint in s.favorites) return true
-        val deferred = CompletableDeferred<Boolean>()
+        val allIds = offer.files.map { it.id }.toSet()
+        if (s.quickSave) return allIds
+        if (s.autoAcceptFavorites && offer.peer.fingerprint in s.favorites) return allIds
+        // Uploads arriving through the web page (receive via link) carry
+        // deviceType "web"; the official auto-accept setting covers them.
+        if (s.shareViaLinkAutoAccept && offer.peer.deviceType.name == "web") return allIds
+        val deferred = CompletableDeferred<Set<String>?>()
         offerDecision = deferred
         _incomingOffer.value = offer
         return try {
@@ -274,8 +370,8 @@ class LocalSendService : LocalSendController {
         }
     }
 
-    override fun respondOffer(accept: Boolean) {
-        offerDecision?.complete(accept)
+    override fun respondOffer(acceptedFileIds: Set<String>?) {
+        offerDecision?.complete(acceptedFileIds)
     }
 
     // ── sending ────────────────────────────────────────────────────────────
@@ -294,13 +390,16 @@ class LocalSendService : LocalSendController {
             publish()
             try {
                 val dtos = LinkedHashMap<String, FileDto>()
+                val withChecksums = _settings.value.createChecksums
                 files.forEachIndexed { i, picked ->
                     dtos[ids[i]] = FileDto(
                         id = ids[i],
-                        fileName = picked.name,
+                        // Folder picks carry their relative path here; the
+                        // receiver recreates the folder structure.
+                        fileName = picked.displayPath ?: picked.name,
                         size = picked.size,
                         fileType = guessFileType(picked.name),
-                        sha256 = sha256Of(picked),
+                        sha256 = if (withChecksums) sha256Of(picked) else null,
                     )
                 }
                 val prepared = client.prepareUpload(target, _localDevice.value, dtos, pin)
@@ -378,7 +477,7 @@ class LocalSendService : LocalSendController {
                 progresses = progresses.map {
                     if (it.status == TransferStatus.ACTIVE) it.copy(status = TransferStatus.FAILED) else it
                 }
-                publish(active = false, error = e.message ?: "Send failed")
+                publish(active = false, error = friendlyError(e))
             }
         }
     }
@@ -436,7 +535,7 @@ class LocalSendService : LocalSendController {
                 publish(active = false, error = describeError(e), needsPin = e.status == HttpStatusCode.Unauthorized)
             } catch (e: Exception) {
                 progress = progress.copy(status = TransferStatus.FAILED)
-                publish(active = false, error = e.message ?: "Send failed")
+                publish(active = false, error = friendlyError(e))
             }
         }
     }
@@ -482,6 +581,22 @@ class LocalSendService : LocalSendController {
         else -> "Failed: ${e.status}"
     }
 
+    /** Translate raw TLS/stack errors into something a human can act on. */
+    private fun friendlyError(e: Exception): String {
+        val msg = e.message ?: return "Send failed"
+        return when {
+            msg.contains("CERTIFICATE_REQUIRED", ignoreCase = true) ||
+                msg.contains("certificate_required", ignoreCase = true) ->
+                "The other device didn't accept this device's certificate. " +
+                    "Make sure the other device runs a current LocalSend and try again."
+            msg.contains("SSL", ignoreCase = true) || msg.contains("TLS", ignoreCase = true) ->
+                "The secure connection failed. Check that both devices use the same HTTPS setting."
+            msg.contains("fingerprint mismatch", ignoreCase = true) ->
+                "The other device's identity changed — remove it from favorites and let it be discovered again."
+            else -> msg
+        }
+    }
+
     override fun cancelSend() {
         sendJob?.cancel()
         val session = currentSendSession
@@ -516,7 +631,9 @@ class LocalSendService : LocalSendController {
         _settings.value = settings
         store.saveSettings(settings)
         if (old.alias != settings.alias || old.port != settings.port ||
-            old.https != settings.https || old.downloadApi != settings.downloadApi
+            old.https != settings.https || old.downloadApi != settings.downloadApi ||
+            old.serverEnabled != settings.serverEnabled ||
+            old.multicastAddress != settings.multicastAddress
         ) {
             restartNetworking()
         }
@@ -533,13 +650,18 @@ class LocalSendService : LocalSendController {
     }
 
     private fun addHistory(peerAlias: String, fileName: String, size: Long, incoming: Boolean, success: Boolean) {
+        if (!_settings.value.saveToHistory) return
         val entry = HistoryEntry(System.currentTimeMillis(), peerAlias, fileName, size, incoming, success)
         _history.value = (listOf(entry) + _history.value).take(200)
         store.saveHistory(_history.value)
     }
 
     private companion object {
-        const val ANNOUNCE_INTERVAL_MS = 3_000L
-        const val DEVICE_TTL_MS = 20_000L
+        const val ANNOUNCE_INTERVAL_MS = 10_000L
+        // Official peers announce rarely (scan-time bursts), so entries
+        // must live long: 20 s pruning made devices "randomly disappear"
+        // (Ernest's report). Register-backs refresh lastSeen within this
+        // window in normal operation.
+        const val DEVICE_TTL_MS = 600_000L
     }
 }
