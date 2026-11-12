@@ -39,6 +39,9 @@ kotlin {
             implementation(compose.runtime)
             implementation(compose.foundation)
             implementation(compose.ui)
+            // Compose Resources runtime: the generated Res accessors (fonts)
+            // and org.jetbrains.compose.resources.Font live here.
+            implementation(compose.components.resources)
             implementation(libs.compose.material3)
             implementation(libs.compose.icons.extended)
             implementation(libs.kotlinx.serialization.json)

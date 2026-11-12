@@ -425,7 +425,7 @@ private fun DeviceCard(
             )
         },
         shape = if (isSelected) {
-            MaterialTheme.shapes.largeIncreased
+            MaterialTheme.shapes.extraLarge
         } else {
             MaterialTheme.shapes.large
         },

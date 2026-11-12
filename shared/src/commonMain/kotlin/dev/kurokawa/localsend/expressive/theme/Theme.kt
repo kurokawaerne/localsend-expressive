@@ -42,20 +42,14 @@ private val DarkScheme = darkColorScheme(
 )
 
 // Material 3 Expressive shape scale: bigger and softer than the classic
-// defaults, including the "increased" tiers expressive components use for
-// their emphasized states.
+// defaults. (The JB alpha05 Shapes constructor only takes the five classic
+// tiers; expressive components derive their emphasized shapes from these.)
 private val ExpressiveShapes = Shapes(
     extraSmall = RoundedCornerShape(8.dp),
-    extraSmallIncreased = RoundedCornerShape(12.dp),
     small = RoundedCornerShape(16.dp),
-    smallIncreased = RoundedCornerShape(20.dp),
     medium = RoundedCornerShape(20.dp),
-    mediumIncreased = RoundedCornerShape(24.dp),
     large = RoundedCornerShape(28.dp),
-    largeIncreased = RoundedCornerShape(32.dp),
     extraLarge = RoundedCornerShape(36.dp),
-    extraLargeIncreased = RoundedCornerShape(44.dp),
-    extraExtraLarge = RoundedCornerShape(52.dp),
 )
 
 /** Wallpaper-derived scheme on Android; null where the platform has none. */
