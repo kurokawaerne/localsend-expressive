@@ -115,7 +115,7 @@ actual class ConnectivityController {
                     addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION)
                 }
                 val receiver = object : android.content.BroadcastReceiver() {
-                    override fun onReceive(c: Context?, intent: android.content.Intent?) {
+                    override fun onReceive(c: Context, intent: android.content.Intent) {
                         refresh()
                     }
                 }
@@ -339,7 +339,13 @@ actual class ConnectivityController {
                     }
                     reason == WifiP2pManager.ERROR && !retried -> {
                         runCatching {
-                            manager.removeGroup(channel, null)
+                            manager.removeGroup(
+                                channel,
+                                object : WifiP2pManager.ActionListener {
+                                    override fun onSuccess() = Unit
+                                    override fun onFailure(reason: Int) = Unit
+                                },
+                            )
                         }
                         Handler(Looper.getMainLooper()).postDelayed({
                             createGroupWithRetry(manager, channel, retried = true)
