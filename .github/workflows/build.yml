@@ -2,22 +2,10 @@ name: build
 
 on:
   push:
-    branches: [main, v0.5.0]
+    branches: [main, v0.6.0]
   pull_request:
 
 jobs:
-  rust:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: dtolnay/rust-toolchain@stable
-      - name: Rust core tests
-        working-directory: core-rust
-        run: cargo test
-      - name: Rust core JNI build check
-        working-directory: core-rust
-        run: cargo build --release --features jni
-
   build:
     runs-on: ubuntu-latest
     steps:
@@ -29,9 +17,11 @@ jobs:
       - uses: gradle/actions/setup-gradle@v4
       - name: Make gradlew executable
         run: chmod +x gradlew
-      - name: Protocol tests (desktop)
-        run: ./gradlew :shared:desktopTest
-      - name: Compile desktop app
-        run: ./gradlew :desktopApp:compileKotlin
-      - name: Build Android debug APK
-        run: ./gradlew :androidApp:assembleDebug
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Test Rust core
+        working-directory: core-rust
+        run: cargo test
+      - name: Test and compile shared + desktop
+        run: ./gradlew :shared:desktopTest :shared:compileKotlinDesktop
+      - name: Assemble Android release (unsigned in CI)
+        run: ./gradlew :androidApp:assembleRelease

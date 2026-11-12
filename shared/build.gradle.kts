@@ -43,7 +43,8 @@ kotlin {
             // and org.jetbrains.compose.resources.Font live here.
             implementation(compose.components.resources)
             implementation(libs.compose.material3)
-            implementation(libs.compose.icons.extended)
+            implementation(libs.material.symbols.outlined)
+            implementation(libs.material.symbols.outlined.filled)
             implementation(libs.kotlinx.serialization.json)
             implementation(libs.kotlinx.coroutines.core)
             implementation(libs.ktor.client.core)

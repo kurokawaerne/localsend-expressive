@@ -1,9 +1,10 @@
 package dev.kurokawa.localsend.expressive.platform
+import com.composables.icons.materialsymbols.MaterialSymbols
+import com.composables.icons.materialsymbols.outlined.*
+import com.composables.icons.materialsymbols.outlinedfilled.*
 
 import android.content.Context
 import android.net.wifi.WifiManager
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Apps
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.asImageBitmap
@@ -102,7 +103,7 @@ actual fun AppIcon(packageName: String, modifier: androidx.compose.ui.Modifier) 
             contentAlignment = androidx.compose.ui.Alignment.Center,
         ) {
             androidx.compose.material3.Icon(
-                Icons.Filled.Apps,
+                MaterialSymbols.Outlined.Apps,
                 contentDescription = null,
             )
         }

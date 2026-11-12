@@ -6,17 +6,18 @@ It implements the [LocalSend Protocol v2.2](https://github.com/localsend/protoco
 
 > This project is not affiliated with or endorsed by the LocalSend project. "LocalSend" is the name of the upstream project and protocol; this is an independent reimplementation of the published protocol, with credit to the original authors.
 
-**Current release: v0.5.0** — the one-view release: Send, Receive and Connect merged into a single Home (content tabs first, then multi-target device selection), a floating navigation bar, split APKs per architecture, SAF receive-folder picking with a built-in package installer, Android-style settings, and discovery that announces on every network interface.
+**Current release: v0.6.0** — the expressive-browsers release: Home's content tabs now show the actual content (inline app list, photo/video thumbnail grids, audio list, and a Zapya-style file tree with breadcrumbs), a dedicated Connect view with a device radar, swipe-to-reveal actions on staged files, a single system splash, signed release builds, and the official Material Symbols icon set throughout (outlined by default, filled in Settings, nav icons animate outlined → filled when selected).
 
 ## Features (parity with the official app, and then some)
 
 **One Home view** — compose what to send, then tap as many target devices as you want (tap again to unselect)
-- Content tabs in Material 3 Expressive style: **Files · Media · Apps · Text · Folder · Web**
-  - *Folder* sends keep their folder structure on the receiving side
-  - *Apps* (Android) shows real app icons, searches, can hide system apps, and sends an app's APK — `.apk`, `.apks` and `.aab` files can be picked as files too
+- Content tabs show the content itself, Zapya/Files-style, with in-place selection that persists across tabs: **Apps · Photos · Videos · Audio · Files · Text · Web**
+  - *Apps* (Android) is an inline list with real app icons, search, and a hide-system-apps toggle; sends an app's APK — `.apk`, `.apks` and `.aab` files can be picked as files too
+  - *Photos / Videos* are MediaStore thumbnail grids; *Audio* is a media list
+  - *Files* is a built-in file browser with a folder tree and breadcrumb path bar; folders can be staged whole (structure kept on the receiving side) or expanded file by file
   - *Text* is written inline (or pasted from the clipboard) and goes to every selected device
   - *Web* is share-via-link (Download API): browser page, QR code, chosen files, optional auto-accept of web uploads
-- Staged items are individual cards with **rename / discard** circular actions; the Ready-to-send section expands and collapses
+- Staged items are individual cards; on Android their **rename / discard** actions hide behind a swipe-left (long-press works too), on desktop the buttons stay visible; the Ready-to-send section expands and collapses
 - Android share sheet integration, Quick Settings quick-share tile
 - Device list with favorites (sorted first), device info (fingerprint verification), manual IP (incl. `host:port`)
 - PIN entry when the receiver requires one, per-file progress cards with quick cancel, partial acceptance
@@ -30,9 +31,10 @@ It implements the [LocalSend Protocol v2.2](https://github.com/localsend/protoco
 - **Built-in installer:** received `.apk` files and split sets (`.apks` / `.xapk` / `.apkm`) install straight from History through PackageInstaller sessions — no second app needed
 - Discovery announces and listens on **every LAN interface** (plus subnet broadcast copies), so machines with VPNs or virtual NICs stay visible
 
-**Connectivity shortcuts (Home)**
+**Connect view**
+- A dedicated Connect screen (second nav destination, plus a floating action **fan** on Home for connection setup): **Create Group / Join Group** cards and a radar with nearby devices as tappable bubbles
 - **WiFi / Hotspot / WiFi Direct** toggles: on Android the hotspot is a local-only hotspot (no internet needed) and WiFi Direct starts a P2P group; on desktop the toggles drive NetworkManager via `nmcli`. (Android 10+ forbids apps from flipping the WiFi radio, so that toggle opens the system internet panel.)
-- **Connect QR code:** shows the hotspot/P2P credentials as a scannable `WIFI:` code — or an LSEx connect code for this device when no hotspot is up
+- **QR codes only when they carry something useful:** your QR appears while your hotspot/P2P group is up (it carries the credentials), or behind an explicit *Show my QR* tap — never as permanent decoration
 - **QR scanner:** scan a `WIFI:` code to join a network, an `http(s)` link to open a web share, or an LSEx connect code to add that device
 
 **Every official setting is present** — grouped Android-style cards with a colored-circle icon per setting, background-colored dividers, and dropdown menus for theme / colors / language
@@ -44,8 +46,9 @@ It implements the [LocalSend Protocol v2.2](https://github.com/localsend/protoco
 **Platform behavior**
 - Android foreground service with a persistent notification (**Stop** action included), WakeLock and Wi-Fi lock, so transfers survive the screen going off
 - **Split APKs** per CPU architecture (arm64-v8a, armeabi-v7a, x86_64) plus a universal build; the Rust core is 16 KB-page aligned
-- Floating navigation bar on phones; ChromeOS-style rail + floating rounded content on desktop/wide windows
-- Animated splash (system splash → in-app Compose splash with an orbiting-dot mark), adaptive + monochrome themed icon drawn inside the safe zone
+- Floating navigation bar on phones (edge-to-edge, no strip behind it); ChromeOS-style rail + floating rounded content on desktop/wide windows. Icons are the official **Material Symbols** set: outlined by default, filled on the Settings page, and the nav icons animate outlined → filled when selected
+- One splash only — the system splash, held until the first frame is ready; adaptive + monochrome themed icon drawn inside the safe zone
+- Release builds are properly **signed** (no more debug-signature compatibility dialog)
 - Desktop: tray support, window placement restore
 
 ## Protocol v2.2 compatibility
