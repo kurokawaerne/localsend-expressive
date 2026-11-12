@@ -63,6 +63,7 @@ object TransferMath {
         if (RustCore.loaded) {
             runCatching { return RustCore.nativeSha256Hex(data) }
         }
-        return sha256Hex(MessageDigest.getInstance("SHA-256").digest(data))
+        return MessageDigest.getInstance("SHA-256").digest(data)
+            .joinToString("") { "%02x".format(it) }
     }
 }
