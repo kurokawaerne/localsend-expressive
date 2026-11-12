@@ -1,0 +1,120 @@
+name: release
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to create"
+        required: true
+        default: "v0.4.0"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Make gradlew executable
+        run: chmod +x gradlew
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,x86_64-linux-android
+      - name: Test Rust core
+        working-directory: core-rust
+        run: cargo test
+      - name: Build Rust core natives
+        continue-on-error: true
+        run: |
+          set -e
+          NDK_BIN="$ANDROID_NDK_LATEST_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$NDK_BIN/aarch64-linux-android26-clang"
+          export CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="$NDK_BIN/armv7a-linux-androideabi26-clang"
+          export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$NDK_BIN/x86_64-linux-android26-clang"
+          cd core-rust
+          cargo build --release --features jni --target aarch64-linux-android
+          cargo build --release --features jni --target armv7-linux-androideabi
+          cargo build --release --features jni --target x86_64-linux-android
+          cargo build --release --features jni
+          cd ..
+          mkdir -p androidApp/src/main/jniLibs/arm64-v8a androidApp/src/main/jniLibs/armeabi-v7a androidApp/src/main/jniLibs/x86_64 desktopApp/src/main/resources/native
+          cp core-rust/target/aarch64-linux-android/release/liblsex_core.so androidApp/src/main/jniLibs/arm64-v8a/
+          cp core-rust/target/armv7-linux-androideabi/release/liblsex_core.so androidApp/src/main/jniLibs/armeabi-v7a/
+          cp core-rust/target/x86_64-linux-android/release/liblsex_core.so androidApp/src/main/jniLibs/x86_64/
+          cp core-rust/target/release/liblsex_core.so desktopApp/src/main/resources/native/
+          ls -lh androidApp/src/main/jniLibs/*/liblsex_core.so desktopApp/src/main/resources/native/
+      - name: Test and build APK + desktop distributable
+        run: ./gradlew :shared:desktopTest :androidApp:assembleDebug :desktopApp:createDistributable
+      - name: Collect release assets
+        run: |
+          mkdir -p release-assets
+          cp androidApp/build/outputs/apk/debug/androidApp-debug.apk release-assets/localsend-expressive-0.4.0-android.apk
+          cd desktopApp/build/compose/binaries/main/app
+          zip -qr "$GITHUB_WORKSPACE/release-assets/localsend-expressive-0.4.0-linux-portable.zip" localsend-expressive
+          cd "$GITHUB_WORKSPACE"
+          ls -lh release-assets
+      - name: Build Arch Linux package (.pkg.tar.zst)
+        run: |
+          set -e
+          APP_DIR=desktopApp/build/compose/binaries/main/app/localsend-expressive
+          PKGDIR="$PWD/pkgdir"
+          mkdir -p "$PKGDIR/opt" "$PKGDIR/usr/bin" "$PKGDIR/usr/share/applications"
+          cp -r "$APP_DIR" "$PKGDIR/opt/localsend-expressive"
+          ln -s /opt/localsend-expressive/bin/localsend-expressive "$PKGDIR/usr/bin/localsend-expressive"
+          cat > "$PKGDIR/usr/share/applications/localsend-expressive.desktop" <<'DESKTOP'
+          [Desktop Entry]
+          Type=Application
+          Name=LocalSend Expressive
+          Comment=Share files locally - Material 3 Expressive edition
+          Exec=localsend-expressive
+          Icon=localsend-expressive
+          Categories=Network;FileTransfer;
+          Terminal=false
+          DESKTOP
+          SIZE=$(du -sb "$PKGDIR" | cut -f1)
+          cat > "$PKGDIR/.PKGINFO" <<PKGINFO
+          pkgname = localsend-expressive
+          pkgbase = localsend-expressive
+          pkgver = 0.4.0-1
+          pkgdesc = Material 3 Expressive rewrite of LocalSend (Compose Multiplatform) for Android and Linux
+          url = https://github.com/kurokawaerne/localsend-expressive
+          builddate = $(date +%s)
+          packager = kurokawaerne
+          size = $SIZE
+          arch = x86_64
+          license = Apache
+          depend = glibc
+          PKGINFO
+          cd "$PKGDIR"
+          tar --zstd -cf "$GITHUB_WORKSPACE/release-assets/localsend-expressive-0.4.0-1-x86_64.pkg.tar.zst" .PKGINFO opt usr
+          ls -lh "$GITHUB_WORKSPACE/release-assets"
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ inputs.tag }}
+          name: LocalSend Expressive ${{ inputs.tag }}
+          prerelease: true
+          body: |
+            The parity + resilience release: every feature and setting of the official app, a fixed send path, and transfers that survive disconnections.
+
+            - **Sending fixed**: the phone now presents a proper client certificate (full X.509 profile + a key manager that always offers it) — the missing client cert was why sends to the official app died with a TLS error. Errors are shown in plain language now, not raw TLS dumps.
+            - **Full parity**: complete official settings set (receive/send/network, incl. Save to Gallery, checksum verification/creation, share-via-link auto-accept, multicast group, discovery timeout, network whitelist/blacklist), per-file accept dialog, folder sends that keep their folder structure, device-info and troubleshoot dialogs, EN/ES UI.
+            - **Received files where you expect them**: Android saves into Downloads / Pictures / Movies / Music via MediaStore (gallery-visible), with collision-safe names — no more app-private storage.
+            - **Resumable chunked sends (LSEx to LSEx)**: files move in 1 MiB chunks with per-chunk SHA-256; if the connection drops mid-file, the send resumes where it stopped instead of starting over. Official LocalSend peers don't speak the extension and transparently get the classic whole-file upload.
+            - **Persistent outbox + retry**: every send is a saved job. Retry globally ("Retry all") or per file, with automatic retries and backoff — and a job interrupted by closing the app resumes when you reopen it.
+            - **Rust core**: chunk planning, resume offsets and SHA-256 run in a small Rust library (lsex-core) loaded over JNI on Android and desktop, with an identical, test-locked Kotlin fallback — the app shows which one is active in Settings.
+            - **Connectivity shortcuts**: WiFi / hotspot / WiFi Direct toggles right on the Receive screen, a QR code to connect (hotspot, WiFi Direct group, or this device), and a QR scanner that joins WiFi networks, opens web-share pages, or connects to another LSEx device.
+            - **Discovery reliability**: announce bursts + a steady 10 s cadence, a self-healing listener, and devices that no longer vanish while still reachable.
+            - **Android**: foreground-service notification with wakelock while the server runs, a Quick Settings quick-share tile, new icon, animated splash. Debug-signed APK; installs alongside official LocalSend (package dev.kurokawa.localsend.expressive).
+
+            Heads-up: if your stored certificate is regenerated by the new profile, this device's fingerprint changes and favorites pointing at the old one need to be re-added once.
+
+            - **Arch Linux**: `sudo pacman -U localsend-expressive-0.4.0-1-x86_64.pkg.tar.zst`, then run `localsend-expressive`.
+            - **Linux portable**: unzip and run `localsend-expressive/bin/localsend-expressive`.
+          files: release-assets/*
