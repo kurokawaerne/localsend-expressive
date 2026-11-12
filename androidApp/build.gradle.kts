@@ -5,6 +5,10 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+// Release signing comes from the environment (GitHub Actions secrets);
+// local builds without the variables stay unsigned, as before.
+val lsexKeystoreFile = System.getenv("LSEX_KEYSTORE_FILE")
+
 android {
     namespace = "dev.kurokawa.localsend.expressive"
     compileSdk = libs.versions.android.compileSdk.get().toInt()
@@ -12,8 +16,19 @@ android {
         applicationId = "dev.kurokawa.localsend.expressive"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 6
-        versionName = "0.5.0"
+        versionCode = 7
+        versionName = "0.6.0"
+    }
+    signingConfigs {
+        if (lsexKeystoreFile != null) {
+            create("release") {
+                storeFile = file(lsexKeystoreFile)
+                storePassword = System.getenv("LSEX_STORE_PASSWORD")
+                keyAlias = System.getenv("LSEX_KEY_ALIAS") ?: "lsex"
+                keyPassword = System.getenv("LSEX_KEY_PASSWORD")
+                    ?: System.getenv("LSEX_STORE_PASSWORD")
+            }
+        }
     }
     // Split APKs per CPU architecture + a universal one (Ernest's
     // requirement, same as UDYAT Expressive): on his metered connection
@@ -44,6 +59,11 @@ android {
     buildTypes {
         release {
             isMinifyEnabled = false
+            // Signed, non-debuggable releases (v0.6.0): Android's
+            // debuggable-app compatibility nag (16 KB dialog) disappears.
+            if (lsexKeystoreFile != null) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 }

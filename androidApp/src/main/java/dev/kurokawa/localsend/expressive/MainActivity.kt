@@ -3,8 +3,11 @@ package dev.kurokawa.localsend.expressive
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import dev.kurokawa.localsend.expressive.app.LocalSendService
 import dev.kurokawa.localsend.expressive.platform.AppContextHolder
@@ -24,10 +27,17 @@ class MainActivity : ComponentActivity() {
         ) { grants -> PermissionGate.onResult(grants) }
 
     override fun onCreate(savedInstanceState: Bundle?) {
-        // Animated splash (core-splashscreen): must be installed before
-        // super.onCreate; the theme's postSplashScreenTheme takes over after.
-        installSplashScreen()
+        // ONE splash (v0.6.0): the system splash, held until the app's
+        // first real frame is composed — no second in-app splash on top.
+        var ready = false
+        val splash = installSplashScreen()
+        splash.setKeepOnScreenCondition { !ready }
         super.onCreate(savedInstanceState)
+        // Insurance: never trap the user on the splash.
+        Handler(Looper.getMainLooper()).postDelayed({ ready = true }, 5_000)
+        // Edge-to-edge: the floating nav pill floats over the content;
+        // nothing paints a strip behind it.
+        enableEdgeToEdge()
         // androidMain platform code (multicast lock, storage, SAF) needs a Context.
         AppContextHolder.appContext = applicationContext
         PermissionGate.launcher = { permissions -> multiplePermissions.launch(permissions) }
@@ -46,7 +56,7 @@ class MainActivity : ComponentActivity() {
         // engine down together with the foreground service.
         LsexForegroundService.onStopRequested = { service.stop() }
         setContent {
-            AppRoot(service)
+            AppRoot(service, onReady = { ready = true })
         }
     }
 
