@@ -47,6 +47,25 @@ expect class ConnectivityController() {
 /** Open a URL in the platform browser (e.g. a scanned web-share link). */
 expect fun openUrl(url: String)
 
+/** User preferences for the radios the app can bring up (Settings → Connection). */
+data class ConnectivityPrefs(
+    val hotspotSsid: String = "",
+    val hotspotPassword: String = "",
+    val hotspotBand: String = "auto",
+    val p2pName: String = "",
+    val p2pPassword: String = "",
+    val p2pBand: String = "auto",
+)
+
+/** The latest prefs, read by platform controllers when starting a hotspot/group. */
+object ConnectivityPrefsHolder {
+    var current: ConnectivityPrefs = ConnectivityPrefs()
+}
+
+fun updateConnectivityPrefs(prefs: ConnectivityPrefs) {
+    ConnectivityPrefsHolder.current = prefs
+}
+
 /**
  * Join a Wi-Fi network from a scanned `WIFI:` QR code.
  * Returns a short user-facing result ("Suggested …", "Connected …", or an error).

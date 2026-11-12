@@ -140,15 +140,24 @@ actual class ConnectivityController {
                 )
                 return@launch
             }
-            val ssid = "LSEx-Hotspot"
-            val password = randomPassword()
-            val (code, out) = run(
+            // User preferences (Settings → Connection) apply on desktop:
+            // custom SSID, custom password (blank = generate one and
+            // show it), and band ("bg" = 2.4 GHz, "a" = 5 GHz in nmcli).
+            val prefs = ConnectivityPrefsHolder.current
+            val ssid = prefs.hotspotSsid.ifBlank { "LSEx-Hotspot" }
+            val password = prefs.hotspotPassword.ifBlank { randomPassword() }
+            val command = mutableListOf(
                 "nmcli", "device", "wifi", "hotspot",
                 "ifname", iface,
                 "con-name", HOTSPOT_CONNECTION,
                 "ssid", ssid,
                 "password", password,
             )
+            when (prefs.hotspotBand) {
+                "2.4" -> command += listOf("band", "bg")
+                "5" -> command += listOf("band", "a")
+            }
+            val (code, out) = run(*command.toTypedArray())
             if (code == 0) {
                 hotspotInfo = HotspotInfo(ssid, password)
                 _state.value = _state.value.copy(

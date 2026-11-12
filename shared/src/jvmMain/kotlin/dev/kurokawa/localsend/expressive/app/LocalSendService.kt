@@ -120,8 +120,18 @@ class LocalSendService : LocalSendController {
     /** Live byte counts for whole-file uploads (not worth persisting per callback). */
     private val liveDone = ConcurrentHashMap<String, Long>()
 
-    @Volatile
-    private var offerDecision: CompletableDeferred<Set<String>?>? = null
+    private val _queuedOfferCount = MutableStateFlow(0)
+    override val queuedOfferCount: StateFlow<Int> = _queuedOfferCount
+
+    /**
+     * Incoming offers waiting for the user, FIFO (v0.8.0 receive queue).
+     * The head is mirrored into [_incomingOffer] for the accept dialog;
+     * offers behind it stay queued instead of overwriting the pending
+     * decision (the old single-slot code silently dropped the first
+     * sender's decision when a second offer arrived).
+     */
+    private val offerLock = Any()
+    private val offerQueue = ArrayDeque<Pair<IncomingOffer, CompletableDeferred<Set<String>?>>>()
 
     // ── lifecycle ──────────────────────────────────────────────────────────
 
@@ -401,20 +411,27 @@ class LocalSendService : LocalSendController {
         // deviceType "web"; the official auto-accept setting covers them.
         if (s.shareViaLinkAutoAccept && offer.peer.deviceType?.name == "web") return allIds
         val deferred = CompletableDeferred<Set<String>?>()
-        offerDecision = deferred
-        _incomingOffer.value = offer
+        synchronized(offerLock) {
+            offerQueue.addLast(offer to deferred)
+            if (offerQueue.size == 1) {
+                _incomingOffer.value = offer
+            }
+            _queuedOfferCount.value = (offerQueue.size - 1).coerceAtLeast(0)
+        }
         return try {
             deferred.await()
         } finally {
-            if (offerDecision === deferred) {
-                offerDecision = null
-                _incomingOffer.value = null
+            synchronized(offerLock) {
+                offerQueue.removeAll { it.second === deferred }
+                _incomingOffer.value = offerQueue.firstOrNull()?.first
+                _queuedOfferCount.value = (offerQueue.size - 1).coerceAtLeast(0)
             }
         }
     }
 
     override fun respondOffer(acceptedFileIds: Set<String>?) {
-        offerDecision?.complete(acceptedFileIds)
+        val head = synchronized(offerLock) { offerQueue.firstOrNull()?.second }
+        head?.complete(acceptedFileIds)
     }
 
     // ── outbox: persistence ────────────────────────────────────────────────
@@ -626,6 +643,21 @@ class LocalSendService : LocalSendController {
         if (_sendState.value?.jobId == jobId) _sendState.value = null
     }
 
+    override fun pauseOutboxJob(jobId: String) {
+        // Cancelling the runner parks the in-flight file as WAITING (the
+        // sendOneFile CancellationException path); chunked files resume
+        // from the receiver's confirmed offset on resume.
+        if (runningJobId == jobId) runnerJob?.cancel()
+        synchronized(outboxLock) { wantedJobIds -= jobId }
+        mutateJob(jobId) { it.copy(paused = true) }
+    }
+
+    override fun resumeOutboxJob(jobId: String) {
+        mutateJob(jobId) { it.copy(paused = false) }
+        synchronized(outboxLock) { wantedJobIds += jobId }
+        pump()
+    }
+
     // ── outbox: the runner ─────────────────────────────────────────────────
 
     /** Start the single runner loop if it isn't already working. */
@@ -635,7 +667,7 @@ class LocalSendService : LocalSendController {
             while (true) {
                 val next = synchronized(outboxLock) {
                     _outbox.value.firstOrNull { job ->
-                        job.id in wantedJobIds && !job.finished &&
+                        job.id in wantedJobIds && !job.finished && !job.paused &&
                             job.files.any {
                                 it.status == TransferStatus.WAITING ||
                                     it.status == TransferStatus.FAILED
@@ -1290,6 +1322,16 @@ class LocalSendService : LocalSendController {
             handle = handle,
         )
         _history.value = (listOf(entry) + _history.value).take(200)
+        store.saveHistory(_history.value)
+    }
+
+    override fun removeHistoryEntry(entry: HistoryEntry) {
+        _history.value = _history.value.filter { it != entry }
+        store.saveHistory(_history.value)
+    }
+
+    override fun clearHistory() {
+        _history.value = emptyList()
         store.saveHistory(_history.value)
     }
 
