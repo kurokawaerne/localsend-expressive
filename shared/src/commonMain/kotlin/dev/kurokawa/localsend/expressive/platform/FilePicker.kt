@@ -12,6 +12,12 @@ data class PickedFile(
     val handle: String,
     val name: String,
     val size: Long,
+    /**
+     * Path shown to (and recreated by) the receiver: for folder picks this
+     * is the relative path inside the folder ("Folder/sub/file.txt"), used
+     * as FileDto.fileName. Null for plain file picks (plain [name] is used).
+     */
+    val displayPath: String? = null,
 )
 
 /**
@@ -20,6 +26,14 @@ data class PickedFile(
  */
 @Composable
 expect fun rememberFilePickerLauncher(onPicked: (List<PickedFile>) -> Unit): () -> Unit
+
+/** Pick images/videos through the platform media picker (official's "Media" tile). */
+@Composable
+expect fun rememberMediaPickerLauncher(onPicked: (List<PickedFile>) -> Unit): () -> Unit
+
+/** Pick a whole folder; every file inside is delivered with [PickedFile.displayPath] set. */
+@Composable
+expect fun rememberFolderPickerLauncher(onPicked: (List<PickedFile>) -> Unit): () -> Unit
 
 /**
  * Files handed to the app from outside (Android share sheet). The Send

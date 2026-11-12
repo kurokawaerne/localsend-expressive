@@ -11,6 +11,7 @@ import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontVariation
@@ -68,13 +69,17 @@ private fun sansFlexFamily(width: Float, roundness: Float): FontFamily {
         FontVariation.width(width),
         FontVariation.Setting("ROND", roundness),
     )
-    return FontFamily(
-        Font(Res.font.google_sans_flex, FontWeight.Normal, variationSettings = settings(400)),
-        Font(Res.font.google_sans_flex, FontWeight.Medium, variationSettings = settings(500)),
-        Font(Res.font.google_sans_flex, FontWeight.SemiBold, variationSettings = settings(620)),
-        Font(Res.font.google_sans_flex, FontWeight.Bold, variationSettings = settings(720)),
-        Font(Res.font.google_sans_flex, FontWeight.ExtraBold, variationSettings = settings(800)),
-    )
+    val normal = Font(Res.font.google_sans_flex, FontWeight.Normal, variationSettings = settings(400))
+    val medium = Font(Res.font.google_sans_flex, FontWeight.Medium, variationSettings = settings(500))
+    val semiBold = Font(Res.font.google_sans_flex, FontWeight.SemiBold, variationSettings = settings(620))
+    val bold = Font(Res.font.google_sans_flex, FontWeight.Bold, variationSettings = settings(720))
+    val extraBold = Font(Res.font.google_sans_flex, FontWeight.ExtraBold, variationSettings = settings(800))
+    // FontFamily identity MUST be stable: rebuilding it on every
+    // recomposition re-measures every text in the app — that was the
+    // Settings-page stutter Ernest reported.
+    return remember(normal, medium, semiBold, bold, extraBold) {
+        FontFamily(normal, medium, semiBold, bold, extraBold)
+    }
 }
 
 @Composable
@@ -82,7 +87,8 @@ private fun expressiveTypography(): Typography {
     val display = sansFlexFamily(width = 118f, roundness = 100f)
     val text = sansFlexFamily(width = 100f, roundness = 35f)
     val base = Typography()
-    return Typography(
+    return remember(display, text) {
+    Typography(
         displayLarge = base.displayLarge.copy(fontFamily = display, fontWeight = FontWeight.Bold),
         displayMedium = base.displayMedium.copy(fontFamily = display, fontWeight = FontWeight.Bold),
         displaySmall = base.displaySmall.copy(fontFamily = display, fontWeight = FontWeight.SemiBold),
@@ -99,6 +105,7 @@ private fun expressiveTypography(): Typography {
         labelMedium = base.labelMedium.copy(fontFamily = text, fontWeight = FontWeight.Medium),
         labelSmall = base.labelSmall.copy(fontFamily = text, fontWeight = FontWeight.Medium),
     )
+    }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -117,11 +124,13 @@ fun LocalSendExpressiveTheme(
     } else {
         null
     }
+    val typography = expressiveTypography()
+    val motionScheme = remember { MotionScheme.expressive() }
     MaterialExpressiveTheme(
         colorScheme = dynamic ?: if (dark) DarkScheme else LightScheme,
-        motionScheme = MotionScheme.expressive(),
+        motionScheme = motionScheme,
         shapes = ExpressiveShapes,
-        typography = expressiveTypography(),
+        typography = typography,
         content = content,
     )
 }

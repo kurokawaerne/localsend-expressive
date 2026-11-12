@@ -1,5 +1,7 @@
 package dev.kurokawa.localsend.expressive.platform
 
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import dev.kurokawa.localsend.expressive.protocol.DeviceType
 
 actual fun platformDeviceType(): DeviceType = DeviceType.desktop
@@ -12,3 +14,32 @@ actual class MulticastLock {
     actual fun acquire() {}
     actual fun release() {}
 }
+
+@Composable
+actual fun rememberClipboardText(): () -> String? {
+    return remember {
+        {
+            runCatching {
+                val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
+                if (clipboard.isDataFlavorAvailable(java.awt.datatransfer.DataFlavor.stringFlavor)) {
+                    clipboard.getData(java.awt.datatransfer.DataFlavor.stringFlavor) as? String
+                } else {
+                    null
+                }
+            }.getOrNull()
+        }
+    }
+}
+
+actual fun loadInstalledApps(): List<InstalledApp> = emptyList()
+
+actual fun supportsQuickShareTile(): Boolean = false
+
+actual fun systemLanguageCode(): String =
+    System.getProperty("user.language")?.take(2)?.ifBlank { "en" } ?: "en"
+
+private val noQuickShare = kotlinx.coroutines.flow.MutableStateFlow(0)
+
+actual fun quickShareRequests(): kotlinx.coroutines.flow.StateFlow<Int> = noQuickShare
+
+actual fun clearQuickShareRequest() = Unit
