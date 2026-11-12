@@ -1,4 +1,7 @@
 package dev.kurokawa.localsend.expressive.platform
+import com.composables.icons.materialsymbols.MaterialSymbols
+import com.composables.icons.materialsymbols.outlined.*
+import com.composables.icons.materialsymbols.outlinedfilled.*
 
 import android.content.ContentUris
 import android.content.Intent
@@ -13,11 +16,6 @@ import android.provider.Settings
 import android.util.LruCache
 import android.util.Size
 import androidx.compose.foundation.Image
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Audiotrack
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.InsertDriveFile
-import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -41,7 +39,7 @@ actual fun prefersSwipeActions(): Boolean = true
 
 actual suspend fun loadMediaItems(kind: MediaKind): List<BrowserItem> =
     withContext(Dispatchers.IO) {
-        val context = AppContextHolder.appContext
+        val context = AppContextHolder.appContext ?: return@withContext emptyList()
         val (collection, projection) = when (kind) {
             MediaKind.PHOTOS -> MediaStore.Images.Media.EXTERNAL_CONTENT_URI to arrayOf(
                 MediaStore.Images.Media._ID,
@@ -50,12 +48,12 @@ actual suspend fun loadMediaItems(kind: MediaKind): List<BrowserItem> =
                 MediaStore.Images.Media.DATE_ADDED,
                 MediaStore.Images.Media.MIME_TYPE,
             )
-            MediaKind.VIDEOS -> MediaStore.Videos.Media.EXTERNAL_CONTENT_URI to arrayOf(
-                MediaStore.Videos.Media._ID,
-                MediaStore.Videos.Media.DISPLAY_NAME,
-                MediaStore.Videos.Media.SIZE,
-                MediaStore.Videos.Media.DATE_ADDED,
-                MediaStore.Videos.Media.MIME_TYPE,
+            MediaKind.VIDEOS -> MediaStore.Video.Media.EXTERNAL_CONTENT_URI to arrayOf(
+                MediaStore.Video.Media._ID,
+                MediaStore.Video.Media.DISPLAY_NAME,
+                MediaStore.Video.Media.SIZE,
+                MediaStore.Video.Media.DATE_ADDED,
+                MediaStore.Video.Media.MIME_TYPE,
             )
             MediaKind.AUDIO -> MediaStore.Audio.Media.EXTERNAL_CONTENT_URI to arrayOf(
                 MediaStore.Audio.Media._ID,
@@ -107,7 +105,7 @@ actual fun storageRoots(): List<BrowserItem> {
         handle = primary.absolutePath,
     )
     runCatching {
-        context.getExternalFilesDirs(null).drop(1).forEach { dir ->
+        context?.getExternalFilesDirs(null)?.drop(1)?.forEach { dir ->
             // /storage/<volume-id>/Android/data/<pkg>/files → /storage/<volume-id>
             val volumeRoot = dir.absolutePath.split("/").take(3).joinToString("/")
             if (volumeRoot.isNotBlank() && roots.none { it.handle == volumeRoot }) {
@@ -176,7 +174,7 @@ private fun mediaPermissions(): Array<String> =
     }
 
 private fun mediaGrantedNow(): Boolean {
-    val context = AppContextHolder.appContext
+    val context = AppContextHolder.appContext ?: return false
     return mediaPermissions().all {
         ContextCompat.checkSelfPermission(context, it) == PackageManager.PERMISSION_GRANTED
     }
@@ -204,7 +202,7 @@ actual fun rememberStorageAccess(): StorageAccess {
         },
         requestFullAccess = {
             val context = AppContextHolder.appContext
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            if (context != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
                 runCatching {
                     context.startActivity(
                         Intent(
@@ -235,7 +233,7 @@ actual fun BrowserThumbnail(item: BrowserItem, modifier: Modifier) {
             runCatching {
                 when {
                     item.handle.startsWith("content://") && Build.VERSION.SDK_INT >= 29 ->
-                        context.contentResolver.loadThumbnail(
+                        context?.contentResolver?.loadThumbnail(
                             Uri.parse(item.handle), Size(256, 256), null,
                         )
                     item.mimeType.startsWith("image/") || item.name.matches(
@@ -266,10 +264,10 @@ actual fun BrowserThumbnail(item: BrowserItem, modifier: Modifier) {
     } else {
         Icon(
             imageVector = when {
-                item.isFolder -> Icons.Filled.Folder
-                item.mimeType.startsWith("audio/") -> Icons.Filled.Audiotrack
-                item.mimeType.startsWith("video/") -> Icons.Filled.Movie
-                else -> Icons.Filled.InsertDriveFile
+                item.isFolder -> MaterialSymbols.Outlined.Folder
+                item.mimeType.startsWith("audio/") -> MaterialSymbols.Outlined.Music_note
+                item.mimeType.startsWith("video/") -> MaterialSymbols.Outlined.Movie
+                else -> MaterialSymbols.Outlined.Description
             },
             contentDescription = null,
             modifier = modifier,

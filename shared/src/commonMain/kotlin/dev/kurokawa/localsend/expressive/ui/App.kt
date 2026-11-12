@@ -1,5 +1,9 @@
 package dev.kurokawa.localsend.expressive.ui
+import com.composables.icons.materialsymbols.MaterialSymbols
+import com.composables.icons.materialsymbols.outlined.*
+import com.composables.icons.materialsymbols.outlinedfilled.*
 
+import androidx.compose.ui.draw.alpha
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.LinearEasing
@@ -32,54 +36,6 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Animation
-import androidx.compose.material.icons.filled.Apps
-import androidx.compose.material.icons.filled.AttachFile
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Computer
-import androidx.compose.material.icons.filled.ContentPaste
-import androidx.compose.material.icons.filled.DarkMode
-import androidx.compose.material.icons.filled.Download
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Error
-import androidx.compose.material.icons.filled.Fingerprint
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.FolderOpen
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.KeyboardArrowDown
-import androidx.compose.material.icons.filled.KeyboardArrowUp
-import androidx.compose.material.icons.filled.Lan
-import androidx.compose.material.icons.filled.Language
-import androidx.compose.material.icons.filled.Link
-import androidx.compose.material.icons.filled.Message
-import androidx.compose.material.icons.filled.OpenInNew
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.PhoneAndroid
-import androidx.compose.material.icons.filled.PushPin
-import androidx.compose.material.icons.filled.QrCodeScanner
-import androidx.compose.material.icons.filled.Refresh
-import androidx.compose.material.icons.filled.Replay
-import androidx.compose.material.icons.filled.Router
-import androidx.compose.material.icons.filled.Save
-import androidx.compose.material.icons.filled.Security
-import androidx.compose.material.icons.filled.Send
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Share
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Star
-import androidx.compose.material.icons.filled.StarBorder
-import androidx.compose.material.icons.filled.Storage
-import androidx.compose.material.icons.filled.SystemUpdate
-import androidx.compose.material.icons.filled.Translate
-import androidx.compose.material.icons.filled.Tune
-import androidx.compose.material.icons.filled.Wifi
-import androidx.compose.material.icons.filled.WifiOff
-import androidx.compose.material.icons.filled.WifiTethering
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
@@ -192,11 +148,6 @@ import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.material.icons.filled.GroupAdd
-import androidx.compose.material.icons.filled.Hub
-import androidx.compose.material.icons.filled.PersonAdd
-import androidx.compose.material.icons.filled.Radar
-import androidx.compose.material.icons.filled.Sensors
 import androidx.compose.material3.ScrollableTabRow
 import androidx.compose.ui.platform.LocalDensity
 import dev.kurokawa.localsend.expressive.platform.BrowserItem
@@ -210,24 +161,6 @@ import dev.kurokawa.localsend.expressive.platform.prefersSwipeActions
 import dev.kurokawa.localsend.expressive.platform.rememberStorageAccess
 import dev.kurokawa.localsend.expressive.platform.storageRoots
 import kotlin.math.roundToInt
-import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.Audiotrack
-import androidx.compose.material.icons.filled.Bolt
-import androidx.compose.material.icons.filled.ChatBubble
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Dns
-import androidx.compose.material.icons.filled.DoneAll
-import androidx.compose.material.icons.filled.ExpandLess
-import androidx.compose.material.icons.filled.ExpandMore
-import androidx.compose.material.icons.filled.Lock
-import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.PhotoLibrary
-import androidx.compose.material.icons.filled.Pin
-import androidx.compose.material.icons.filled.QrCode2
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Verified
-import androidx.compose.material.icons.filled.WebAsset
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.AssistChip
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -342,7 +275,7 @@ private fun LogoMark(
                 )
             }
             Icon(
-                Icons.Filled.Send,
+                MaterialSymbols.Outlined.Send,
                 contentDescription = null,
                 tint = onPrimary,
                 modifier = Modifier.size(size * 0.5f),
@@ -476,23 +409,23 @@ private fun AppScaffold(controller: LocalSendController, settings: AppSettings) 
 
     val fanActions = remember(connectivity) {
         listOf(
-            FanAction("Scan QR code", Icons.Filled.QrCodeScanner) {
+            FanAction("Scan QR code", MaterialSymbols.Outlined.Qr_code_scanner) {
                 tab = MainTab.Connect
                 pendingScan = true
             },
-            FanAction("My connect code", Icons.Filled.QrCode2) {
+            FanAction("My connect code", MaterialSymbols.Outlined.Qr_code_2) {
                 tab = MainTab.Connect
             },
-            FanAction("Hotspot", Icons.Filled.WifiTethering) {
+            FanAction("Hotspot", MaterialSymbols.Outlined.Wifi_tethering) {
                 connectivity.toggleHotspot()
             },
-            FanAction("Wi-Fi Direct", Icons.Filled.Router) {
+            FanAction("Wi-Fi Direct", MaterialSymbols.Outlined.Router) {
                 connectivity.toggleWifiDirect()
             },
-            FanAction("Wi-Fi", Icons.Filled.Wifi) {
+            FanAction("Wi-Fi", MaterialSymbols.Outlined.Wifi) {
                 connectivity.toggleWifi()
             },
-            FanAction("Add by IP", Icons.Filled.Lan) {
+            FanAction("Add by IP", MaterialSymbols.Outlined.Lan) {
                 showIpDialog = true
             },
         )
@@ -550,17 +483,20 @@ private fun AppScaffold(controller: LocalSendController, settings: AppSettings) 
                     LogoMark(44.dp)
                     Spacer(Modifier.height(16.dp))
                     RailNavItem(
-                        icon = Icons.Filled.Home,
+                        icon = MaterialSymbols.Outlined.Home,
+                        selectedIcon = MaterialSymbols.OutlinedFilled.Home,
                         label = "Home",
                         selected = tab == MainTab.Home,
                     ) { tab = MainTab.Home }
                     RailNavItem(
-                        icon = Icons.Filled.Hub,
+                        icon = MaterialSymbols.Outlined.Hub,
+                        selectedIcon = MaterialSymbols.OutlinedFilled.Hub,
                         label = strings.connect,
                         selected = tab == MainTab.Connect,
                     ) { tab = MainTab.Connect }
                     RailNavItem(
-                        icon = Icons.Filled.Settings,
+                        icon = MaterialSymbols.Outlined.Settings,
+                        selectedIcon = MaterialSymbols.OutlinedFilled.Settings,
                         label = strings.settings,
                         selected = tab == MainTab.Settings,
                     ) { tab = MainTab.Settings }
@@ -609,17 +545,20 @@ private fun AppScaffold(controller: LocalSendController, settings: AppSettings) 
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
                         PillNavItem(
-                            icon = Icons.Filled.Home,
+                            icon = MaterialSymbols.Outlined.Home,
+                            selectedIcon = MaterialSymbols.OutlinedFilled.Home,
                             label = "Home",
                             selected = tab == MainTab.Home,
                         ) { tab = MainTab.Home }
                         PillNavItem(
-                            icon = Icons.Filled.Hub,
+                            icon = MaterialSymbols.Outlined.Hub,
+                            selectedIcon = MaterialSymbols.OutlinedFilled.Hub,
                             label = strings.connect,
                             selected = tab == MainTab.Connect,
                         ) { tab = MainTab.Connect }
                         PillNavItem(
-                            icon = Icons.Filled.Settings,
+                            icon = MaterialSymbols.Outlined.Settings,
+                            selectedIcon = MaterialSymbols.OutlinedFilled.Settings,
                             label = strings.settings,
                             selected = tab == MainTab.Settings,
                         ) { tab = MainTab.Settings }
@@ -651,6 +590,7 @@ private fun AppScaffold(controller: LocalSendController, settings: AppSettings) 
 @Composable
 private fun PillNavItem(
     icon: ImageVector,
+    selectedIcon: ImageVector,
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
@@ -670,12 +610,25 @@ private fun PillNavItem(
                 .background(if (selected) scheme.secondaryContainer else Color.Transparent),
             contentAlignment = Alignment.Center,
         ) {
+            val fillAlpha by animateFloatAsState(
+                targetValue = if (selected) 1f else 0f,
+                animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium),
+                label = "navFill",
+            )
             Icon(
                 icon,
                 contentDescription = label,
                 tint = if (selected) scheme.onSecondaryContainer else scheme.onSurfaceVariant,
                 modifier = Modifier.size(22.dp),
             )
+            if (fillAlpha > 0.01f) {
+                Icon(
+                    selectedIcon,
+                    contentDescription = null,
+                    tint = scheme.onSecondaryContainer,
+                    modifier = Modifier.size(22.dp).alpha(fillAlpha),
+                )
+            }
         }
         Text(
             label,
@@ -689,6 +642,7 @@ private fun PillNavItem(
 @Composable
 private fun RailNavItem(
     icon: ImageVector,
+    selectedIcon: ImageVector,
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
@@ -708,12 +662,25 @@ private fun RailNavItem(
                 .background(if (selected) scheme.secondaryContainer else Color.Transparent),
             contentAlignment = Alignment.Center,
         ) {
+            val fillAlpha by animateFloatAsState(
+                targetValue = if (selected) 1f else 0f,
+                animationSpec = spring(dampingRatio = 0.8f, stiffness = Spring.StiffnessMedium),
+                label = "navFill",
+            )
             Icon(
                 icon,
                 contentDescription = label,
                 tint = if (selected) scheme.onSecondaryContainer else scheme.onSurfaceVariant,
                 modifier = Modifier.size(22.dp),
             )
+            if (fillAlpha > 0.01f) {
+                Icon(
+                    selectedIcon,
+                    contentDescription = null,
+                    tint = scheme.onSecondaryContainer,
+                    modifier = Modifier.size(22.dp).alpha(fillAlpha),
+                )
+            }
         }
         Text(
             label,
@@ -926,10 +893,10 @@ private fun HomeScreen(
                 SectionTitle(strings.nearbyDevices)
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = onAddByIp) {
-                    Icon(Icons.Filled.Lan, contentDescription = "Add by IP")
+                    Icon(MaterialSymbols.Outlined.Lan, contentDescription = "Add by IP")
                 }
                 IconButton(onClick = { controller.refreshDiscovery() }) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh devices")
+                    Icon(MaterialSymbols.Outlined.Refresh, contentDescription = "Refresh devices")
                 }
             }
             Text(
@@ -1018,13 +985,13 @@ private fun HomeScreen(
                             icon = {
                                 Icon(
                                     when (tab) {
-                                        ContentTab.Apps -> Icons.Filled.Apps
-                                        ContentTab.Photos -> Icons.Filled.Image
-                                        ContentTab.Videos -> Icons.Filled.Movie
-                                        ContentTab.Audio -> Icons.Filled.Audiotrack
-                                        ContentTab.Files -> Icons.Filled.Folder
-                                        ContentTab.Text -> Icons.Filled.ChatBubble
-                                        ContentTab.Web -> Icons.Filled.Link
+                                        ContentTab.Apps -> MaterialSymbols.Outlined.Apps
+                                        ContentTab.Photos -> MaterialSymbols.Outlined.Image
+                                        ContentTab.Videos -> MaterialSymbols.Outlined.Movie
+                                        ContentTab.Audio -> MaterialSymbols.Outlined.Music_note
+                                        ContentTab.Files -> MaterialSymbols.Outlined.Folder
+                                        ContentTab.Text -> MaterialSymbols.Outlined.Chat_bubble
+                                        ContentTab.Web -> MaterialSymbols.Outlined.Link
                                     },
                                     contentDescription = null,
                                     modifier = Modifier.size(20.dp),
@@ -1122,9 +1089,9 @@ private fun HomeScreen(
                     IconButton(onClick = { readyExpanded = !readyExpanded }) {
                         Icon(
                             if (readyExpanded) {
-                                Icons.Filled.KeyboardArrowUp
+                                MaterialSymbols.Outlined.Keyboard_arrow_up
                             } else {
-                                Icons.Filled.KeyboardArrowDown
+                                MaterialSymbols.Outlined.Keyboard_arrow_down
                             },
                             contentDescription = if (readyExpanded) "Collapse" else "Expand",
                         )
@@ -1166,7 +1133,7 @@ private fun HomeScreen(
                     enabled = targets.isNotEmpty(),
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Icon(Icons.Filled.Send, contentDescription = null)
+                    Icon(MaterialSymbols.Outlined.Send, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text(
                         when {
@@ -1246,7 +1213,7 @@ private fun HomeScreen(
                     )
                     if (outbox.any { it.hasFailures }) {
                         TextButton(onClick = { controller.retryAllFailed() }) {
-                            Icon(Icons.Filled.Replay, contentDescription = null)
+                            Icon(MaterialSymbols.Outlined.Replay, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
                             Text("Retry all")
                         }
@@ -1291,9 +1258,9 @@ private fun HomeScreen(
                         }
                         Icon(
                             if (fingerprint in collapsedGroups) {
-                                Icons.Filled.KeyboardArrowDown
+                                MaterialSymbols.Outlined.Keyboard_arrow_down
                             } else {
-                                Icons.Filled.KeyboardArrowUp
+                                MaterialSymbols.Outlined.Keyboard_arrow_up
                             },
                             contentDescription = null,
                         )
@@ -1327,9 +1294,9 @@ private fun HomeScreen(
                     )
                     Icon(
                         if (historyExpanded) {
-                            Icons.Filled.KeyboardArrowUp
+                            MaterialSymbols.Outlined.Keyboard_arrow_up
                         } else {
-                            Icons.Filled.KeyboardArrowDown
+                            MaterialSymbols.Outlined.Keyboard_arrow_down
                         },
                         contentDescription = if (historyExpanded) "Collapse" else "Expand",
                     )
@@ -1468,7 +1435,7 @@ private fun AppsBrowser(
             value = query,
             onValueChange = { query = it },
             placeholder = { Text("Search apps") },
-            leadingIcon = { Icon(Icons.Filled.Search, contentDescription = null) },
+            leadingIcon = { Icon(MaterialSymbols.Outlined.Search, contentDescription = null) },
             singleLine = true,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -1526,7 +1493,7 @@ private fun MediaBrowser(
     val access = rememberStorageAccess()
     if (!access.mediaGranted) {
         GrantAccessCard(
-            icon = Icons.Filled.PhotoLibrary,
+            icon = MaterialSymbols.Outlined.Photo_library,
             title = "Media access needed",
             body = "To browse your photos, videos and music here, LSEx needs " +
                 "permission to read the media library.",
@@ -1613,7 +1580,7 @@ private fun MediaBrowser(
                                 .size(22.dp),
                         ) {
                             Icon(
-                                Icons.Filled.Check,
+                                MaterialSymbols.Outlined.Check,
                                 contentDescription = "Selected",
                                 tint = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.padding(3.dp),
@@ -1641,7 +1608,7 @@ private fun FileBrowser(
     if (!access.fullAccess) {
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             GrantAccessCard(
-                icon = Icons.Filled.Folder,
+                icon = MaterialSymbols.Outlined.Folder,
                 title = "Browse your storage",
                 body = "With All files access, this tab becomes a file manager: " +
                     "drill into folders and pick anything, like Zapya. Without it, " +
@@ -1654,7 +1621,7 @@ private fun FileBrowser(
                 onClick = pickFiles,
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                Icon(Icons.Filled.AttachFile, contentDescription = null)
+                Icon(MaterialSymbols.Outlined.Attach_file, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
                 Text("Pick files with the system picker")
             }
@@ -1728,7 +1695,7 @@ private fun FileBrowser(
                     ) {
                         if (item.isFolder) {
                             Icon(
-                                Icons.Filled.Folder,
+                                MaterialSymbols.Outlined.Folder,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(40.dp).padding(6.dp),
@@ -1831,7 +1798,7 @@ private fun TextComposer(onStageText: (String) -> Unit) {
                 onClick = { clipboard()?.let { text = it } },
                 modifier = Modifier.weight(1f),
             ) {
-                Icon(Icons.Filled.ContentPaste, contentDescription = null)
+                Icon(MaterialSymbols.Outlined.Content_paste, contentDescription = null)
                 Spacer(Modifier.width(6.dp))
                 Text("Paste")
             }
@@ -1843,7 +1810,7 @@ private fun TextComposer(onStageText: (String) -> Unit) {
                 enabled = text.isNotBlank(),
                 modifier = Modifier.weight(1f),
             ) {
-                Icon(Icons.Filled.Add, contentDescription = null)
+                Icon(MaterialSymbols.Outlined.Add, contentDescription = null)
                 Spacer(Modifier.width(6.dp))
                 Text("Add text")
             }
@@ -1907,7 +1874,7 @@ private fun StagedItemCard(
                         modifier = Modifier.size(44.dp),
                     ) {
                         Icon(
-                            Icons.Filled.Edit,
+                            MaterialSymbols.Outlined.Edit,
                             contentDescription = "Rename / edit",
                             tint = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
@@ -1924,7 +1891,7 @@ private fun StagedItemCard(
                     modifier = Modifier.size(44.dp),
                 ) {
                     Icon(
-                        Icons.Filled.Delete,
+                        MaterialSymbols.Outlined.Delete,
                         contentDescription = "Discard",
                         tint = MaterialTheme.colorScheme.onErrorContainer,
                     )
@@ -1973,9 +1940,9 @@ private fun StagedItemCardContent(
             Box(contentAlignment = Alignment.Center) {
                 Icon(
                     when (item) {
-                        is StagedItem.FileItem -> Icons.Filled.AttachFile
-                        is StagedItem.FolderItem -> Icons.Filled.Folder
-                        is StagedItem.TextItem -> Icons.Filled.Message
+                        is StagedItem.FileItem -> MaterialSymbols.Outlined.Attach_file
+                        is StagedItem.FolderItem -> MaterialSymbols.Outlined.Folder
+                        is StagedItem.TextItem -> MaterialSymbols.Outlined.Chat
                     },
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -2019,7 +1986,7 @@ private fun StagedItemCardContent(
                 ) {
                     IconButton(onClick = onEdit, modifier = Modifier.size(38.dp)) {
                         Icon(
-                            Icons.Filled.Edit,
+                            MaterialSymbols.Outlined.Edit,
                             contentDescription = "Rename / edit",
                             modifier = Modifier.size(18.dp),
                         )
@@ -2033,7 +2000,7 @@ private fun StagedItemCardContent(
             ) {
                 IconButton(onClick = onDiscard, modifier = Modifier.size(38.dp)) {
                     Icon(
-                        Icons.Filled.Close,
+                        MaterialSymbols.Outlined.Close,
                         contentDescription = "Discard",
                         modifier = Modifier.size(18.dp),
                     )
@@ -2140,21 +2107,21 @@ private fun DeviceCard(
             }
             if (isSelected) {
                 Icon(
-                    Icons.Filled.CheckCircle,
+                    MaterialSymbols.Outlined.Check_circle,
                     contentDescription = "Selected",
                     tint = scheme.primary,
                 )
             }
             IconButton(onClick = onInfo) {
                 Icon(
-                    Icons.Filled.Info,
+                    MaterialSymbols.Outlined.Info,
                     contentDescription = "Device info",
                     tint = subtitleColor,
                 )
             }
             IconButton(onClick = onToggleFavorite) {
                 Icon(
-                    if (isFavorite) Icons.Filled.Star else Icons.Filled.StarBorder,
+                    if (isFavorite) MaterialSymbols.OutlinedFilled.Star else MaterialSymbols.Outlined.Star,
                     contentDescription = "Favorite",
                     tint = if (isFavorite) scheme.primary else subtitleColor,
                 )
@@ -2175,7 +2142,7 @@ private fun WebSharePanel(
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
-                Icons.Filled.Link,
+                MaterialSymbols.Outlined.Link,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
             )
@@ -2334,7 +2301,7 @@ private fun ConnectScreen(
                     Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Icon(Icons.Filled.Wifi, contentDescription = null)
+                    Icon(MaterialSymbols.Outlined.Wifi, contentDescription = null)
                     Spacer(Modifier.width(10.dp))
                     Text(
                         localIp?.let { "This device: $it" } ?: "Not on a network",
@@ -2372,7 +2339,7 @@ private fun ConnectScreen(
                             modifier = Modifier.size(52.dp),
                         ) {
                             Icon(
-                                Icons.Filled.GroupAdd,
+                                MaterialSymbols.Outlined.Group_add,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onPrimary,
                                 modifier = Modifier.padding(13.dp),
@@ -2414,7 +2381,7 @@ private fun ConnectScreen(
                             modifier = Modifier.size(52.dp),
                         ) {
                             Icon(
-                                Icons.Filled.QrCodeScanner,
+                                MaterialSymbols.Outlined.Qr_code_scanner,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onTertiary,
                                 modifier = Modifier.padding(13.dp),
@@ -2525,7 +2492,7 @@ private fun ConnectScreen(
                 SectionTitle("Radios")
                 Spacer(Modifier.weight(1f))
                 IconButton(onClick = { connectivity.refresh() }) {
-                    Icon(Icons.Filled.Refresh, contentDescription = "Refresh connectivity")
+                    Icon(MaterialSymbols.Outlined.Refresh, contentDescription = "Refresh connectivity")
                 }
             }
         }
@@ -2533,9 +2500,9 @@ private fun ConnectScreen(
             Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 ConnectivityTile(
                     icon = if (connState.wifiEnabled == false) {
-                        Icons.Filled.WifiOff
+                        MaterialSymbols.Outlined.Wifi_off
                     } else {
-                        Icons.Filled.Wifi
+                        MaterialSymbols.Outlined.Wifi
                     },
                     label = when (connState.wifiEnabled) {
                         true -> "WiFi on"
@@ -2546,13 +2513,13 @@ private fun ConnectScreen(
                     modifier = Modifier.weight(1f),
                 ) { connectivity.toggleWifi() }
                 ConnectivityTile(
-                    icon = Icons.Filled.WifiTethering,
+                    icon = MaterialSymbols.Outlined.Wifi_tethering,
                     label = "Hotspot",
                     active = hotspot != null,
                     modifier = Modifier.weight(1f),
                 ) { connectivity.toggleHotspot() }
                 ConnectivityTile(
-                    icon = Icons.Filled.Router,
+                    icon = MaterialSymbols.Outlined.Router,
                     label = "WiFi Direct",
                     active = direct != null,
                     modifier = Modifier.weight(1f),
@@ -2589,7 +2556,7 @@ private fun ConnectScreen(
                     onClick = { showScanner = true },
                     modifier = Modifier.fillMaxWidth(),
                 ) {
-                    Icon(Icons.Filled.QrCodeScanner, contentDescription = null)
+                    Icon(MaterialSymbols.Outlined.Qr_code_scanner, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
                     Text("Scan QR — join WiFi, open a web share, connect")
                 }
@@ -2598,7 +2565,7 @@ private fun ConnectScreen(
                         onClick = onAddByIp,
                         modifier = Modifier.weight(1f),
                     ) {
-                        Icon(Icons.Filled.Lan, contentDescription = null)
+                        Icon(MaterialSymbols.Outlined.Lan, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
                         Text("Add by IP")
                     }
@@ -2606,7 +2573,7 @@ private fun ConnectScreen(
                         onClick = { showConnectQr = !showConnectQr },
                         modifier = Modifier.weight(1f),
                     ) {
-                        Icon(Icons.Filled.QrCode2, contentDescription = null)
+                        Icon(MaterialSymbols.Outlined.Qr_code_2, contentDescription = null)
                         Spacer(Modifier.width(6.dp))
                         Text(if (showConnectQr) "Hide my QR" else "Show my QR")
                     }
@@ -2949,7 +2916,7 @@ private fun DropdownRow(
                 )
             }
             Icon(
-                if (expanded) Icons.Filled.ExpandLess else Icons.Filled.ExpandMore,
+                if (expanded) MaterialSymbols.Outlined.Expand_less else MaterialSymbols.Outlined.Expand_more,
                 contentDescription = null,
             )
         }
@@ -2962,7 +2929,7 @@ private fun DropdownRow(
                     text = { Text(label) },
                     trailingIcon = {
                         if (value == selected) {
-                            Icon(Icons.Filled.Check, contentDescription = "Selected")
+                            Icon(MaterialSymbols.Outlined.Check, contentDescription = "Selected")
                         }
                     },
                     onClick = {
@@ -3021,7 +2988,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
             val rows = mutableListOf<@Composable () -> Unit>(
                 {
                     DropdownRow(
-                        icon = Icons.Filled.DarkMode,
+                        icon = MaterialSymbols.OutlinedFilled.Dark_mode,
                         tone = ToneBlue,
                         title = "Theme",
                         options = listOf(
@@ -3037,7 +3004,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                 },
                 {
                     DropdownRow(
-                        icon = Icons.Filled.Palette,
+                        icon = MaterialSymbols.OutlinedFilled.Palette,
                         tone = ToneMagenta,
                         title = "Colors",
                         options = listOf(
@@ -3052,7 +3019,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                 },
                 {
                     DropdownRow(
-                        icon = Icons.Filled.Language,
+                        icon = MaterialSymbols.OutlinedFilled.Language,
                         tone = ToneGray,
                         title = "Language",
                         options = listOf(
@@ -3068,7 +3035,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                 },
                 {
                     SwitchRow(
-                        icon = Icons.Filled.Animation,
+                        icon = MaterialSymbols.OutlinedFilled.Animation,
                         tone = ToneTeal,
                         title = "Animations",
                         subtitle = "Splash and expressive motion",
@@ -3085,7 +3052,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                         Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        SettingIconChip(Icons.Filled.Share, ToneSky)
+                        SettingIconChip(MaterialSymbols.OutlinedFilled.Share, ToneSky)
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
                             Text("Quick share tile", style = MaterialTheme.typography.bodyLarge)
@@ -3101,7 +3068,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
             }
             rows += {
                 SwitchRow(
-                    icon = Icons.Filled.Tune,
+                    icon = MaterialSymbols.OutlinedFilled.Tune,
                     tone = ToneRed,
                     title = "Advanced settings",
                     subtitle = "Show the advanced sections, like the official app",
@@ -3120,7 +3087,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                     listOf(
                         {
                             SwitchRow(
-                                icon = Icons.Filled.PushPin,
+                                icon = MaterialSymbols.OutlinedFilled.Push_pin,
                                 tone = ToneOrange,
                                 title = "Always on top",
                                 checked = settings.alwaysOnTop,
@@ -3131,7 +3098,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                         },
                         {
                             SwitchRow(
-                                icon = Icons.Filled.Save,
+                                icon = MaterialSymbols.OutlinedFilled.Save,
                                 tone = ToneGreen,
                                 title = "Save window placement",
                                 checked = settings.saveWindowPlacement,
@@ -3144,7 +3111,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                         },
                         {
                             SwitchRow(
-                                icon = Icons.Filled.WebAsset,
+                                icon = MaterialSymbols.OutlinedFilled.Web_asset,
                                 tone = TonePurple,
                                 title = "Minimize to tray",
                                 checked = settings.minimizeToTray,
@@ -3195,7 +3162,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                 },
                 {
                     SwitchRow(
-                        icon = Icons.Filled.Pin,
+                        icon = MaterialSymbols.OutlinedFilled.Pin,
                         tone = ToneYellow,
                         title = "Require PIN",
                         subtitle = if (settings.pin.isNotEmpty()) {
@@ -3215,7 +3182,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                 },
                 {
                     SwitchRow(
-                        icon = Icons.Filled.PhotoLibrary,
+                        icon = MaterialSymbols.OutlinedFilled.Photo_library,
                         tone = TonePink,
                         title = "Save to Gallery",
                         subtitle = "Photos and videos go to Pictures / Movies",
@@ -3227,7 +3194,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                 },
                 {
                     SwitchRow(
-                        icon = Icons.Filled.DoneAll,
+                        icon = MaterialSymbols.OutlinedFilled.Done_all,
                         tone = ToneGreen,
                         title = "Auto Finish",
                         subtitle = "Close the receive progress when a transfer ends",
@@ -3239,7 +3206,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                 },
                 {
                     SwitchRow(
-                        icon = Icons.Filled.History,
+                        icon = MaterialSymbols.OutlinedFilled.History,
                         tone = ToneBlue,
                         title = "Save to History",
                         checked = settings.saveToHistory,
@@ -3252,7 +3219,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
             if (advanced) {
                 rows += {
                     SwitchRow(
-                        icon = Icons.Filled.Verified,
+                        icon = MaterialSymbols.OutlinedFilled.Verified,
                         tone = ToneTeal,
                         title = "Verify checksums",
                         subtitle = "Reject files whose SHA-256 doesn't match",
@@ -3323,7 +3290,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                     listOf(
                         {
                             SwitchRow(
-                                icon = Icons.Filled.Link,
+                                icon = MaterialSymbols.OutlinedFilled.Link,
                                 tone = ToneSky,
                                 title = "Auto-accept web uploads",
                                 subtitle = "Receive-via-link uploads skip the prompt",
@@ -3337,7 +3304,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                         },
                         {
                             SwitchRow(
-                                icon = Icons.Filled.Fingerprint,
+                                icon = MaterialSymbols.OutlinedFilled.Fingerprint,
                                 tone = TonePurple,
                                 title = "Create checksums",
                                 subtitle = "SHA-256 for every file sent (slower on huge files)",
@@ -3351,7 +3318,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                         },
                         {
                             SwitchRow(
-                                icon = Icons.Filled.Replay,
+                                icon = MaterialSymbols.OutlinedFilled.Replay,
                                 tone = ToneOrange,
                                 title = "Retry automatically",
                                 subtitle = "Failed sends back off and retry on their own",
@@ -3363,7 +3330,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                         },
                         {
                             SwitchRow(
-                                icon = Icons.Filled.Bolt,
+                                icon = MaterialSymbols.OutlinedFilled.Bolt,
                                 tone = ToneYellow,
                                 title = "Chunked transfers",
                                 subtitle = "Resumable 1 MiB chunks between LSEx devices",
@@ -3386,7 +3353,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
             val rows = mutableListOf<@Composable () -> Unit>(
                 {
                     SwitchRow(
-                        icon = Icons.Filled.Dns,
+                        icon = MaterialSymbols.OutlinedFilled.Dns,
                         tone = ToneGreen,
                         title = "Server",
                         subtitle = "Other devices can find and send to you",
@@ -3439,7 +3406,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                 },
                 {
                     SwitchRow(
-                        icon = Icons.Filled.Lock,
+                        icon = MaterialSymbols.OutlinedFilled.Lock,
                         tone = ToneBlue,
                         title = "Encryption (HTTPS)",
                         subtitle = "Self-signed certificate, fingerprint-verified",
@@ -3451,7 +3418,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                 },
                 {
                     SwitchRow(
-                        icon = Icons.Filled.Language,
+                        icon = MaterialSymbols.OutlinedFilled.Language,
                         tone = ToneTeal,
                         title = "Download API",
                         subtitle = "Share-via-link web page and uploads",
@@ -3540,7 +3507,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                                 Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
-                                SettingIconChip(Icons.Filled.Star, ToneYellow)
+                                SettingIconChip(MaterialSymbols.OutlinedFilled.Star, ToneYellow)
                                 Spacer(Modifier.width(14.dp))
                                 Text(
                                     fingerprint.take(20) + "…",
@@ -3551,7 +3518,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                                     onClick = { controller.toggleFavorite(fingerprint) },
                                 ) {
                                     Icon(
-                                        Icons.Filled.Close,
+                                        MaterialSymbols.OutlinedFilled.Close,
                                         contentDescription = "Remove favorite",
                                     )
                                 }
@@ -3597,7 +3564,7 @@ private fun HistoryRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Icon(
-            if (entry.incoming) Icons.Filled.Download else Icons.Filled.Send,
+            if (entry.incoming) MaterialSymbols.Outlined.Download else MaterialSymbols.Outlined.Send,
             contentDescription = null,
         )
         Spacer(Modifier.width(12.dp))
@@ -3619,7 +3586,7 @@ private fun HistoryRow(
         if (onInstall != null) {
             IconButton(onClick = onInstall) {
                 Icon(
-                    Icons.Filled.SystemUpdate,
+                    MaterialSymbols.Outlined.System_update,
                     contentDescription = "Install this package",
                     tint = MaterialTheme.colorScheme.primary,
                 )
@@ -3628,7 +3595,7 @@ private fun HistoryRow(
         if (onOpen != null) {
             IconButton(onClick = onOpen) {
                 Icon(
-                    Icons.Filled.OpenInNew,
+                    MaterialSymbols.Outlined.Open_in_new,
                     contentDescription = "Open file",
                     tint = MaterialTheme.colorScheme.primary,
                 )
@@ -3637,14 +3604,14 @@ private fun HistoryRow(
         if (onResend != null) {
             IconButton(onClick = onResend) {
                 Icon(
-                    Icons.Filled.Send,
+                    MaterialSymbols.Outlined.Send,
                     contentDescription = "Stage for resending",
                     tint = MaterialTheme.colorScheme.primary,
                 )
             }
         }
         Icon(
-            if (entry.success) Icons.Filled.CheckCircle else Icons.Filled.Error,
+            if (entry.success) MaterialSymbols.Outlined.Check_circle else MaterialSymbols.Outlined.Error,
             contentDescription = null,
             tint = if (entry.success) {
                 MaterialTheme.colorScheme.primary
@@ -3730,7 +3697,7 @@ private fun OutboxJobCard(
                         job.files.any { it.status != TransferStatus.DONE }
                     ) {
                         OutlinedButton(onClick = { controller.retryOutboxJob(job.id) }) {
-                            Icon(Icons.Filled.Replay, contentDescription = null)
+                            Icon(MaterialSymbols.Outlined.Replay, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
                             Text("Retry")
                         }
@@ -3786,7 +3753,7 @@ private fun OutboxFileRow(
                 }
                 when (file.status) {
                     TransferStatus.DONE -> Icon(
-                        Icons.Filled.CheckCircle,
+                        MaterialSymbols.Outlined.Check_circle,
                         contentDescription = "Done",
                         tint = MaterialTheme.colorScheme.primary,
                     )
@@ -3795,14 +3762,14 @@ private fun OutboxFileRow(
                             onClick = { controller.retryOutboxFile(job.id, file.fileId) },
                         ) {
                             Icon(
-                                Icons.Filled.Replay,
+                                MaterialSymbols.Outlined.Replay,
                                 contentDescription = "Retry this file",
                                 tint = MaterialTheme.colorScheme.error,
                             )
                         }
                     } else {
                         Icon(
-                            Icons.Filled.Error,
+                            MaterialSymbols.Outlined.Error,
                             contentDescription = "Failed",
                             tint = MaterialTheme.colorScheme.error,
                         )
@@ -3811,7 +3778,7 @@ private fun OutboxFileRow(
                         LoadingIndicator(Modifier.size(20.dp))
                         IconButton(onClick = { controller.cancelSend() }) {
                             Icon(
-                                Icons.Filled.Close,
+                                MaterialSymbols.Outlined.Close,
                                 contentDescription = "Cancel this send",
                                 tint = MaterialTheme.colorScheme.error,
                             )
@@ -3889,7 +3856,7 @@ private fun IncomingOfferDialog(controller: LocalSendController, offer: Incoming
         icon = {
             Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
                 Icon(
-                    Icons.Filled.Download,
+                    MaterialSymbols.Outlined.Download,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.padding(12.dp),
@@ -3954,7 +3921,7 @@ private fun TextMessageDialog(
         icon = {
             Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
                 Icon(
-                    Icons.Filled.Message,
+                    MaterialSymbols.Outlined.Chat,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.padding(12.dp),
@@ -4002,7 +3969,7 @@ private fun IpAddressDialog(
         icon = {
             Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
                 Icon(
-                    Icons.Filled.Lan,
+                    MaterialSymbols.Outlined.Lan,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.onPrimaryContainer,
                     modifier = Modifier.padding(12.dp),
@@ -4133,12 +4100,12 @@ private fun FileProgressRow(progress: FileProgress) {
             )
             when (progress.status) {
                 TransferStatus.DONE -> Icon(
-                    Icons.Filled.CheckCircle,
+                    MaterialSymbols.Outlined.Check_circle,
                     contentDescription = "Done",
                     tint = MaterialTheme.colorScheme.primary,
                 )
                 TransferStatus.FAILED, TransferStatus.CANCELLED -> Icon(
-                    Icons.Filled.Error,
+                    MaterialSymbols.Outlined.Error,
                     contentDescription = "Failed",
                     tint = MaterialTheme.colorScheme.error,
                 )
@@ -4158,9 +4125,9 @@ private fun FileProgressRow(progress: FileProgress) {
     }
 }
 private fun deviceIcon(type: DeviceType?): ImageVector = when (type) {
-    DeviceType.mobile -> Icons.Filled.PhoneAndroid
-    DeviceType.web -> Icons.Filled.Language
-    else -> Icons.Filled.Computer
+    DeviceType.mobile -> MaterialSymbols.Outlined.Phone_android
+    DeviceType.web -> MaterialSymbols.Outlined.Language
+    else -> MaterialSymbols.Outlined.Computer
 }
 
 private fun formatSize(bytes: Long): String = when {

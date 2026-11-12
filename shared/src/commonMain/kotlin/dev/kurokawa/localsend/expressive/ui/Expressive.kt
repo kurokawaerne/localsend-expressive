@@ -1,14 +1,13 @@
 package dev.kurokawa.localsend.expressive.ui
+import com.composables.icons.materialsymbols.MaterialSymbols
+import com.composables.icons.materialsymbols.outlined.*
+import com.composables.icons.materialsymbols.outlinedfilled.*
 
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Hub
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.FloatingActionButton
@@ -63,7 +62,7 @@ fun ConnectionFan(
                 onCheckedChange = { expanded = it },
             ) {
                 Icon(
-                    if (expanded) Icons.Filled.Close else Icons.Filled.Hub,
+                    if (expanded) MaterialSymbols.Outlined.Close else MaterialSymbols.Outlined.Hub,
                     contentDescription = if (expanded) "Close connection menu" else "Connection",
                 )
             }
@@ -120,7 +119,7 @@ fun QuickSaveConnectedGroup(
             ) {
                 if (index == selectedIndex) {
                     Icon(
-                        Icons.Filled.Check,
+                        MaterialSymbols.Outlined.Check,
                         contentDescription = null,
                         modifier = Modifier.padding(end = 6.dp),
                     )

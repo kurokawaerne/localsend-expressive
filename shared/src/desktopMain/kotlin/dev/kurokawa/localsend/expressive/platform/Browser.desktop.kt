@@ -1,11 +1,9 @@
 package dev.kurokawa.localsend.expressive.platform
+import com.composables.icons.materialsymbols.MaterialSymbols
+import com.composables.icons.materialsymbols.outlined.*
+import com.composables.icons.materialsymbols.outlinedfilled.*
 
 import androidx.compose.foundation.Image
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Audiotrack
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.InsertDriveFile
-import androidx.compose.material.icons.filled.Movie
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -165,10 +163,10 @@ actual fun BrowserThumbnail(item: BrowserItem, modifier: Modifier) {
     } else {
         Icon(
             imageVector = when {
-                item.isFolder -> Icons.Filled.Folder
-                item.name.substringAfterLast('.', "").lowercase() in AUDIO_EXT -> Icons.Filled.Audiotrack
-                item.name.substringAfterLast('.', "").lowercase() in VIDEO_EXT -> Icons.Filled.Movie
-                else -> Icons.Filled.InsertDriveFile
+                item.isFolder -> MaterialSymbols.Outlined.Folder
+                item.name.substringAfterLast('.', "").lowercase() in AUDIO_EXT -> MaterialSymbols.Outlined.Music_note
+                item.name.substringAfterLast('.', "").lowercase() in VIDEO_EXT -> MaterialSymbols.Outlined.Movie
+                else -> MaterialSymbols.Outlined.Description
             },
             contentDescription = null,
             modifier = modifier,
