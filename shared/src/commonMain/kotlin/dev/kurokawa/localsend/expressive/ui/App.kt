@@ -4158,7 +4158,12 @@ private fun ShareScreen(
     }
 
     infoDevice?.let { device ->
-        DeviceInfoDialog(device = device, onDismiss = { infoDevice = null })
+        DeviceInfoDialog(
+            device = device,
+            isFavorite = device.info.fingerprint in settings.favorites,
+            onToggleFavorite = { controller.toggleFavorite(device.info.fingerprint) },
+            onDismiss = { infoDevice = null },
+        )
     }
     if (showTextComposer) {
         AlertDialog(

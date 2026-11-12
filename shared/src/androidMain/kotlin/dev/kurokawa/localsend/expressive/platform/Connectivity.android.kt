@@ -104,6 +104,29 @@ actual class ConnectivityController {
 
     init {
         refresh()
+        // Keep the Wi-Fi tile truthful (v0.6.0 complaint: "Wi-Fi status
+        // being on doesn't change"): follow system Wi-Fi state changes
+        // instead of only sampling when the screen first opens.
+        val ctx = context
+        if (ctx != null) {
+            runCatching {
+                val filter = android.content.IntentFilter().apply {
+                    addAction(WifiManager.WIFI_STATE_CHANGED_ACTION)
+                    addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION)
+                }
+                val receiver = object : android.content.BroadcastReceiver() {
+                    override fun onReceive(c: Context?, intent: android.content.Intent?) {
+                        refresh()
+                    }
+                }
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    ctx.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                } else {
+                    @Suppress("UnspecifiedRegisterReceiverFlag")
+                    ctx.registerReceiver(receiver, filter)
+                }
+            }
+        }
     }
 
     actual fun refresh() {
@@ -160,6 +183,12 @@ actual class ConnectivityController {
 
     private fun startHotspot() {
         val wifi = wifiManager ?: return
+        if (p2pGroupActive) {
+            stopWifiDirect()
+            _state.value = _state.value.copy(
+                message = "Wi-Fi Direct stopped — it can't run together with the hotspot.",
+            )
+        }
         _state.value = _state.value.copy(busy = true, message = null)
         try {
             wifi.startLocalOnlyHotspot(
@@ -265,34 +294,108 @@ actual class ConnectivityController {
             return
         }
         val channel = channel() ?: return
+        // Preconditions the old code ignored, producing Ernest's useless
+        // "an internal error occurred": Wi-Fi off, or our own hotspot
+        // still running (the two radios conflict on most devices).
+        if (wifiManager?.isWifiEnabled != true) {
+            _state.value = _state.value.copy(
+                message = "Wi-Fi Direct needs Wi-Fi on — turn Wi-Fi on first.",
+            )
+            return
+        }
+        if (hotspotReservation != null) {
+            stopHotspot()
+            _state.value = _state.value.copy(
+                message = "Hotspot stopped — hotspot and Wi-Fi Direct can't run together.",
+            )
+        }
         _state.value = _state.value.copy(busy = true, message = null)
-        try {
-            manager.createGroup(channel, object : WifiP2pManager.ActionListener {
-                override fun onSuccess() {
-                    p2pGroupActive = true
-                    requestGroupInfo()
-                }
+        createGroupWithRetry(manager, channel, retried = false)
+    }
 
-                override fun onFailure(reason: Int) {
-                    if (reason == WifiP2pManager.BUSY) {
-                        // A group from an earlier session is still up:
-                        // adopt it instead of failing (v0.4.0 reported this
-                        // as a cryptic "reason 2" and looked like a silent
-                        // failure — Ernest's report).
+    /**
+     * Create the P2P group, honoring the user's group name / passphrase /
+     * band (Settings → Connection, Android 10+ config API). On a generic
+     * ERROR, clear any zombie group and retry once with defaults — the
+     * v0.6.0 build surfaced that first ERROR as the final answer.
+     */
+    private fun createGroupWithRetry(
+        manager: WifiP2pManager,
+        channel: WifiP2pManager.Channel,
+        retried: Boolean,
+    ) {
+        val listener = object : WifiP2pManager.ActionListener {
+            override fun onSuccess() {
+                p2pGroupActive = true
+                requestGroupInfo()
+            }
+
+            override fun onFailure(reason: Int) {
+                when {
+                    reason == WifiP2pManager.BUSY -> {
+                        // A group from an earlier session is still up: adopt it.
+                        p2pGroupActive = true
                         requestGroupInfo()
-                        return
                     }
-                    _state.value = _state.value.copy(
+                    reason == WifiP2pManager.ERROR && !retried -> {
+                        runCatching {
+                            manager.removeGroup(channel, null)
+                        }
+                        Handler(Looper.getMainLooper()).postDelayed({
+                            createGroupWithRetry(manager, channel, retried = true)
+                        }, 600)
+                    }
+                    else -> _state.value = _state.value.copy(
                         busy = false,
                         message = "Wi-Fi Direct couldn't start: ${p2pReasonText(reason)}",
                     )
                 }
-            })
+            }
+        }
+        try {
+            val prefs = ConnectivityPrefsHolder.current
+            val config = if (
+                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !retried &&
+                (prefs.p2pName.isNotBlank() || prefs.p2pPassword.isNotBlank() ||
+                    prefs.p2pBand != "auto")
+            ) {
+                android.net.wifi.p2p.WifiP2pConfig.Builder()
+                    .apply {
+                        if (prefs.p2pName.isNotBlank()) setNetworkName(prefs.p2pName)
+                        if (prefs.p2pPassword.isNotBlank()) setPassphrase(prefs.p2pPassword)
+                        setGroupOperatingBand(
+                            when (prefs.p2pBand) {
+                                "2.4" -> android.net.wifi.p2p.WifiP2pConfig.GROUP_OPERATING_BAND_2GHZ
+                                "5" -> android.net.wifi.p2p.WifiP2pConfig.GROUP_OPERATING_BAND_5GHZ
+                                else -> android.net.wifi.p2p.WifiP2pConfig.GROUP_OPERATING_BAND_AUTO
+                            },
+                        )
+                    }
+                    .build()
+            } else {
+                null
+            }
+            if (config != null) {
+                manager.createGroup(channel, config, listener)
+            } else {
+                manager.createGroup(channel, listener)
+            }
         } catch (e: SecurityException) {
             _state.value = _state.value.copy(
                 busy = false,
                 message = "Wi-Fi Direct permission was denied.",
             )
+        } catch (e: Exception) {
+            // A malformed config (e.g. a too-short passphrase) must not be
+            // the end: fall back to a system-configured group once.
+            if (!retried) {
+                createGroupWithRetry(manager, channel, retried = true)
+            } else {
+                _state.value = _state.value.copy(
+                    busy = false,
+                    message = "Wi-Fi Direct couldn't start: ${e.message}",
+                )
+            }
         }
     }
 
