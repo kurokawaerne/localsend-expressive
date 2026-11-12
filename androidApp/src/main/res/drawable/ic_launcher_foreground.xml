@@ -1,7 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- LSEx mark v2: a paper plane on a send orbit — the ring suggests the
-     local network the file travels on. Ring + plane sit inside the
-     adaptive-icon safe zone on the 108-unit canvas. -->
+<!-- LSEx mark v3 (v0.5.0): paper plane on a send orbit, drawn INSIDE the
+     adaptive-icon safe zone. The v2 mark put its ring at r=46 on the
+     108-unit canvas, so launcher masks cropped it and the icon looked
+     broken on Ernest's phone. Ring r=30, plane within r=26, satellite dot
+     riding the ring — everything survives circle/squircle masks. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -13,13 +15,16 @@
         android:strokeAlpha="0.55"
         android:strokeWidth="4.5"
         android:strokeLineCap="round"
-        android:pathData="M54,8 A46,46 0 1 1 16.3,80.4" />
+        android:pathData="M24,54 A30,30 0 1 1 84,54 A30,30 0 1 1 24,54" />
+    <path
+        android:fillColor="#FFFFFF"
+        android:pathData="M77,29.5 A5.2,5.2 0 1 1 76.9,29.5 Z" />
     <group
         android:name="plane"
-        android:translateX="19.5"
-        android:translateY="19.5"
-        android:scaleX="2.87"
-        android:scaleY="2.87">
+        android:translateX="30"
+        android:translateY="30"
+        android:scaleX="2"
+        android:scaleY="2">
         <path
             android:fillColor="#FFFFFF"
             android:pathData="M2.01,21L23,12L2.01,3L2,10l15,2L2,14z" />
