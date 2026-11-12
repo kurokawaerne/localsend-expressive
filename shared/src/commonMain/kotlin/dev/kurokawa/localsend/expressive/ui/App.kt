@@ -2998,6 +2998,7 @@ private fun TroubleshootDialog(onDismiss: () -> Unit) {
         },
     )
 }
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun FileProgressRow(progress: FileProgress) {
     Column(Modifier.fillMaxWidth()) {
@@ -3047,6 +3048,7 @@ private fun formatSize(bytes: Long): String = when {
     bytes < 1024 * 1024 * 1024 -> "${"%.1f".format(bytes / 1024.0 / 1024.0)} MB"
     else -> "${"%.2f".format(bytes / 1024.0 / 1024.0 / 1024.0)} GB"
 }
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ConnectivityCard(
     controller: LocalSendController,
