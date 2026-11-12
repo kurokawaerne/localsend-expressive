@@ -2,8 +2,11 @@ package dev.kurokawa.localsend.expressive.platform
 
 import android.content.Context
 import android.net.wifi.WifiManager
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.graphics.asImageBitmap
 import dev.kurokawa.localsend.expressive.protocol.DeviceType
 
 actual fun platformDeviceType(): DeviceType = DeviceType.mobile
@@ -63,10 +66,50 @@ actual fun loadInstalledApps(): List<InstalledApp> {
                 packageName = app.packageName,
                 apkHandle = app.sourceDir,
                 apkSize = file.length(),
+                isSystem = (app.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0 ||
+                    (app.flags and android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0,
             )
         }
         .sortedBy { it.label.lowercase() }
 }
+
+@Composable
+actual fun AppIcon(packageName: String, modifier: androidx.compose.ui.Modifier) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val bitmap = androidx.compose.runtime.produceState<android.graphics.Bitmap?>(null, packageName) {
+        value = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            runCatching {
+                val drawable = context.packageManager.getApplicationIcon(packageName)
+                val bmp = android.graphics.Bitmap.createBitmap(
+                    96, 96, android.graphics.Bitmap.Config.ARGB_8888,
+                )
+                val canvas = android.graphics.Canvas(bmp)
+                drawable.setBounds(0, 0, canvas.width, canvas.height)
+                drawable.draw(canvas)
+                bmp
+            }.getOrNull()
+        }
+    }.value
+    if (bitmap != null) {
+        androidx.compose.foundation.Image(
+            bitmap = bitmap.asImageBitmap(),
+            contentDescription = null,
+            modifier = modifier,
+        )
+    } else {
+        androidx.compose.foundation.layout.Box(
+            modifier = modifier,
+            contentAlignment = androidx.compose.ui.Alignment.Center,
+        ) {
+            androidx.compose.material3.Icon(
+                Icons.Filled.Apps,
+                contentDescription = null,
+            )
+        }
+    }
+}
+
+actual fun usesSafDestination(): Boolean = true
 
 actual fun supportsQuickShareTile(): Boolean = true
 

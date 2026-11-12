@@ -15,6 +15,14 @@ interface ReceiveTarget {
     /** Human-readable location shown in the UI/history (e.g. "Download/Photos/a.jpg"). */
     val displayName: String
 
+    /**
+     * Where the finished file can be opened from (v0.5.0): a content:// URI
+     * on Android (MediaStore/SAF), an absolute path on desktop, or null when
+     * the platform can't provide one. Stored in History so a received file
+     * is always one tap away, wherever it landed.
+     */
+    val resultUri: String? get() = null
+
     fun openOutput(): OutputStream
 
     /** Publish the file (rename temp / clear MediaStore pending flag). */
@@ -33,6 +41,9 @@ interface ReceiveTarget {
  * @param destinationFolder custom receive folder ("" = platform default);
  *        on Android only a subfolder NAME under Download is honored
  *        (scoped storage), on desktop a full path
+ * @param destinationTreeUri Android SAF tree URI the user picked as the
+ *        receive folder; when non-empty it wins over [destinationFolder].
+ *        Ignored on desktop.
  */
 expect fun createReceiveTarget(
     relativePath: String,
@@ -40,6 +51,7 @@ expect fun createReceiveTarget(
     size: Long,
     saveToGallery: Boolean,
     destinationFolder: String,
+    destinationTreeUri: String = "",
 ): ReceiveTarget
 
 /** A file offered through the Download API (share via link). */

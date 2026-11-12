@@ -274,9 +274,17 @@ actual class ConnectivityController {
                 }
 
                 override fun onFailure(reason: Int) {
+                    if (reason == WifiP2pManager.BUSY) {
+                        // A group from an earlier session is still up:
+                        // adopt it instead of failing (v0.4.0 reported this
+                        // as a cryptic "reason 2" and looked like a silent
+                        // failure — Ernest's report).
+                        requestGroupInfo()
+                        return
+                    }
                     _state.value = _state.value.copy(
                         busy = false,
-                        message = "Wi-Fi Direct group failed (reason $reason).",
+                        message = "Wi-Fi Direct couldn't start: ${p2pReasonText(reason)}",
                     )
                 }
             })
@@ -303,7 +311,11 @@ actual class ConnectivityController {
                         ),
                     )
                 } else if (!p2pGroupActive) {
-                    _state.value = _state.value.copy(busy = false, wifiDirect = null)
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        wifiDirect = null,
+                        message = "Wi-Fi Direct group isn't active.",
+                    )
                 }
             }
         } catch (e: SecurityException) {
@@ -325,7 +337,7 @@ actual class ConnectivityController {
                     p2pGroupActive = false
                     _state.value = _state.value.copy(
                         wifiDirect = null,
-                        message = "Wi-Fi Direct group stop reported reason $reason.",
+                        message = "Wi-Fi Direct stop: ${p2pReasonText(reason)}",
                     )
                 }
             })
@@ -383,6 +395,30 @@ actual fun joinWifiNetwork(ssid: String, password: String?, security: String?): 
             "Connecting to “$ssid”…"
         }.getOrElse { "Couldn't join: ${it.message}" }
     }
+}
+
+/** WifiP2pManager failure reasons in words a human can act on. */
+private fun p2pReasonText(reason: Int): String = when (reason) {
+    WifiP2pManager.P2P_UNSUPPORTED -> "this device doesn't support Wi-Fi Direct."
+    WifiP2pManager.BUSY -> "Wi-Fi Direct is busy — wait a few seconds and try again."
+    WifiP2pManager.ERROR -> "an internal error occurred. Toggling Wi-Fi off and on usually clears it."
+    else -> "unknown error ($reason)."
+}
+
+/**
+ * Unwrap a Compose [android.content.Context] down to its ComponentActivity.
+ *
+ * v0.4.0 cast `LocalContext.current` directly; inside dialogs the context
+ * is a ContextThemeWrapper around the activity, the cast returned null and
+ * the scanner showed "Scanner unavailable." (Ernest's screenshot).
+ */
+private fun android.content.Context.findActivity(): androidx.activity.ComponentActivity? {
+    var ctx: android.content.Context? = this
+    while (ctx is android.content.ContextWrapper) {
+        if (ctx is androidx.activity.ComponentActivity) return ctx
+        ctx = ctx.baseContext
+    }
+    return ctx as? androidx.activity.ComponentActivity
 }
 
 // ── QR scanner (CameraX + ZXing) ───────────────────────────────────────────
@@ -448,7 +484,7 @@ actual fun QrScannerView(onCode: (String) -> Unit, modifier: Modifier) {
         }
         return
     }
-    val activity = context as? androidx.activity.ComponentActivity
+    val activity = context.findActivity()
     if (activity == null) {
         Box(modifier, contentAlignment = Alignment.Center) {
             Text("Scanner unavailable.")

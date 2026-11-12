@@ -107,6 +107,9 @@ class LocalSendService : LocalSendController {
 
     // ── outbox runner state (transient; the jobs themselves persist) ──
     private val outboxLock = Any()
+
+    /** fingerprint (or IP) -> peer speaks the LSEx chunked extension. */
+    private val chunkedCapabilityCache = java.util.concurrent.ConcurrentHashMap<String, Boolean>()
     private val wantedJobIds = mutableSetOf<String>()
     private val pendingPins = mutableMapOf<String, String?>()
     private var runnerJob: Job? = null
@@ -372,9 +375,18 @@ class LocalSendService : LocalSendController {
             _incomingProgress.value = files
         }
 
-        override fun onFileReceived(sessionId: String, peer: RegisterDto, file: FileDto, savedToDisplay: String) {
+        override fun onFileReceived(
+            sessionId: String,
+            peer: RegisterDto,
+            file: FileDto,
+            savedToDisplay: String,
+            savedUri: String?,
+        ) {
             _lastSavedTo.value = savedToDisplay
-            addHistory(peer.alias, file.fileName, file.size, incoming = true, success = true)
+            addHistory(
+                peer.alias, file.fileName, file.size,
+                incoming = true, success = true, uri = savedUri ?: "",
+            )
         }
 
         override fun onSessionFinished(sessionId: String, peer: RegisterDto) = Unit
@@ -551,6 +563,12 @@ class LocalSendService : LocalSendController {
         persistOutbox()
         publishJobState(job)
         pump()
+    }
+
+    override fun sendFilesToTargets(targets: List<DiscoveredDevice>, files: List<PickedFile>) {
+        // One independent job per device: the outbox runner works through
+        // them in order, and each can be retried/cancelled on its own.
+        targets.forEach { sendFiles(it, files) }
     }
 
     override fun retryOutboxJob(jobId: String, pin: String?) {
@@ -736,8 +754,18 @@ class LocalSendService : LocalSendController {
                 }
                 sessionId = prepared.sessionId
                 tokens = prepared.files
-                chunked = _settings.value.chunkedTransfers &&
-                    client.lsexCapabilities(target)?.chunked == true
+                // Capability results are cached per device: re-probing on
+                // every session cost a full TLS round trip before the
+                // first byte of every send (Ernest's "takes some seconds
+                // to start" report).
+                chunked = if (_settings.value.chunkedTransfers) {
+                    val key = target.fingerprint.ifEmpty { target.ip }
+                    chunkedCapabilityCache[key]
+                        ?: (client.lsexCapabilities(target)?.chunked == true)
+                            .also { chunkedCapabilityCache[key] = it }
+                } else {
+                    false
+                }
                 val sid = sessionId
                 val toks = tokens
                 val isChunked = chunked
@@ -820,6 +848,7 @@ class LocalSendService : LocalSendController {
                     file.size,
                     incoming = false,
                     success = true,
+                    handle = file.handle,
                 )
                 return FileOutcome.DONE
             } catch (e: SessionDeadException) {
@@ -1058,6 +1087,66 @@ class LocalSendService : LocalSendController {
         }
     }
 
+    override fun sendTextToTargets(targets: List<DiscoveredDevice>, text: String) {
+        val client = sendClient ?: return
+        if (targets.isEmpty() || text.isBlank()) return
+        sendJob?.cancel()
+        sendJob = scope.launch {
+            val bytes = text.toByteArray(Charsets.UTF_8)
+            for (target in targets) {
+                val id = UUID.randomUUID().toString()
+                var progress = FileProgress(id, "Text message", bytes.size.toLong())
+                fun publish(active: Boolean = true, error: String? = null, needsPin: Boolean = false) {
+                    _sendState.value = SendState(target, listOf(progress), active, error, needsPin)
+                }
+                publish()
+                try {
+                    val dto = FileDto(
+                        id = id,
+                        fileName = "Text.txt",
+                        size = bytes.size.toLong(),
+                        fileType = "text/plain",
+                        preview = text,
+                    )
+                    val prepared = client.prepareUpload(target, _localDevice.value, mapOf(id to dto), null)
+                    val sessionId = prepared.sessionId
+                    if (sessionId == null) {
+                        progress = progress.copy(done = bytes.size.toLong(), status = TransferStatus.DONE)
+                        addHistory(target.info.alias, text.take(120), bytes.size.toLong(), incoming = false, success = true)
+                        publish(active = false)
+                        continue
+                    }
+                    val token = prepared.files[id]
+                        ?: throw SendException(HttpStatusCode.Forbidden, "The device did not accept the message")
+                    currentSendSession = target to sessionId
+                    progress = progress.copy(status = TransferStatus.ACTIVE)
+                    publish()
+                    client.upload(
+                        target, sessionId, id, token, bytes.size.toLong(),
+                        openStream = { bytes.inputStream() },
+                    ) { sent ->
+                        progress = progress.copy(done = sent)
+                        publish()
+                    }
+                    progress = progress.copy(done = bytes.size.toLong(), status = TransferStatus.DONE)
+                    currentSendSession = null
+                    addHistory(target.info.alias, text.take(120), bytes.size.toLong(), incoming = false, success = true)
+                    publish(active = false)
+                } catch (e: CancellationException) {
+                    progress = progress.copy(status = TransferStatus.CANCELLED)
+                    publish(active = false, error = "Cancelled")
+                    throw e
+                } catch (e: SendException) {
+                    progress = progress.copy(status = TransferStatus.FAILED)
+                    publish(active = false, error = describeError(e), needsPin = e.status == HttpStatusCode.Unauthorized)
+                } catch (e: Exception) {
+                    progress = progress.copy(status = TransferStatus.FAILED)
+                    publish(active = false, error = friendlyError(e))
+                }
+            }
+        }
+    }
+
     override fun probeDevice(ip: String) {
         val client = sendClient ?: return
         scope.launch {
@@ -1180,9 +1269,26 @@ class LocalSendService : LocalSendController {
         updateSettings(s.copy(favorites = favorites))
     }
 
-    private fun addHistory(peerAlias: String, fileName: String, size: Long, incoming: Boolean, success: Boolean) {
+    private fun addHistory(
+        peerAlias: String,
+        fileName: String,
+        size: Long,
+        incoming: Boolean,
+        success: Boolean,
+        uri: String = "",
+        handle: String = "",
+    ) {
         if (!_settings.value.saveToHistory) return
-        val entry = HistoryEntry(System.currentTimeMillis(), peerAlias, fileName, size, incoming, success)
+        val entry = HistoryEntry(
+            timeMillis = System.currentTimeMillis(),
+            peerAlias = peerAlias,
+            fileName = fileName,
+            size = size,
+            incoming = incoming,
+            success = success,
+            uri = uri,
+            handle = handle,
+        )
         _history.value = (listOf(entry) + _history.value).take(200)
         store.saveHistory(_history.value)
     }

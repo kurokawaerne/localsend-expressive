@@ -42,6 +42,9 @@ class MainActivity : ComponentActivity() {
             notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
         val service = LocalSendService()
+        // The notification's Stop action lands here: shut the transfer
+        // engine down together with the foreground service.
+        LsexForegroundService.onStopRequested = { service.stop() }
         setContent {
             AppRoot(service)
         }

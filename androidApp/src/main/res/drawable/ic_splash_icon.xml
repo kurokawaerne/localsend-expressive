@@ -1,29 +1,36 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Splash-screen glyph: the LSEx mark, larger than the launcher icon
-     (splash icons aren't masked to the adaptive safe zone). The "plane"
-     group is the target of the splash animation. -->
+<!-- Splash-screen glyph: the LSEx mark v3, white on the brand teal splash
+     background. The whole mark is one group named "plane" (pivot at the
+     center) so the animated-vector can spring it in with scale alone —
+     the v0.4.0 animator also targeted group alpha, which AVD groups don't
+     support, so the animation silently never played. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
-    <path
-        android:fillColor="@android:color/transparent"
-        android:strokeColor="#FFFFFF"
-        android:strokeAlpha="0.55"
-        android:strokeWidth="4"
-        android:strokeLineCap="round"
-        android:pathData="M54,4 A50,50 0 1 1 12.9,83.5" />
     <group
         android:name="plane"
         android:pivotX="54"
-        android:pivotY="54"
-        android:translateX="15"
-        android:translateY="15"
-        android:scaleX="3.25"
-        android:scaleY="3.25">
+        android:pivotY="54">
+        <path
+            android:fillColor="@android:color/transparent"
+            android:strokeColor="#FFFFFF"
+            android:strokeAlpha="0.55"
+            android:strokeWidth="4.5"
+            android:strokeLineCap="round"
+            android:pathData="M24,54 A30,30 0 1 1 84,54 A30,30 0 1 1 24,54" />
         <path
             android:fillColor="#FFFFFF"
-            android:pathData="M2.01,21L23,12L2.01,3L2,10l15,2L2,14z" />
+            android:pathData="M77,29.5 A5.2,5.2 0 1 1 76.9,29.5 Z" />
+        <group
+            android:translateX="30"
+            android:translateY="30"
+            android:scaleX="2"
+            android:scaleY="2">
+            <path
+                android:fillColor="#FFFFFF"
+                android:pathData="M2.01,21L23,12L2.01,3L2,10l15,2L2,14z" />
+        </group>
     </group>
 </vector>

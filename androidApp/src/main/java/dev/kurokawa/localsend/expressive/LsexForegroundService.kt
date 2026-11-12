@@ -41,11 +41,21 @@ class LsexForegroundService : Service() {
             Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        // Ernest (v0.4.0 report): there was no way to stop the service
+        // from the notification. The Stop action asks the app to shut the
+        // receive server down, then removes this service.
+        val stopIntent = PendingIntent.getService(
+            this,
+            1,
+            Intent(this, LsexForegroundService::class.java).setAction(ACTION_STOP),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+        )
         val notification: Notification = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
             .setContentTitle("LSEx is running")
             .setContentText("Ready to send and receive files on this network")
             .setContentIntent(openApp)
+            .addAction(0, "Stop", stopIntent)
             .setOngoing(true)
             .build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -67,8 +77,15 @@ class LsexForegroundService : Service() {
         }
     }
 
-    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int =
-        START_STICKY
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        if (intent?.action == ACTION_STOP) {
+            onStopRequested?.invoke()
+            stopForeground(STOP_FOREGROUND_REMOVE)
+            stopSelf()
+            return START_NOT_STICKY
+        }
+        return START_STICKY
+    }
 
     override fun onDestroy() {
         runCatching { wakeLock?.release() }
@@ -84,6 +101,10 @@ class LsexForegroundService : Service() {
         private const val CHANNEL_ID = "lsex_service"
         private const val NOTIFICATION_ID = 41
         private const val WAKELOCK_TIMEOUT_MS = 4 * 60 * 60 * 1000L
+        const val ACTION_STOP = "dev.kurokawa.localsend.expressive.STOP_SERVICE"
+
+        /** Set by MainActivity: stops the receive server (LocalSendService). */
+        var onStopRequested: (() -> Unit)? = null
 
         fun start(context: Context) {
             val intent = Intent(context, LsexForegroundService::class.java)

@@ -6,42 +6,46 @@ It implements the [LocalSend Protocol v2.2](https://github.com/localsend/protoco
 
 > This project is not affiliated with or endorsed by the LocalSend project. "LocalSend" is the name of the upstream project and protocol; this is an independent reimplementation of the published protocol, with credit to the original authors.
 
-**Current release: v0.4.0** — full feature parity with the official app (see the checklist below), an Expressive redesign in the spirit of [Minus](https://github.com/isaacsa51/Minus) and PixelPlayer, a from-the-ground-up fix for the mutual-TLS send failure of earlier versions, a Rust core for the transfer-critical math, chunked resumable sends with a persistent retry outbox, and main-page connectivity shortcuts.
+**Current release: v0.5.0** — the one-view release: Send, Receive and Connect merged into a single Home (content tabs first, then multi-target device selection), a floating navigation bar, split APKs per architecture, SAF receive-folder picking with a built-in package installer, Android-style settings, and discovery that announces on every network interface.
 
-## Features (parity with the official app)
+## Features (parity with the official app, and then some)
 
-**Send**
-- Selection grid in Material 3 Expressive style: **File · Media · Paste · Text · Folder · App**
+**One Home view** — compose what to send, then tap as many target devices as you want (tap again to unselect)
+- Content tabs in Material 3 Expressive style: **Files · Media · Apps · Text · Folder · Web**
   - *Folder* sends keep their folder structure on the receiving side
-  - *App* (Android) sends an installed app's APK
-  - *Paste* sends the clipboard as a text message
+  - *Apps* (Android) shows real app icons, searches, can hide system apps, and sends an app's APK — `.apk`, `.apks` and `.aab` files can be picked as files too
+  - *Text* is written inline (or pasted from the clipboard) and goes to every selected device
+  - *Web* is share-via-link (Download API): browser page, QR code, chosen files, optional auto-accept of web uploads
+- Staged items are individual cards with **rename / discard** circular actions; the Ready-to-send section expands and collapses
 - Android share sheet integration, Quick Settings quick-share tile
-- Device list with favorites, device info (fingerprint verification), manual IP (incl. `host:port`)
-- PIN entry when the receiver requires one, per-file progress, cancel, partial acceptance
+- Device list with favorites (sorted first), device info (fingerprint verification), manual IP (incl. `host:port`)
+- PIN entry when the receiver requires one, per-file progress cards with quick cancel, partial acceptance
 - **Resumable chunked sends (LSEx ↔ LSEx):** files move in 1 MiB chunks staged on the receiver, so a dropped connection resumes from the receiver's confirmed byte count instead of zero (official peers get the classic whole-file upload — see *Protocol* below)
-- **Persistent outbox:** every send is saved before it starts and survives app restarts; failed sends retry automatically with backoff, and anything left can be retried **as a whole or per single file** from the Outbox section
+- **Persistent outbox:** every send is saved before it starts and survives app restarts; transfers are grouped per recipient device with dividers, failed sends retry automatically with backoff, and anything left can be retried **as a whole or per single file**. Finished sends can be re-staged from History in one tap
 
 **Receive**
 - Accept dialog with **per-file selection**
-- Quick Save and Quick Save from Favorites
-- Received files land where they belong: public **Downloads**, or **Pictures/Movies/Music** with *Save to Gallery* — never in an app-private corner
-- Share via link (Download API): browser page, QR code, chosen files, optional auto-accept of web uploads
-- History with one-line previews
+- Quick Save as one connected button group: **Off / Favorites / Everyone**
+- Received files land where they belong: pick any folder with the system folder picker (**SAF**), or let them go to public **Downloads** / **Pictures/Movies/Music** with *Save to Gallery* — never an app-private corner. History keeps a link to every received file (**Open** button)
+- **Built-in installer:** received `.apk` files and split sets (`.apks` / `.xapk` / `.apkm`) install straight from History through PackageInstaller sessions — no second app needed
+- Discovery announces and listens on **every LAN interface** (plus subnet broadcast copies), so machines with VPNs or virtual NICs stay visible
 
-**Connectivity shortcuts (Receive screen)**
+**Connectivity shortcuts (Home)**
 - **WiFi / Hotspot / WiFi Direct** toggles: on Android the hotspot is a local-only hotspot (no internet needed) and WiFi Direct starts a P2P group; on desktop the toggles drive NetworkManager via `nmcli`. (Android 10+ forbids apps from flipping the WiFi radio, so that toggle opens the system internet panel.)
 - **Connect QR code:** shows the hotspot/P2P credentials as a scannable `WIFI:` code — or an LSEx connect code for this device when no hotspot is up
 - **QR scanner:** scan a `WIFI:` code to join a network, an `http(s)` link to open a web share, or an LSEx connect code to add that device
 
-**Every official setting is present**
+**Every official setting is present** — grouped Android-style cards with a colored-circle icon per setting, background-colored dividers, and dropdown menus for theme / colors / language
 - *General:* theme, color mode (wallpaper dynamic color or LSEx teal), language (System / English / Español), animations; desktop: always on top, save window placement, minimize to tray
 - *Receive:* Quick Save, Quick Save from Favorites, require PIN, destination, Save to Gallery, Auto Finish, Save to History, verify checksums (advanced)
 - *Send (advanced):* share-via-link auto-accept, create checksums, plus LSEx additions: auto-retry sends, resumable chunked sends
 - *Network:* server on/off, alias, port, encryption (HTTPS), Download API; advanced: device model/type, discovery timeout, multicast group, network whitelist/blacklist
 
 **Platform behavior**
-- Android foreground service with a persistent notification, WakeLock and Wi-Fi lock, so transfers survive the screen going off
-- Animated splash (system splash → in-app Compose splash), adaptive + monochrome themed icon
+- Android foreground service with a persistent notification (**Stop** action included), WakeLock and Wi-Fi lock, so transfers survive the screen going off
+- **Split APKs** per CPU architecture (arm64-v8a, armeabi-v7a, x86_64) plus a universal build; the Rust core is 16 KB-page aligned
+- Floating navigation bar on phones; ChromeOS-style rail + floating rounded content on desktop/wide windows
+- Animated splash (system splash → in-app Compose splash with an orbiting-dot mark), adaptive + monochrome themed icon drawn inside the safe zone
 - Desktop: tray support, window placement restore
 
 ## Protocol v2.2 compatibility

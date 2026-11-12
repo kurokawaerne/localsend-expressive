@@ -42,6 +42,30 @@ actual fun rememberMediaPickerLauncher(onPicked: (List<PickedFile>) -> Unit): ()
 }
 
 /**
+ * Receive-destination picker (v0.5.0): SAF document tree with a
+ * persistable read/write grant, so the receive sink can write into the
+ * chosen folder across restarts.
+ */
+@Composable
+actual fun rememberDestinationPickerLauncher(onPicked: (String) -> Unit): () -> Unit {
+    val context = LocalContext.current
+    val launcher = rememberLauncherForActivityResult(
+        ActivityResultContracts.OpenDocumentTree(),
+    ) { uri: Uri? ->
+        if (uri == null) return@rememberLauncherForActivityResult
+        runCatching {
+            context.contentResolver.takePersistableUriPermission(
+                uri,
+                android.content.Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                    android.content.Intent.FLAG_GRANT_WRITE_URI_PERMISSION,
+            )
+        }
+        onPicked(uri.toString())
+    }
+    return remember(launcher) { { launcher.launch(null) } }
+}
+
+/**
  * Folder picker (the official "Folder" tile): walks the chosen document
  * tree and delivers every file with its path relative to the folder root,
  * prefixed with the folder's own name ("Folder/sub/file").

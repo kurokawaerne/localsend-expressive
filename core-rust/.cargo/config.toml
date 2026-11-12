@@ -1,0 +1,13 @@
+# Android 15+ devices with 16 KB memory pages refuse (or warn about)
+# native libraries whose ELF segments are only 4 KB-aligned — Ernest's
+# Redmi (LineageOS, Android 17) showed the "This app isn't 16 KB
+# compatible" dialog naming liblsex_core.so. Link the Android builds
+# with a 16 KB max page size so the segments align on every device.
+[target.aarch64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.armv7-linux-androideabi]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]
+
+[target.x86_64-linux-android]
+rustflags = ["-C", "link-arg=-Wl,-z,max-page-size=16384"]

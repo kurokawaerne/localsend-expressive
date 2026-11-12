@@ -12,8 +12,19 @@ android {
         applicationId = "dev.kurokawa.localsend.expressive"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 5
-        versionName = "0.4.0"
+        versionCode = 6
+        versionName = "0.5.0"
+    }
+    // Split APKs per CPU architecture + a universal one (Ernest's
+    // requirement, same as UDYAT Expressive): on his metered connection
+    // nobody should download three architectures to use one.
+    splits {
+        abi {
+            isEnable = true
+            reset()
+            include("arm64-v8a", "armeabi-v7a", "x86_64")
+            isUniversalApk = true
+        }
     }
     buildFeatures { compose = true }
     packaging {

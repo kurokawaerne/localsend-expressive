@@ -2,10 +2,21 @@ package dev.kurokawa.localsend.expressive.ui
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -22,30 +33,50 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Animation
 import androidx.compose.material.icons.filled.Apps
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Computer
 import androidx.compose.material.icons.filled.ContentPaste
+import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.Download
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Error
+import androidx.compose.material.icons.filled.Fingerprint
 import androidx.compose.material.icons.filled.Folder
+import androidx.compose.material.icons.filled.FolderOpen
+import androidx.compose.material.icons.filled.History
+import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Lan
 import androidx.compose.material.icons.filled.Language
+import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.Message
+import androidx.compose.material.icons.filled.OpenInNew
+import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.PhoneAndroid
+import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.QrCodeScanner
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Replay
 import androidx.compose.material.icons.filled.Router
+import androidx.compose.material.icons.filled.Save
+import androidx.compose.material.icons.filled.Security
 import androidx.compose.material.icons.filled.Send
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Share
+import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.StarBorder
+import androidx.compose.material.icons.filled.Storage
+import androidx.compose.material.icons.filled.SystemUpdate
+import androidx.compose.material.icons.filled.Translate
+import androidx.compose.material.icons.filled.Tune
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.WifiOff
 import androidx.compose.material.icons.filled.WifiTethering
@@ -54,16 +85,20 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.ExposedDropdownMenuAnchorType
+import androidx.compose.material3.ExposedDropdownMenuBox
+import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationRail
+import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
@@ -72,9 +107,10 @@ import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
+import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.TopAppBar
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -86,13 +122,19 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import dev.kurokawa.localsend.expressive.LocalDevice
 import dev.kurokawa.localsend.expressive.app.AppSettings
@@ -104,20 +146,27 @@ import dev.kurokawa.localsend.expressive.app.OutboxFile
 import dev.kurokawa.localsend.expressive.app.OutboxJob
 import dev.kurokawa.localsend.expressive.app.TransferStatus
 import dev.kurokawa.localsend.expressive.discovery.DiscoveredDevice
+import dev.kurokawa.localsend.expressive.platform.AppIcon
 import dev.kurokawa.localsend.expressive.platform.ConnectivityController
 import dev.kurokawa.localsend.expressive.platform.InstalledApp
 import dev.kurokawa.localsend.expressive.platform.PickedFile
 import dev.kurokawa.localsend.expressive.platform.QrScannerView
+import dev.kurokawa.localsend.expressive.platform.installPackage
+import dev.kurokawa.localsend.expressive.platform.installerSupported
+import dev.kurokawa.localsend.expressive.platform.isInstallablePackage
 import dev.kurokawa.localsend.expressive.platform.joinWifiNetwork
+import dev.kurokawa.localsend.expressive.platform.loadInstalledApps
+import dev.kurokawa.localsend.expressive.platform.openReceivedFile
 import dev.kurokawa.localsend.expressive.platform.openUrl
 import dev.kurokawa.localsend.expressive.platform.parseWifiQr
 import dev.kurokawa.localsend.expressive.platform.clearQuickShareRequest
 import dev.kurokawa.localsend.expressive.platform.clearSharedFiles
-import dev.kurokawa.localsend.expressive.platform.loadInstalledApps
 import dev.kurokawa.localsend.expressive.platform.platformDeviceType
 import dev.kurokawa.localsend.expressive.platform.quickShareRequests
 import dev.kurokawa.localsend.expressive.platform.rememberClipboardText
+import dev.kurokawa.localsend.expressive.platform.rememberDestinationPickerLauncher
 import dev.kurokawa.localsend.expressive.platform.rustCoreActive
+import dev.kurokawa.localsend.expressive.platform.usesSafDestination
 import dev.kurokawa.localsend.expressive.platform.wifiQrPayload
 import dev.kurokawa.localsend.expressive.platform.rememberFilePickerLauncher
 import dev.kurokawa.localsend.expressive.platform.rememberFolderPickerLauncher
@@ -133,7 +182,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-private enum class Tab { Send, Receive, Settings }
+private enum class MainTab { Home, Settings }
 
 // ── UI strings (language setting: system / English / Español) ──────────────
 
@@ -188,57 +237,144 @@ fun AppRoot(controller: LocalSendController) {
 }
 
 /**
- * In-app animated splash in the Minus pattern: the mark springs in, the
- * wordmark follows. (The system splash hands off to this; v0.3.0 relied on
- * the system splash alone, which Ernest never saw animate.)
+ * The LSEx logo mark, drawn the same way as the launcher icon: a paper
+ * plane inside an orbit ring with a satellite dot. [orbitAngle] animates
+ * the dot around the ring (splash); the header uses a static angle.
+ */
+@Composable
+private fun LogoMark(
+    size: androidx.compose.ui.unit.Dp,
+    orbitAngle: Float = -40f,
+    modifier: Modifier = Modifier,
+) {
+    val primary = MaterialTheme.colorScheme.primary
+    val onPrimary = MaterialTheme.colorScheme.onPrimary
+    Surface(
+        shape = RoundedCornerShape(size * 0.28f),
+        color = primary,
+        modifier = modifier.size(size),
+    ) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Canvas(Modifier.fillMaxSize()) {
+                val stroke = this.size.minDimension * 0.045f
+                val radius = this.size.minDimension * 0.40f
+                drawCircle(
+                    color = onPrimary.copy(alpha = 0.55f),
+                    radius = radius,
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke),
+                )
+                val rad = Math.toRadians(orbitAngle.toDouble())
+                val cx = center.x + radius * kotlin.math.cos(rad).toFloat()
+                val cy = center.y + radius * kotlin.math.sin(rad).toFloat()
+                drawCircle(
+                    color = onPrimary,
+                    radius = this.size.minDimension * 0.065f,
+                    center = androidx.compose.ui.geometry.Offset(cx, cy),
+                )
+            }
+            Icon(
+                Icons.Filled.Send,
+                contentDescription = null,
+                tint = onPrimary,
+                modifier = Modifier.size(size * 0.5f),
+            )
+        }
+    }
+}
+
+/** The styled LSEx wordmark Ernest asked for: two-tone, extra bold, italic accent. */
+@Composable
+private fun LsexWordmark(modifier: Modifier = Modifier) {
+    val scheme = MaterialTheme.colorScheme
+    Row(modifier, verticalAlignment = Alignment.CenterVertically) {
+        LogoMark(38.dp)
+        Spacer(Modifier.width(10.dp))
+        Text(
+            buildAnnotatedString {
+                withStyle(
+                    SpanStyle(fontWeight = FontWeight.ExtraBold, color = scheme.primary),
+                ) { append("LS") }
+                withStyle(
+                    SpanStyle(
+                        fontWeight = FontWeight.ExtraBold,
+                        fontStyle = FontStyle.Italic,
+                        color = scheme.tertiary,
+                    ),
+                ) { append("Ex") }
+            },
+            style = MaterialTheme.typography.headlineMedium,
+        )
+    }
+}
+
+/**
+ * In-app animated splash (v0.5.0 redesign). v0.4.0's tween ran while the
+ * first frames were still being skipped during startup, so Ernest only
+ * ever saw a static image. This one waits for the first real frame, then
+ * springs the mark in with an orbiting satellite dot, and fades out.
  */
 @Composable
 private fun SplashOverlay(onDone: () -> Unit) {
-    val progress = remember { Animatable(0f) }
+    var started by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
-        progress.animateTo(1f, animationSpec = tween(950, easing = FastOutSlowInEasing))
-        delay(300)
+        withFrameNanos { }
+        started = true
+        delay(1600)
         onDone()
     }
+    val scale by animateFloatAsState(
+        targetValue = if (started) 1f else 0.55f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow,
+        ),
+        label = "splashScale",
+    )
+    val alpha by animateFloatAsState(
+        targetValue = if (started) 1f else 0f,
+        animationSpec = tween(350),
+        label = "splashAlpha",
+    )
+    val orbit = rememberInfiniteTransition(label = "splashOrbit")
+    val angle by orbit.animateFloat(
+        initialValue = -40f,
+        targetValue = 320f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart,
+        ),
+        label = "splashOrbitAngle",
+    )
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Column(
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(18.dp),
+                verticalArrangement = Arrangement.spacedBy(20.dp),
+                modifier = Modifier.graphicsLayer {
+                    scaleX = scale
+                    scaleY = scale
+                    this.alpha = alpha
+                },
             ) {
-                Surface(
-                    shape = RoundedCornerShape(30.dp),
-                    color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier
-                        .size(104.dp)
-                        .graphicsLayer {
-                            val p = progress.value
-                            scaleX = 0.55f + 0.45f * p
-                            scaleY = 0.55f + 0.45f * p
-                            alpha = p
-                            rotationZ = -8f * (1f - p)
-                        },
-                ) {
-                    Box(contentAlignment = Alignment.Center) {
-                        Icon(
-                            Icons.Filled.Send,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onPrimary,
-                            modifier = Modifier.size(52.dp),
-                        )
-                    }
-                }
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    modifier = Modifier.graphicsLayer {
-                        alpha = progress.value
-                        translationY = 24f * (1f - progress.value)
-                    },
-                ) {
+                LogoMark(112.dp, orbitAngle = angle)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Text(
-                        "LSEx",
+                        buildAnnotatedString {
+                            withStyle(
+                                SpanStyle(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.primary,
+                                ),
+                            ) { append("LS") }
+                            withStyle(
+                                SpanStyle(
+                                    fontWeight = FontWeight.ExtraBold,
+                                    fontStyle = FontStyle.Italic,
+                                    color = MaterialTheme.colorScheme.tertiary,
+                                ),
+                            ) { append("Ex") }
+                        },
                         style = MaterialTheme.typography.displayMedium,
-                        color = MaterialTheme.colorScheme.onSurface,
                     )
                     Text(
                         "LocalSend Expressive",
@@ -251,7 +387,8 @@ private fun SplashOverlay(onDone: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+// ── Scaffold: floating nav bar (Google Photos style) / rail on wide screens ─
+
 @Composable
 private fun AppScaffold(controller: LocalSendController, settings: AppSettings) {
     val strings = LocalStrings.current
@@ -263,62 +400,99 @@ private fun AppScaffold(controller: LocalSendController, settings: AppSettings) 
     val devices by controller.devices.collectAsState()
     val offer by controller.incomingOffer.collectAsState()
 
-    var tab by remember { mutableStateOf(Tab.Send) }
+    var tab by remember { mutableStateOf(MainTab.Home) }
 
-    // QS-tile quick share: jump to Send and let that screen open its picker.
+    // QS-tile quick share: jump Home and let that screen open its picker.
     val quickShareCount by quickShareRequests().collectAsState()
     LaunchedEffect(quickShareCount) {
-        if (quickShareCount > 0) tab = Tab.Send
+        if (quickShareCount > 0) tab = MainTab.Home
     }
 
-    Scaffold(
-        topBar = {
-            TopAppBar(
-                title = { Text("LSEx", style = MaterialTheme.typography.headlineMedium) },
-                actions = {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        if (maxWidth >= 840.dp) {
+            // Wide layout (desktop / tablet): ChromeOS-flavoured chrome —
+            // a rail on a soft backdrop, content floating in a rounded
+            // card, like ChromeOS app windows.
+            Row(
+                Modifier
+                    .fillMaxSize()
+                    .background(MaterialTheme.colorScheme.surfaceContainerLow),
+            ) {
+                NavigationRail(
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+                ) {
+                    Spacer(Modifier.height(16.dp))
+                    LogoMark(44.dp)
+                    Spacer(Modifier.height(28.dp))
+                    NavigationRailItem(
+                        selected = tab == MainTab.Home,
+                        onClick = { tab = MainTab.Home },
+                        icon = { Icon(Icons.Filled.Home, contentDescription = null) },
+                        label = { Text("Home") },
+                    )
+                    NavigationRailItem(
+                        selected = tab == MainTab.Settings,
+                        onClick = { tab = MainTab.Settings },
+                        icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+                        label = { Text(strings.settings) },
+                    )
+                }
+                Box(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(top = 12.dp, end = 12.dp, bottom = 12.dp),
+                ) {
                     Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.secondaryContainer,
-                        modifier = Modifier.padding(end = 12.dp),
+                        shape = RoundedCornerShape(24.dp),
+                        color = MaterialTheme.colorScheme.surface,
+                        modifier = Modifier.fillMaxSize(),
                     ) {
-                        Text(
-                            text = local.alias,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                            modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
-                        )
+                        when (tab) {
+                            MainTab.Home -> HomeScreen(controller, devices, settings, local)
+                            MainTab.Settings -> SettingsScreen(controller, settings, local)
+                        }
+                    }
+                }
+            }
+        } else {
+            Scaffold(
+                bottomBar = {
+                    // Floating pill navigation, Google Photos style.
+                    Box(
+                        Modifier.fillMaxWidth().padding(bottom = 16.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Surface(
+                            shape = RoundedCornerShape(30.dp),
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            shadowElevation = 6.dp,
+                            tonalElevation = 3.dp,
+                        ) {
+                            Row(
+                                Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                FloatingNavItem(
+                                    selected = tab == MainTab.Home,
+                                    icon = Icons.Filled.Home,
+                                    label = "Home",
+                                ) { tab = MainTab.Home }
+                                FloatingNavItem(
+                                    selected = tab == MainTab.Settings,
+                                    icon = Icons.Filled.Settings,
+                                    label = strings.settings,
+                                ) { tab = MainTab.Settings }
+                            }
+                        }
                     }
                 },
-            )
-        },
-        bottomBar = {
-            NavigationBar {
-                NavigationBarItem(
-                    selected = tab == Tab.Send,
-                    onClick = { tab = Tab.Send },
-                    icon = { Icon(Icons.Filled.Send, contentDescription = null) },
-                    label = { Text(strings.send) },
-                )
-                NavigationBarItem(
-                    selected = tab == Tab.Receive,
-                    onClick = { tab = Tab.Receive },
-                    icon = { Icon(Icons.Filled.Download, contentDescription = null) },
-                    label = { Text(strings.receive) },
-                )
-                NavigationBarItem(
-                    selected = tab == Tab.Settings,
-                    onClick = { tab = Tab.Settings },
-                    icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
-                    label = { Text(strings.settings) },
-                )
-            }
-        },
-    ) { padding ->
-        Box(Modifier.fillMaxSize().padding(padding)) {
-            when (tab) {
-                Tab.Send -> SendScreen(controller, devices, settings)
-                Tab.Receive -> ReceiveScreen(controller, local, settings)
-                Tab.Settings -> SettingsScreen(controller, settings, local)
+            ) { padding ->
+                Box(Modifier.fillMaxSize().padding(padding)) {
+                    when (tab) {
+                        MainTab.Home -> HomeScreen(controller, devices, settings, local)
+                        MainTab.Settings -> SettingsScreen(controller, settings, local)
+                    }
+                }
             }
         }
     }
@@ -326,47 +500,117 @@ private fun AppScaffold(controller: LocalSendController, settings: AppSettings) 
     offer?.let { IncomingOfferDialog(controller, it) }
 }
 
-// ── Send ───────────────────────────────────────────────────────────────────
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun SendScreen(
+private fun FloatingNavItem(
+    selected: Boolean,
+    icon: ImageVector,
+    label: String,
+    onClick: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = Modifier
+            .clickable(onClick = onClick)
+            .padding(horizontal = 6.dp, vertical = 2.dp),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(16.dp),
+            color = if (selected) scheme.primaryContainer else Color.Transparent,
+            modifier = Modifier.width(56.dp).height(30.dp),
+        ) {
+            Box(contentAlignment = Alignment.Center) {
+                Icon(
+                    icon,
+                    contentDescription = label,
+                    tint = if (selected) scheme.onPrimaryContainer else scheme.onSurfaceVariant,
+                    modifier = Modifier.size(21.dp),
+                )
+            }
+        }
+        Text(
+            label,
+            style = MaterialTheme.typography.labelSmall,
+            color = if (selected) scheme.onSurface else scheme.onSurfaceVariant,
+            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+        )
+    }
+}
+
+// ── Home: Send + Receive + Connect in ONE view (v0.5.0) ────────────────────
+// Layout inspired by Zapya / Google Files (content-first tabs), built
+// purely from Material 3 Expressive components, per Ernest's direction:
+// compose the content first, then tap as many target devices as you want.
+
+private sealed interface StagedItem {
+    data class FileItem(val file: PickedFile) : StagedItem
+    data class TextItem(val text: String) : StagedItem
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun HomeScreen(
     controller: LocalSendController,
     devices: List<DiscoveredDevice>,
     settings: AppSettings,
+    local: LocalDevice,
 ) {
     val strings = LocalStrings.current
-    var selectedFingerprint by remember { mutableStateOf<String?>(null) }
-    var pickedFiles by remember { mutableStateOf<List<PickedFile>>(emptyList()) }
+    var selectedFingerprints by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var staged by remember { mutableStateOf<List<StagedItem>>(emptyList()) }
+    var contentTab by remember { mutableStateOf(0) }
+    var textDraft by remember { mutableStateOf("") }
     var pin by remember { mutableStateOf("") }
-    var showTextDialog by remember { mutableStateOf(false) }
-    var prefillText by remember { mutableStateOf("") }
+    var lastText by remember { mutableStateOf("") }
     var showIpDialog by remember { mutableStateOf(false) }
     var showAppDialog by remember { mutableStateOf(false) }
     var showTroubleshoot by remember { mutableStateOf(false) }
     var infoDevice by remember { mutableStateOf<DiscoveredDevice?>(null) }
     var pasteNote by remember { mutableStateOf<String?>(null) }
-    var lastText by remember { mutableStateOf("") }
+    var actionNote by remember { mutableStateOf<String?>(null) }
+    var editItem by remember { mutableStateOf<StagedItem?>(null) }
+    var readyExpanded by remember { mutableStateOf(true) }
+    var historyExpanded by remember { mutableStateOf(false) }
+    var collapsedGroups by remember { mutableStateOf<Set<String>>(emptySet()) }
+
     val sendState by controller.sendState.collectAsState()
     val outbox by controller.outbox.collectAsState()
     val scanning by controller.scanning.collectAsState()
-    val picker = rememberFilePickerLauncher { pickedFiles = pickedFiles + it }
-    val mediaPicker = rememberMediaPickerLauncher { pickedFiles = pickedFiles + it }
-    val folderPicker = rememberFolderPickerLauncher { pickedFiles = pickedFiles + it }
+    val progress by controller.incomingProgress.collectAsState()
+    val history by controller.history.collectAsState()
+    val lastSavedTo by controller.lastSavedTo.collectAsState()
+    val localIp by controller.localIpAddress.collectAsState()
+    val scope = rememberCoroutineScope()
+
+    val picker = rememberFilePickerLauncher { files ->
+        staged = staged + files.map { StagedItem.FileItem(it) }
+    }
+    val mediaPicker = rememberMediaPickerLauncher { files ->
+        staged = staged + files.map { StagedItem.FileItem(it) }
+    }
+    val folderPicker = rememberFolderPickerLauncher { files ->
+        staged = staged + files.map { StagedItem.FileItem(it) }
+    }
     val clipboardText = rememberClipboardText()
-    val selected = devices.firstOrNull { it.fingerprint == selectedFingerprint }
     val isMobile = platformDeviceType() == DeviceType.mobile
 
-    // Files arriving from the Android share sheet join the selection.
+    val sortedDevices = devices.sortedByDescending { it.fingerprint in settings.favorites }
+    val targets = sortedDevices.filter { it.fingerprint in selectedFingerprints }
+    val stagedFiles = staged.filterIsInstance<StagedItem.FileItem>().map { it.file }
+    val stagedTexts = staged.filterIsInstance<StagedItem.TextItem>()
+    val stagedBytes = stagedFiles.sumOf { it.size } +
+        stagedTexts.sumOf { it.text.encodeToByteArray().size.toLong() }
+
+    // Files arriving from the Android share sheet join the staging area.
     val sharedFiles by sharedFilesFlow().collectAsState()
     LaunchedEffect(sharedFiles) {
         if (sharedFiles.isNotEmpty()) {
-            pickedFiles = pickedFiles + sharedFiles
+            staged = staged + sharedFiles.map { StagedItem.FileItem(it) }
             clearSharedFiles()
         }
     }
 
-    // Opening Send starts an active scan burst (the discovery timeout).
+    // Opening Home starts an active scan burst (the discovery timeout).
     LaunchedEffect(Unit) { controller.refreshDiscovery() }
 
     // QS tile: open straight into the file picker, once per invocation.
@@ -383,15 +627,114 @@ private fun SendScreen(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(top = 16.dp, bottom = 24.dp),
     ) {
+        // ── Header: wordmark + own-device chip ──
+        item {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                LsexWordmark(Modifier.weight(1f))
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                ) {
+                    Text(
+                        text = local.alias,
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                    )
+                }
+            }
+        }
+
+        // ── Receive status hero ──
+        item {
+            Card(
+                Modifier.fillMaxWidth(),
+                shape = MaterialTheme.shapes.extraLarge,
+                colors = CardDefaults.cardColors(
+                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                ),
+            ) {
+                Column(
+                    Modifier.padding(20.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    Text(
+                        if (settings.serverEnabled) "Ready to receive" else "Server is off",
+                        style = MaterialTheme.typography.titleMedium,
+                    )
+                    Text(local.alias, style = MaterialTheme.typography.headlineLarge)
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        InfoChip("Port ${local.port}")
+                        InfoChip(if (local.protocol == "https") "HTTPS" else "HTTP")
+                        InfoChip("Protocol ${ProtocolConstants.VERSION}")
+                    }
+                    localIp?.let { ip ->
+                        Text(
+                            "This device: $ip:${local.port}",
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
+            }
+        }
+        item {
+            GroupCard {
+                QuickSaveGroup(controller, settings)
+                SettingsDivider()
+                SettingsSwitch(
+                    icon = Icons.Filled.CheckCircle,
+                    iconBg = MaterialTheme.colorScheme.tertiaryContainer,
+                    title = "Auto Finish",
+                    subtitle = "Close a receive session as soon as it completes",
+                    checked = settings.autoFinish,
+                    onCheckedChange = {
+                        controller.updateSettings(settings.copy(autoFinish = it))
+                    },
+                )
+            }
+        }
+        item {
+            ConnectivityCard(controller, local, localIp)
+        }
+        if (progress.isNotEmpty()) {
+            item {
+                Text("Receiving", style = MaterialTheme.typography.titleMedium)
+            }
+            item {
+                GroupCard {
+                    Column(
+                        Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        progress.forEach { FileProgressRow(it) }
+                    }
+                }
+            }
+        }
+        lastSavedTo?.let { saved ->
+            item {
+                Text(
+                    "Last file saved to $saved",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+
+        // ── Devices (multi-select targets) ──
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text(strings.nearbyDevices, style = MaterialTheme.typography.headlineMedium)
+                    Text(strings.nearbyDevices, style = MaterialTheme.typography.headlineSmall)
                     Text(
-                        "Tap a device, then choose what to send.",
+                        "Tap to select one or more devices to send to.",
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+                IconButton(onClick = { showIpDialog = true }) {
+                    Icon(Icons.Filled.Lan, contentDescription = "Add by IP address")
                 }
                 IconButton(onClick = { controller.refreshDiscovery() }) {
                     if (scanning) {
@@ -402,7 +745,7 @@ private fun SendScreen(
                 }
             }
         }
-        if (devices.isEmpty()) {
+        if (sortedDevices.isEmpty()) {
             item {
                 Column(
                     Modifier.fillMaxWidth().padding(vertical = 24.dp),
@@ -415,138 +758,247 @@ private fun SendScreen(
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    TextButton(onClick = { showIpDialog = true }) {
-                        Text("Add by IP address instead")
-                    }
                     TextButton(onClick = { showTroubleshoot = true }) {
                         Text(strings.troubleshoot)
                     }
                 }
             }
         } else {
-            items(devices, key = { it.fingerprint }) { device ->
+            items(sortedDevices, key = { it.fingerprint }) { device ->
                 DeviceCard(
                     device = device,
-                    isSelected = device.fingerprint == selectedFingerprint,
+                    isSelected = device.fingerprint in selectedFingerprints,
                     isFavorite = device.fingerprint in settings.favorites,
-                    onClick = { selectedFingerprint = device.fingerprint },
+                    onClick = {
+                        selectedFingerprints = if (device.fingerprint in selectedFingerprints) {
+                            selectedFingerprints - device.fingerprint
+                        } else {
+                            selectedFingerprints + device.fingerprint
+                        }
+                    },
                     onToggleFavorite = { controller.toggleFavorite(device.fingerprint) },
                     onInfo = { infoDevice = device },
                 )
             }
         }
 
+        // ── Content tabs: compose FIRST, then send ──
         item {
-            Text(strings.selection, style = MaterialTheme.typography.titleMedium)
+            Text("What to send", style = MaterialTheme.typography.titleMedium)
         }
         item {
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SelectionTile(
-                        icon = Icons.Filled.AttachFile, label = "File",
-                        modifier = Modifier.weight(1f),
-                    ) { picker() }
-                    SelectionTile(
-                        icon = Icons.Filled.Image, label = "Media",
-                        modifier = Modifier.weight(1f),
-                    ) { mediaPicker() }
-                    SelectionTile(
-                        icon = Icons.Filled.ContentPaste, label = "Paste",
-                        modifier = Modifier.weight(1f),
+            val tabs = buildList {
+                add("Files" to Icons.Filled.AttachFile)
+                add("Media" to Icons.Filled.Image)
+                add("Apps" to Icons.Filled.Apps)
+                add("Text" to Icons.Filled.Message)
+                add("Folder" to Icons.Filled.Folder)
+                add("Web" to Icons.Filled.Link)
+            }
+            Column {
+                TabRow(selectedTabIndex = contentTab) {
+                    tabs.forEachIndexed { index, (label, icon) ->
+                        Tab(
+                            selected = contentTab == index,
+                            onClick = { contentTab = index },
+                            text = { Text(label) },
+                            icon = { Icon(icon, contentDescription = null) },
+                        )
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(bottomStart = 20.dp, bottomEnd = 20.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        val text = clipboardText()
-                        when {
-                            text.isNullOrBlank() -> pasteNote = "The clipboard is empty."
-                            selected != null -> {
-                                lastText = text
-                                controller.sendText(selected, text)
-                                pasteNote = "Clipboard sent to ${selected.info.alias}."
+                        when (contentTab) {
+                            0 -> {
+                                Button(
+                                    onClick = { picker() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Icon(Icons.Filled.AttachFile, contentDescription = null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Choose files")
+                                }
+                                Text(
+                                    "Any files — documents, archives, and app packages " +
+                                        "(.apk, .apks, .aab) too.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            1 -> {
+                                Button(
+                                    onClick = { mediaPicker() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Icon(Icons.Filled.Image, contentDescription = null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Choose photos & videos")
+                                }
+                            }
+                            2 -> {
+                                if (isMobile) {
+                                    Button(
+                                        onClick = { showAppDialog = true },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) {
+                                        Icon(Icons.Filled.Apps, contentDescription = null)
+                                        Spacer(Modifier.width(8.dp))
+                                        Text("Browse installed apps")
+                                    }
+                                    Text(
+                                        "Sends the app's APK so the other side can install it.",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                } else {
+                                    Text(
+                                        "Installed apps can be sent from the Android app.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                    OutlinedButton(
+                                        onClick = { showIpDialog = true },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) { Text("Add a device by IP address") }
+                                }
+                            }
+                            3 -> {
+                                OutlinedTextField(
+                                    value = textDraft,
+                                    onValueChange = { textDraft = it },
+                                    label = { Text("Write a message") },
+                                    minLines = 3,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    OutlinedButton(
+                                        onClick = {
+                                            val clip = clipboardText()
+                                            if (clip.isNullOrBlank()) {
+                                                pasteNote = "The clipboard is empty."
+                                            } else {
+                                                textDraft = clip
+                                                pasteNote = null
+                                            }
+                                        },
+                                    ) {
+                                        Icon(Icons.Filled.ContentPaste, contentDescription = null)
+                                        Spacer(Modifier.width(6.dp))
+                                        Text("Paste")
+                                    }
+                                    Button(
+                                        onClick = {
+                                            if (textDraft.isNotBlank()) {
+                                                staged = staged + StagedItem.TextItem(textDraft)
+                                                lastText = textDraft
+                                                textDraft = ""
+                                            }
+                                        },
+                                        enabled = textDraft.isNotBlank(),
+                                    ) { Text("Add text") }
+                                }
+                                pasteNote?.let { note ->
+                                    Text(
+                                        note,
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                            4 -> {
+                                Button(
+                                    onClick = { folderPicker() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Icon(Icons.Filled.Folder, contentDescription = null)
+                                    Spacer(Modifier.width(8.dp))
+                                    Text("Choose a folder")
+                                }
+                                Text(
+                                    "The folder structure is recreated on the other device.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                             else -> {
-                                prefillText = text
-                                showTextDialog = true
+                                WebSharePanel(controller, settings, local, localIp)
                             }
                         }
                     }
                 }
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    SelectionTile(
-                        icon = Icons.Filled.Message, label = "Text",
+            }
+        }
+
+        // ── Ready to send (expandable) ──
+        if (staged.isNotEmpty()) {
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "${strings.readyToSend} · ${staged.size} item(s) · ${formatSize(stagedBytes)}",
+                        style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f),
-                    ) {
-                        prefillText = ""
-                        showTextDialog = true
-                    }
-                    SelectionTile(
-                        icon = Icons.Filled.Folder, label = "Folder",
-                        modifier = Modifier.weight(1f),
-                    ) { folderPicker() }
-                    if (isMobile) {
-                        SelectionTile(
-                            icon = Icons.Filled.Apps, label = "App",
-                            modifier = Modifier.weight(1f),
-                        ) { showAppDialog = true }
-                    } else {
-                        SelectionTile(
-                            icon = Icons.Filled.Lan, label = "IP address",
-                            modifier = Modifier.weight(1f),
-                        ) { showIpDialog = true }
+                    )
+                    TextButton(onClick = { staged = emptyList() }) { Text("Clear all") }
+                    IconButton(onClick = { readyExpanded = !readyExpanded }) {
+                        Icon(
+                            if (readyExpanded) {
+                                Icons.Filled.KeyboardArrowUp
+                            } else {
+                                Icons.Filled.KeyboardArrowDown
+                            },
+                            contentDescription = if (readyExpanded) "Collapse" else "Expand",
+                        )
                     }
                 }
-                pasteNote?.let { note ->
+            }
+            if (readyExpanded) {
+                items(staged.size) { index ->
+                    val item = staged[index]
+                    StagedItemCard(
+                        item = item,
+                        onEdit = { editItem = item },
+                        onDiscard = { staged = staged - item },
+                    )
+                }
+            }
+            item {
+                Button(
+                    onClick = {
+                        if (stagedFiles.isNotEmpty()) {
+                            controller.sendFilesToTargets(targets, stagedFiles)
+                        }
+                        stagedTexts.forEach { textItem ->
+                            controller.sendTextToTargets(targets, textItem.text)
+                        }
+                        staged = emptyList()
+                    },
+                    enabled = targets.isNotEmpty(),
+                    modifier = Modifier.fillMaxWidth().height(56.dp),
+                    shape = MaterialTheme.shapes.large,
+                ) {
+                    Icon(Icons.Filled.Send, contentDescription = null)
+                    Spacer(Modifier.width(8.dp))
                     Text(
-                        note,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        when {
+                            targets.isEmpty() -> "Select a device above"
+                            targets.size == 1 -> "Send to ${targets.first().info.alias}"
+                            else -> "Send to ${targets.size} devices"
+                        },
+                        style = MaterialTheme.typography.titleMedium,
                     )
                 }
             }
         }
 
-        if (pickedFiles.isNotEmpty()) {
-            item {
-                Text(strings.readyToSend, style = MaterialTheme.typography.titleMedium)
-            }
-            item {
-                Card(
-                    Modifier.fillMaxWidth(),
-                    shape = MaterialTheme.shapes.large,
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-                    ),
-                ) {
-                    Column {
-                        pickedFiles.forEachIndexed { index, file ->
-                            if (index > 0) HorizontalDivider()
-                            Row(
-                                Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        file.displayPath ?: file.name,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Text(
-                                        formatSize(file.size),
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
-                                IconButton(onClick = { pickedFiles = pickedFiles - file }) {
-                                    Icon(Icons.Filled.Close, contentDescription = "Remove")
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // Text sends keep their own ephemeral card; file sends live in the
-        // outbox section below (persistent, retryable per file).
+        // Text sends keep their own ephemeral card (PIN retry lives here);
+        // file sends live in the outbox below.
         val state = sendState
         if (state != null && state.jobId == null) {
             item {
@@ -603,33 +1055,14 @@ private fun SendScreen(
                     }
                 }
             }
-        } else if (pickedFiles.isNotEmpty()) {
-            item {
-                Button(
-                    onClick = { selected?.let { controller.sendFiles(it, pickedFiles) } },
-                    enabled = selected != null,
-                    modifier = Modifier.fillMaxWidth().height(56.dp),
-                    shape = MaterialTheme.shapes.large,
-                ) {
-                    Icon(Icons.Filled.Send, contentDescription = null)
-                    Spacer(Modifier.width(8.dp))
-                    Text(
-                        if (selected != null) {
-                            "Send to ${selected.info.alias}"
-                        } else {
-                            "Pick a device above"
-                        },
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                }
-            }
         }
 
+        // ── Outbox, grouped per recipient device ──
         if (outbox.isNotEmpty()) {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "Outbox",
+                        "Transfers",
                         style = MaterialTheme.typography.titleMedium,
                         modifier = Modifier.weight(1f),
                     )
@@ -648,24 +1081,151 @@ private fun SendScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            items(outbox, key = { it.id }) { job ->
-                OutboxJobCard(controller, job)
+            val groups = outbox.groupBy { it.targetFingerprint }
+            groups.forEach { (fingerprint, jobs) ->
+                item(key = "group-$fingerprint") {
+                    val expanded = fingerprint !in collapsedGroups
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+                                collapsedGroups = if (expanded) {
+                                    collapsedGroups + fingerprint
+                                } else {
+                                    collapsedGroups - fingerprint
+                                }
+                            }
+                            .padding(vertical = 4.dp),
+                    ) {
+                        Icon(
+                            deviceIcon(deviceTypeOf(jobs.first().targetType)),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.width(10.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text(
+                                jobs.first().targetAlias,
+                                style = MaterialTheme.typography.titleSmall,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                "${jobs.size} send(s) · " +
+                                    formatSize(jobs.sumOf { j -> j.files.sumOf { it.size } }),
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Icon(
+                            if (expanded) {
+                                Icons.Filled.KeyboardArrowUp
+                            } else {
+                                Icons.Filled.KeyboardArrowDown
+                            },
+                            contentDescription = if (expanded) "Collapse" else "Expand",
+                        )
+                    }
+                }
+                if (fingerprint !in collapsedGroups) {
+                    items(jobs, key = { it.id }) { job ->
+                        OutboxJobCard(controller, job, grouped = true)
+                    }
+                }
+            }
+        }
+
+        // ── History (collapsible) ──
+        if (history.isNotEmpty()) {
+            item {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { historyExpanded = !historyExpanded },
+                ) {
+                    Icon(
+                        Icons.Filled.History,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                    Text(
+                        strings.history,
+                        style = MaterialTheme.typography.titleMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Icon(
+                        if (historyExpanded) {
+                            Icons.Filled.KeyboardArrowUp
+                        } else {
+                            Icons.Filled.KeyboardArrowDown
+                        },
+                        contentDescription = if (historyExpanded) "Collapse" else "Expand",
+                    )
+                }
+            }
+            actionNote?.let { note ->
+                item {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(
+                            note,
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.weight(1f),
+                        )
+                        TextButton(onClick = { actionNote = null }) { Text("OK") }
+                    }
+                }
+            }
+            if (historyExpanded) {
+                item {
+                    GroupCard {
+                        history.forEachIndexed { index, entry ->
+                            if (index > 0) SettingsDivider()
+                            HistoryRow(
+                                entry = entry,
+                                onOpen = if (entry.incoming && entry.success && entry.uri.isNotEmpty()) {
+                                    { openReceivedFile(entry.uri, entry.fileName) }
+                                } else {
+                                    null
+                                },
+                                onInstall = if (
+                                    entry.incoming && entry.success &&
+                                    isInstallablePackage(entry.fileName) && installerSupported()
+                                ) {
+                                    {
+                                        scope.launch {
+                                            val result = withContext(Dispatchers.IO) {
+                                                installPackage(entry.uri, entry.fileName)
+                                            }
+                                            actionNote = result
+                                                ?: "Installer opened for ${entry.fileName}"
+                                        }
+                                    }
+                                } else {
+                                    null
+                                },
+                                onResend = if (!entry.incoming && entry.success && entry.handle.isNotEmpty()) {
+                                    {
+                                        staged = staged + StagedItem.FileItem(
+                                            PickedFile(entry.handle, entry.fileName, entry.size),
+                                        )
+                                        actionNote =
+                                            "“${entry.fileName}” is staged — pick the device(s) and send."
+                                    }
+                                } else {
+                                    null
+                                },
+                            )
+                        }
+                    }
+                }
             }
         }
     }
 
-    if (showTextDialog) {
-        TextMessageDialog(
-            target = selected,
-            initialText = prefillText,
-            onDismiss = { showTextDialog = false },
-            onSend = { text ->
-                lastText = text
-                selected?.let { controller.sendText(it, text) }
-                showTextDialog = false
-            },
-        )
-    }
     if (showIpDialog) {
         IpAddressDialog(
             onDismiss = { showIpDialog = false },
@@ -677,12 +1237,18 @@ private fun SendScreen(
     }
     if (showAppDialog) {
         AppPickerDialog(
+            settings = settings,
+            onToggleHideSystem = {
+                controller.updateSettings(settings.copy(hideSystemApps = it))
+            },
             onDismiss = { showAppDialog = false },
             onPick = { app ->
-                pickedFiles = pickedFiles + PickedFile(
-                    handle = app.apkHandle,
-                    name = "${app.label}.apk",
-                    size = app.apkSize,
+                staged = staged + StagedItem.FileItem(
+                    PickedFile(
+                        handle = app.apkHandle,
+                        name = "${app.label}.apk",
+                        size = app.apkSize,
+                    ),
                 )
                 showAppDialog = false
             },
@@ -699,39 +1265,164 @@ private fun SendScreen(
             onDismiss = { infoDevice = null },
         )
     }
+    editItem?.let { item ->
+        when (item) {
+            is StagedItem.FileItem -> StagedEditDialog(
+                title = "Rename file",
+                initial = item.file.displayPath ?: item.file.name,
+                onDismiss = { editItem = null },
+                onSave = { newName ->
+                    val trimmed = newName.trim()
+                    if (trimmed.isNotBlank()) {
+                        val renamed = if (item.file.displayPath != null) {
+                            val parent = item.file.displayPath.substringBeforeLast('/', "")
+                            val leaf = trimmed.substringAfterLast('/')
+                            item.file.copy(
+                                name = leaf,
+                                displayPath = if (parent.isEmpty()) leaf else "$parent/$leaf",
+                            )
+                        } else {
+                            item.file.copy(name = trimmed)
+                        }
+                        staged = staged.map { if (it == item) StagedItem.FileItem(renamed) else it }
+                    }
+                    editItem = null
+                },
+            )
+            is StagedItem.TextItem -> StagedEditDialog(
+                title = "Edit text",
+                initial = item.text,
+                multiline = true,
+                onDismiss = { editItem = null },
+                onSave = { newText ->
+                    if (newText.isNotBlank()) {
+                        staged = staged.map {
+                            if (it == item) StagedItem.TextItem(newText) else it
+                        }
+                        lastText = newText
+                    }
+                    editItem = null
+                },
+            )
+        }
+    }
 }
 
 @Composable
-private fun SelectionTile(
-    icon: ImageVector,
-    label: String,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
+private fun StagedItemCard(
+    item: StagedItem,
+    onEdit: () -> Unit,
+    onDiscard: () -> Unit,
 ) {
-    Card(
-        onClick = onClick,
-        modifier = modifier.height(88.dp),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-            contentColor = MaterialTheme.colorScheme.onSurface,
-        ),
+    Surface(
+        shape = RoundedCornerShape(18.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth(),
     ) {
-        Column(
-            Modifier.fillMaxSize().padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center,
+        Row(
+            Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(26.dp),
-            )
-            Spacer(Modifier.height(6.dp))
-            Text(label, style = MaterialTheme.typography.labelLarge)
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.size(40.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        when (item) {
+                            is StagedItem.FileItem -> Icons.Filled.AttachFile
+                            is StagedItem.TextItem -> Icons.Filled.Message
+                        },
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    when (item) {
+                        is StagedItem.FileItem -> item.file.displayPath ?: item.file.name
+                        is StagedItem.TextItem -> item.text
+                    },
+                    style = MaterialTheme.typography.bodyLarge,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    when (item) {
+                        is StagedItem.FileItem -> formatSize(item.file.size)
+                        is StagedItem.TextItem ->
+                            "Text · ${formatSize(item.text.encodeToByteArray().size.toLong())}"
+                    },
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            // Circular action buttons, like Ernest's MD3 reference photo:
+            // edit (rename) and discard are always one tap away.
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            ) {
+                IconButton(onClick = onEdit, modifier = Modifier.size(38.dp)) {
+                    Icon(
+                        Icons.Filled.Edit,
+                        contentDescription = "Rename / edit",
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+            Spacer(Modifier.width(6.dp))
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.surfaceContainerHigh,
+            ) {
+                IconButton(onClick = onDiscard, modifier = Modifier.size(38.dp)) {
+                    Icon(
+                        Icons.Filled.Close,
+                        contentDescription = "Discard",
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun StagedEditDialog(
+    title: String,
+    initial: String,
+    multiline: Boolean = false,
+    onDismiss: () -> Unit,
+    onSave: (String) -> Unit,
+) {
+    var text by remember { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = {
+            OutlinedTextField(
+                value = text,
+                onValueChange = { text = it },
+                singleLine = !multiline,
+                minLines = if (multiline) 3 else 1,
+                modifier = Modifier.fillMaxWidth(),
+            )
+        },
+        confirmButton = {
+            Button(
+                onClick = { onSave(text) },
+                enabled = text.isNotBlank(),
+            ) { Text("Save") }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Cancel") }
+        },
+    )
 }
 
 @Composable
@@ -823,271 +1514,282 @@ private fun DeviceCard(
     }
 }
 
-// ── Receive ────────────────────────────────────────────────────────────────
-
+/** Quick Save as ONE connected button group (MD3E), as Ernest asked. */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ReceiveScreen(
+private fun QuickSaveGroup(controller: LocalSendController, settings: AppSettings) {
+    val mode = when {
+        settings.quickSave -> 2
+        settings.autoAcceptFavorites -> 1
+        else -> 0
+    }
+    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text("Quick Save", style = MaterialTheme.typography.bodyLarge)
+        Text(
+            "Skip the accept prompt — for everyone, or only for favorites.",
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
+            listOf("Off", "Favorites", "Everyone").forEachIndexed { index, label ->
+                SegmentedButton(
+                    selected = mode == index,
+                    onClick = {
+                        controller.updateSettings(
+                            settings.copy(
+                                quickSave = index == 2,
+                                autoAcceptFavorites = index == 1,
+                            ),
+                        )
+                    },
+                    shape = SegmentedButtonDefaults.itemShape(index = index, count = 3),
+                    modifier = Modifier.weight(1f),
+                ) { Text(label) }
+            }
+        }
+    }
+}
+
+/** Share-via-link panel (the "Web" content tab): URL, QR, file choice. */
+@Composable
+private fun WebSharePanel(
     controller: LocalSendController,
-    local: LocalDevice,
     settings: AppSettings,
+    local: LocalDevice,
+    localIp: String?,
 ) {
-    val strings = LocalStrings.current
-    val progress by controller.incomingProgress.collectAsState()
-    val history by controller.history.collectAsState()
-    val lastSavedTo by controller.lastSavedTo.collectAsState()
-    val localIp by controller.localIpAddress.collectAsState()
     val webShareFiles by controller.webShareFiles.collectAsState()
     val webSharePicker = rememberFilePickerLauncher { controller.setWebShareFiles(it) }
-
-    LazyColumn(
-        Modifier.fillMaxSize().padding(horizontal = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp),
-        contentPadding = PaddingValues(top = 16.dp, bottom = 16.dp),
-    ) {
-        item {
-            Card(
-                Modifier.fillMaxWidth(),
-                shape = MaterialTheme.shapes.extraLarge,
-                colors = CardDefaults.cardColors(
-                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                    contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
-                ),
-            ) {
-                Column(
-                    Modifier.padding(24.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
+    Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                Icons.Filled.Link,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.width(8.dp))
+            Text("Share via link", style = MaterialTheme.typography.titleSmall)
+        }
+        if (!settings.downloadApi) {
+            Text(
+                "Serve files to any browser on this network — no app needed " +
+                    "on the other side.",
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Button(
+                onClick = { controller.updateSettings(settings.copy(downloadApi = true)) },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Turn on web sharing") }
+        } else {
+            val scheme = if (settings.https) "https" else "http"
+            val url = "$scheme://${localIp ?: "this-device"}:${local.port}/"
+            Text(
+                "Browsers on your network can open:",
+                style = MaterialTheme.typography.bodyMedium,
+            )
+            Text(url, style = MaterialTheme.typography.titleMedium)
+            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                QrCode(url)
+            }
+            if (webShareFiles.isEmpty()) {
+                Text(
+                    "No files are being shared yet.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else {
+                webShareFiles.forEach { file ->
                     Text(
-                        if (settings.serverEnabled) "Ready to receive" else "Server is off",
-                        style = MaterialTheme.typography.titleMedium,
-                    )
-                    Text(local.alias, style = MaterialTheme.typography.headlineLarge)
-                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                        InfoChip("Port ${local.port}")
-                        InfoChip(if (local.protocol == "https") "HTTPS" else "HTTP")
-                        InfoChip("Protocol ${ProtocolConstants.VERSION}")
-                    }
-                    Text(
-                        "Fingerprint ${local.fingerprint.take(16)}…",
+                        "• ${file.displayPath ?: file.name} · ${formatSize(file.size)}",
                         style = MaterialTheme.typography.bodySmall,
                     )
-                    localIp?.let { ip ->
-                        Text(
-                            "This device: $ip:${local.port}",
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
                 }
             }
-        }
-        item {
-            ConnectivityCard(controller, local, localIp)
-        }
-        lastSavedTo?.let { saved ->
-            item {
-                Text(
-                    "Last file saved to $saved",
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.primary,
-                )
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = { webSharePicker() }) { Text("Choose files") }
+                if (webShareFiles.isNotEmpty()) {
+                    OutlinedButton(
+                        onClick = { controller.setWebShareFiles(emptyList()) },
+                    ) { Text("Clear") }
+                }
             }
-        }
-        item {
-            GroupCard {
-                SettingsSwitch(
-                    title = "Quick Save",
-                    subtitle = "Accept every incoming transfer without asking",
-                    checked = settings.quickSave,
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text("Auto-accept web uploads", style = MaterialTheme.typography.bodyLarge)
+                    Text(
+                        "Skip the prompt for files uploaded from the web page",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Switch(
+                    checked = settings.shareViaLinkAutoAccept,
                     onCheckedChange = {
-                        controller.updateSettings(
-                            settings.copy(
-                                quickSave = it,
-                                autoAcceptFavorites = if (it) false else settings.autoAcceptFavorites,
-                            ),
-                        )
-                    },
-                )
-                HorizontalDivider()
-                SettingsSwitch(
-                    title = "Quick Save from Favorites",
-                    subtitle = "Skip the accept prompt for favorite devices",
-                    checked = settings.autoAcceptFavorites,
-                    onCheckedChange = {
-                        controller.updateSettings(
-                            settings.copy(
-                                autoAcceptFavorites = it,
-                                quickSave = if (it) false else settings.quickSave,
-                            ),
-                        )
-                    },
-                )
-                HorizontalDivider()
-                SettingsSwitch(
-                    title = "Auto Finish",
-                    subtitle = "Close a receive session as soon as it completes",
-                    checked = settings.autoFinish,
-                    onCheckedChange = {
-                        controller.updateSettings(settings.copy(autoFinish = it))
+                        controller.updateSettings(settings.copy(shareViaLinkAutoAccept = it))
                     },
                 )
             }
-        }
-        item {
-            Text("Share via link", style = MaterialTheme.typography.titleMedium)
-        }
-        item {
-            GroupCard {
-                if (!settings.downloadApi) {
-                    SettingsSwitch(
-                        title = "Web sharing is off",
-                        subtitle = "Serve files to browsers on this network (Download API)",
-                        checked = false,
-                        onCheckedChange = {
-                            controller.updateSettings(settings.copy(downloadApi = true))
-                        },
-                    )
-                } else {
-                    Column(
-                        Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        val scheme = if (settings.https) "https" else "http"
-                        val url = "$scheme://${localIp ?: "this-device"}:${local.port}/"
-                        Text(
-                            "Browsers on your network can open:",
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        Text(url, style = MaterialTheme.typography.titleMedium)
-                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                            QrCode(url)
-                        }
-                        if (webShareFiles.isEmpty()) {
-                            Text(
-                                "No files are being shared yet.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        } else {
-                            webShareFiles.forEach { file ->
-                                Text(
-                                    "• ${file.displayPath ?: file.name} · ${formatSize(file.size)}",
-                                    style = MaterialTheme.typography.bodySmall,
-                                )
-                            }
-                        }
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = { webSharePicker() }) { Text("Choose files") }
-                            if (webShareFiles.isNotEmpty()) {
-                                OutlinedButton(
-                                    onClick = { controller.setWebShareFiles(emptyList()) },
-                                ) { Text("Clear") }
-                            }
-                        }
-                    }
-                    HorizontalDivider()
-                    SettingsSwitch(
-                        title = "Auto-accept web uploads",
-                        subtitle = "Skip the prompt for files uploaded from the web page",
-                        checked = settings.shareViaLinkAutoAccept,
-                        onCheckedChange = {
-                            controller.updateSettings(
-                                settings.copy(shareViaLinkAutoAccept = it),
-                            )
-                        },
-                    )
-                    HorizontalDivider()
-                    SettingsSwitch(
-                        title = "Download API",
-                        subtitle = "Turn web sharing off",
-                        checked = true,
-                        onCheckedChange = {
-                            controller.updateSettings(settings.copy(downloadApi = false))
-                        },
-                    )
-                }
-            }
-        }
-        if (progress.isNotEmpty()) {
-            item {
-                Text("Receiving", style = MaterialTheme.typography.titleMedium)
-            }
-            item {
-                GroupCard {
-                    Column(
-                        Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        progress.forEach { FileProgressRow(it) }
-                    }
-                }
-            }
-        }
-        if (history.isNotEmpty()) {
-            item {
-                Text(strings.history, style = MaterialTheme.typography.titleMedium)
-            }
-            item {
-                GroupCard {
-                    history.forEachIndexed { index, entry ->
-                        if (index > 0) HorizontalDivider()
-                        HistoryRow(entry)
-                    }
-                }
-            }
+            OutlinedButton(
+                onClick = { controller.updateSettings(settings.copy(downloadApi = false)) },
+                modifier = Modifier.fillMaxWidth(),
+            ) { Text("Turn web sharing off") }
         }
     }
 }
 
+// ── Settings (Android-Settings style, v0.5.0) ──────────────────────────────
+// Grouped cards with slightly rounded corners, a colored-circle icon for
+// every setting, dividers in the background color, generous spacing.
+// Performance: this screen is a LazyColumn of independent items and does
+// NOT collect the devices/outbox flows, so background transfer activity
+// no longer recomposes it (the v0.4.0 "Skipped 52 frames" lag).
+
 @Composable
-private fun InfoChip(text: String) {
-    Surface(
-        shape = CircleShape,
+private fun SectionTitle(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.titleMedium,
+        color = MaterialTheme.colorScheme.primary,
+    )
+}
+
+/** A grouped settings-style card. */
+@Composable
+private fun GroupCard(content: @Composable ColumnScope.() -> Unit) {
+    Card(
+        Modifier.fillMaxWidth(),
+        shape = MaterialTheme.shapes.extraLarge,
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+        ),
+    ) {
+        Column(content = content)
+    }
+}
+
+/**
+ * Divider in the page background color, inset to the text edge — the
+ * Android Settings look Ernest asked for (not a hairline gray rule).
+ */
+@Composable
+private fun SettingsDivider() {
+    HorizontalDivider(
+        modifier = Modifier.padding(start = 68.dp, end = 16.dp),
+        thickness = 2.dp,
         color = MaterialTheme.colorScheme.surface,
-    ) {
-        Text(
-            text,
-            style = MaterialTheme.typography.labelMedium,
-            color = MaterialTheme.colorScheme.onSurface,
-            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-        )
-    }
+    )
 }
 
+/** Leading icon in a filled colored circle, Android 17 settings style. */
 @Composable
-private fun QrCode(content: String) {
-    val matrix = remember(content) {
-        runCatching {
-            com.google.zxing.qrcode.QRCodeWriter().encode(
-                content, com.google.zxing.BarcodeFormat.QR_CODE, 0, 0,
+private fun SettingIconChip(icon: ImageVector, iconBg: Color) {
+    Surface(shape = CircleShape, color = iconBg, modifier = Modifier.size(40.dp)) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                icon,
+                contentDescription = null,
+                modifier = Modifier.size(20.dp),
             )
-        }.getOrNull()
-    }
-    val dark = MaterialTheme.colorScheme.onSurface
-    Surface(
-        shape = MaterialTheme.shapes.medium,
-        color = Color.White,
-        modifier = Modifier.size(176.dp),
-    ) {
-        Canvas(Modifier.fillMaxSize().padding(10.dp)) {
-            matrix?.let { m ->
-                val cell = size.minDimension / m.width
-                for (x in 0 until m.width) {
-                    for (y in 0 until m.height) {
-                        if (m[x, y]) {
-                            drawRect(
-                                color = Color.Black,
-                                topLeft = androidx.compose.ui.geometry.Offset(x * cell, y * cell),
-                                size = androidx.compose.ui.geometry.Size(cell, cell),
-                            )
-                        }
-                    }
-                }
-            }
         }
     }
 }
 
-// ── Settings (full parity with the official app) ───────────────────────────
+@Composable
+private fun SettingsSwitch(
+    icon: ImageVector,
+    iconBg: Color,
+    title: String,
+    subtitle: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
+    Row(
+        Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        SettingIconChip(icon, iconBg)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                subtitle,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Switch(checked = checked, onCheckedChange = onCheckedChange)
+    }
+}
+
+/** A settings row whose value is chosen from a dropdown menu. */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SettingDropdown(
+    icon: ImageVector,
+    iconBg: Color,
+    title: String,
+    options: List<Pair<String, String>>,
+    selected: String,
+    onSelect: (String) -> Unit,
+) {
+    var expanded by remember { mutableStateOf(false) }
+    val selectedLabel = options.firstOrNull { it.first == selected }?.second ?: selected
+    ExposedDropdownMenuBox(
+        expanded = expanded,
+        onExpandedChange = { expanded = it },
+    ) {
+        Row(
+            Modifier
+                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
+                .clickable { expanded = true }
+                .padding(horizontal = 16.dp, vertical = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SettingIconChip(icon, iconBg)
+            Spacer(Modifier.width(12.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyLarge)
+                Text(
+                    selectedLabel,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            Icon(
+                Icons.Filled.KeyboardArrowDown,
+                contentDescription = "Choose",
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        ExposedDropdownMenu(
+            expanded = expanded,
+            onDismissRequest = { expanded = false },
+        ) {
+            options.forEach { (value, label) ->
+                DropdownMenuItem(
+                    text = { Text(label) },
+                    onClick = {
+                        onSelect(value)
+                        expanded = false
+                    },
+                    trailingIcon = if (value == selected) {
+                        {
+                            Icon(
+                                Icons.Filled.CheckCircle,
+                                contentDescription = "Selected",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    } else {
+                        null
+                    },
+                    contentPadding = ExposedDropdownMenuDefaults.ItemContentPadding,
+                )
+            }
+        }
+    }
+}
 
 @Composable
 private fun SettingsScreen(
@@ -1096,6 +1798,7 @@ private fun SettingsScreen(
     local: LocalDevice,
 ) {
     val strings = LocalStrings.current
+    val scheme = MaterialTheme.colorScheme
     var advanced by remember { mutableStateOf(false) }
     var alias by remember(settings.alias) { mutableStateOf(settings.alias) }
     var port by remember(settings.port) { mutableStateOf(settings.port.toString()) }
@@ -1116,6 +1819,14 @@ private fun SettingsScreen(
         mutableStateOf(settings.networkBlacklist)
     }
     val isDesktop = platformDeviceType() == DeviceType.desktop
+    val destinationPicker = rememberDestinationPickerLauncher { picked ->
+        if (usesSafDestination()) {
+            controller.updateSettings(settings.copy(destinationTreeUri = picked))
+        } else {
+            destination = picked
+            controller.updateSettings(settings.copy(destinationFolder = picked))
+        }
+    }
 
     fun saveNetworkBasics() {
         controller.updateSettings(
@@ -1139,67 +1850,47 @@ private fun SettingsScreen(
         item { SectionTitle("General") }
         item {
             GroupCard {
-                Column(
-                    Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(14.dp),
-                ) {
-                    Text("Theme", style = MaterialTheme.typography.titleSmall)
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        listOf("system" to "System", "light" to "Light", "dark" to "Dark")
-                            .forEachIndexed { index, (value, label) ->
-                                SegmentedButton(
-                                    selected = settings.themeMode == value,
-                                    onClick = {
-                                        controller.updateSettings(
-                                            settings.copy(themeMode = value),
-                                        )
-                                    },
-                                    shape = SegmentedButtonDefaults.itemShape(
-                                        index = index, count = 3,
-                                    ),
-                                    modifier = Modifier.weight(1f),
-                                ) { Text(label) }
-                            }
-                    }
-                    Text("Colors", style = MaterialTheme.typography.titleSmall)
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        listOf("dynamic" to "Wallpaper", "seed" to "LSEx")
-                            .forEachIndexed { index, (value, label) ->
-                                SegmentedButton(
-                                    selected = settings.colorMode == value,
-                                    onClick = {
-                                        controller.updateSettings(
-                                            settings.copy(colorMode = value),
-                                        )
-                                    },
-                                    shape = SegmentedButtonDefaults.itemShape(
-                                        index = index, count = 2,
-                                    ),
-                                    modifier = Modifier.weight(1f),
-                                ) { Text(label) }
-                            }
-                    }
-                    Text("Language", style = MaterialTheme.typography.titleSmall)
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        listOf("system" to "System", "en" to "EN", "es" to "ES")
-                            .forEachIndexed { index, (value, label) ->
-                                SegmentedButton(
-                                    selected = settings.language == value,
-                                    onClick = {
-                                        controller.updateSettings(
-                                            settings.copy(language = value),
-                                        )
-                                    },
-                                    shape = SegmentedButtonDefaults.itemShape(
-                                        index = index, count = 3,
-                                    ),
-                                    modifier = Modifier.weight(1f),
-                                ) { Text(label) }
-                            }
-                    }
-                }
-                HorizontalDivider()
+                SettingDropdown(
+                    icon = Icons.Filled.DarkMode,
+                    iconBg = scheme.primaryContainer,
+                    title = "Theme",
+                    options = listOf(
+                        "system" to "System",
+                        "light" to "Light",
+                        "dark" to "Dark",
+                    ),
+                    selected = settings.themeMode,
+                    onSelect = { controller.updateSettings(settings.copy(themeMode = it)) },
+                )
+                SettingsDivider()
+                SettingDropdown(
+                    icon = Icons.Filled.Palette,
+                    iconBg = scheme.secondaryContainer,
+                    title = "Colors",
+                    options = listOf(
+                        "dynamic" to "Wallpaper",
+                        "seed" to "LSEx",
+                    ),
+                    selected = settings.colorMode,
+                    onSelect = { controller.updateSettings(settings.copy(colorMode = it)) },
+                )
+                SettingsDivider()
+                SettingDropdown(
+                    icon = Icons.Filled.Translate,
+                    iconBg = scheme.tertiaryContainer,
+                    title = "Language",
+                    options = listOf(
+                        "system" to "System",
+                        "en" to "English",
+                        "es" to "Español",
+                    ),
+                    selected = settings.language,
+                    onSelect = { controller.updateSettings(settings.copy(language = it)) },
+                )
+                SettingsDivider()
                 SettingsSwitch(
+                    icon = Icons.Filled.Animation,
+                    iconBg = scheme.secondaryContainer,
                     title = "Animations",
                     subtitle = "Splash and expressive motion",
                     checked = settings.enableAnimations,
@@ -1208,19 +1899,28 @@ private fun SettingsScreen(
                     },
                 )
                 if (supportsQuickShareTile()) {
-                    HorizontalDivider()
-                    Column(Modifier.padding(16.dp)) {
-                        Text("Quick share tile", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "Add the LSEx tile from your Quick Settings panel editor " +
-                                "to start a share in one tap.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
+                    SettingsDivider()
+                    Row(
+                        Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        SettingIconChip(Icons.Filled.Share, scheme.tertiaryContainer)
+                        Spacer(Modifier.width(12.dp))
+                        Column(Modifier.weight(1f)) {
+                            Text("Quick share tile", style = MaterialTheme.typography.bodyLarge)
+                            Text(
+                                "Add the LSEx tile from your Quick Settings panel editor " +
+                                    "to start a share in one tap.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
                     }
                 }
-                HorizontalDivider()
+                SettingsDivider()
                 SettingsSwitch(
+                    icon = Icons.Filled.Tune,
+                    iconBg = scheme.errorContainer,
                     title = "Advanced settings",
                     subtitle = "Show the advanced sections, like the official app",
                     checked = advanced,
@@ -1234,6 +1934,8 @@ private fun SettingsScreen(
             item {
                 GroupCard {
                     SettingsSwitch(
+                        icon = Icons.Filled.PushPin,
+                        iconBg = scheme.primaryContainer,
                         title = "Always on top",
                         subtitle = "Keep the window above other windows",
                         checked = settings.alwaysOnTop,
@@ -1241,8 +1943,10 @@ private fun SettingsScreen(
                             controller.updateSettings(settings.copy(alwaysOnTop = it))
                         },
                     )
-                    HorizontalDivider()
+                    SettingsDivider()
                     SettingsSwitch(
+                        icon = Icons.Filled.Save,
+                        iconBg = scheme.secondaryContainer,
                         title = "Save window placement",
                         subtitle = "Restore window position and size on launch",
                         checked = settings.saveWindowPlacement,
@@ -1250,8 +1954,10 @@ private fun SettingsScreen(
                             controller.updateSettings(settings.copy(saveWindowPlacement = it))
                         },
                     )
-                    HorizontalDivider()
+                    SettingsDivider()
                     SettingsSwitch(
+                        icon = Icons.Filled.KeyboardArrowDown,
+                        iconBg = scheme.tertiaryContainer,
                         title = "Minimize to tray",
                         subtitle = "Closing the window keeps LSEx running in the tray",
                         checked = settings.minimizeToTray,
@@ -1266,35 +1972,11 @@ private fun SettingsScreen(
         item { SectionTitle("Receive") }
         item {
             GroupCard {
+                QuickSaveGroup(controller, settings)
+                SettingsDivider()
                 SettingsSwitch(
-                    title = "Quick Save",
-                    subtitle = "Accept every incoming transfer without asking",
-                    checked = settings.quickSave,
-                    onCheckedChange = {
-                        controller.updateSettings(
-                            settings.copy(
-                                quickSave = it,
-                                autoAcceptFavorites = if (it) false else settings.autoAcceptFavorites,
-                            ),
-                        )
-                    },
-                )
-                HorizontalDivider()
-                SettingsSwitch(
-                    title = "Quick Save from Favorites",
-                    subtitle = "Skip the accept prompt for favorite devices",
-                    checked = settings.autoAcceptFavorites,
-                    onCheckedChange = {
-                        controller.updateSettings(
-                            settings.copy(
-                                autoAcceptFavorites = it,
-                                quickSave = if (it) false else settings.quickSave,
-                            ),
-                        )
-                    },
-                )
-                HorizontalDivider()
-                SettingsSwitch(
+                    icon = Icons.Filled.Security,
+                    iconBg = scheme.errorContainer,
                     title = "Require PIN",
                     subtitle = if (settings.pin.isEmpty()) {
                         "Senders must enter a PIN (set one below)"
@@ -1308,8 +1990,10 @@ private fun SettingsScreen(
                         )
                     },
                 )
-                HorizontalDivider()
+                SettingsDivider()
                 SettingsSwitch(
+                    icon = Icons.Filled.Image,
+                    iconBg = scheme.tertiaryContainer,
                     title = "Save to Gallery",
                     subtitle = "Photos and videos go to Pictures/Movies instead of Downloads",
                     checked = settings.saveToGallery,
@@ -1317,8 +2001,10 @@ private fun SettingsScreen(
                         controller.updateSettings(settings.copy(saveToGallery = it))
                     },
                 )
-                HorizontalDivider()
+                SettingsDivider()
                 SettingsSwitch(
+                    icon = Icons.Filled.CheckCircle,
+                    iconBg = scheme.primaryContainer,
                     title = "Auto Finish",
                     subtitle = "Close a receive session as soon as it completes",
                     checked = settings.autoFinish,
@@ -1326,8 +2012,10 @@ private fun SettingsScreen(
                         controller.updateSettings(settings.copy(autoFinish = it))
                     },
                 )
-                HorizontalDivider()
+                SettingsDivider()
                 SettingsSwitch(
+                    icon = Icons.Filled.History,
+                    iconBg = scheme.secondaryContainer,
                     title = "Save to History",
                     subtitle = "Record finished transfers in the history list",
                     checked = settings.saveToHistory,
@@ -1336,8 +2024,10 @@ private fun SettingsScreen(
                     },
                 )
                 if (advanced) {
-                    HorizontalDivider()
+                    SettingsDivider()
                     SettingsSwitch(
+                        icon = Icons.Filled.Fingerprint,
+                        iconBg = scheme.tertiaryContainer,
                         title = "Verify checksums",
                         subtitle = "Reject files whose SHA-256 doesn't match the sender's",
                         checked = settings.verifyChecksums,
@@ -1346,34 +2036,74 @@ private fun SettingsScreen(
                         },
                     )
                 }
-                HorizontalDivider()
+                SettingsDivider()
                 Column(
                     Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    OutlinedTextField(
-                        value = destination,
-                        onValueChange = { destination = it },
-                        label = {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        SettingIconChip(Icons.Filled.FolderOpen, scheme.primaryContainer)
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text("Destination folder", style = MaterialTheme.typography.bodyLarge)
                             Text(
-                                if (isDesktop) {
-                                    "Destination folder (empty = ~/Downloads/LocalSend Expressive)"
-                                } else {
-                                    "Destination subfolder under Download (empty = Download)"
+                                when {
+                                    usesSafDestination() && settings.destinationTreeUri.isNotEmpty() ->
+                                        "A folder you picked (Storage Access Framework)"
+                                    usesSafDestination() ->
+                                        "Downloads (default)"
+                                    isDesktop && settings.destinationFolder.isNotEmpty() ->
+                                        settings.destinationFolder
+                                    isDesktop -> "~/Downloads/LocalSend Expressive (default)"
+                                    else -> "Downloads (default)"
                                 },
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
-                        },
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    OutlinedButton(
-                        onClick = {
-                            controller.updateSettings(
-                                settings.copy(destinationFolder = destination.trim()),
-                            )
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                    ) { Text("Save destination") }
+                        }
+                    }
+                    if (usesSafDestination()) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Button(onClick = { destinationPicker() }) {
+                                Text("Choose folder")
+                            }
+                            if (settings.destinationTreeUri.isNotEmpty()) {
+                                OutlinedButton(
+                                    onClick = {
+                                        controller.updateSettings(
+                                            settings.copy(destinationTreeUri = ""),
+                                        )
+                                    },
+                                ) { Text("Use Downloads") }
+                            }
+                        }
+                        Text(
+                            "Files are written into the folder you pick — check there " +
+                                "first. (MediaStore Downloads stays the fallback.)",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    } else {
+                        OutlinedTextField(
+                            value = destination,
+                            onValueChange = { destination = it },
+                            label = { Text("Destination folder path") },
+                            singleLine = true,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            OutlinedButton(onClick = { destinationPicker() }) {
+                                Text("Browse…")
+                            }
+                            Button(
+                                onClick = {
+                                    controller.updateSettings(
+                                        settings.copy(destinationFolder = destination.trim()),
+                                    )
+                                },
+                            ) { Text("Save destination") }
+                        }
+                    }
                 }
             }
         }
@@ -1383,6 +2113,8 @@ private fun SettingsScreen(
             item {
                 GroupCard {
                     SettingsSwitch(
+                        icon = Icons.Filled.Link,
+                        iconBg = scheme.primaryContainer,
                         title = "Share via link: auto-accept",
                         subtitle = "Auto-accept uploads from the web page",
                         checked = settings.shareViaLinkAutoAccept,
@@ -1392,8 +2124,10 @@ private fun SettingsScreen(
                             )
                         },
                     )
-                    HorizontalDivider()
+                    SettingsDivider()
                     SettingsSwitch(
+                        icon = Icons.Filled.Fingerprint,
+                        iconBg = scheme.secondaryContainer,
                         title = "Create checksums",
                         subtitle = "Attach a SHA-256 to every file you send (slower for big files)",
                         checked = settings.createChecksums,
@@ -1401,8 +2135,10 @@ private fun SettingsScreen(
                             controller.updateSettings(settings.copy(createChecksums = it))
                         },
                     )
-                    HorizontalDivider()
+                    SettingsDivider()
                     SettingsSwitch(
+                        icon = Icons.Filled.Replay,
+                        iconBg = scheme.tertiaryContainer,
                         title = "Auto-retry sends",
                         subtitle = "Retry a dropped send a few times before parking it in the outbox",
                         checked = settings.autoRetry,
@@ -1410,8 +2146,10 @@ private fun SettingsScreen(
                             controller.updateSettings(settings.copy(autoRetry = it))
                         },
                     )
-                    HorizontalDivider()
+                    SettingsDivider()
                     SettingsSwitch(
+                        icon = Icons.Filled.Speed,
+                        iconBg = scheme.primaryContainer,
                         title = "Resumable chunked sends",
                         subtitle = "With LSEx peers, send in 1 MiB chunks that resume after a disconnection",
                         checked = settings.chunkedTransfers,
@@ -1427,6 +2165,8 @@ private fun SettingsScreen(
         item {
             GroupCard {
                 SettingsSwitch(
+                    icon = Icons.Filled.Router,
+                    iconBg = scheme.primaryContainer,
                     title = "Server",
                     subtitle = if (settings.serverEnabled) {
                         "Receiving on port ${local.port}"
@@ -1438,7 +2178,7 @@ private fun SettingsScreen(
                         controller.updateSettings(settings.copy(serverEnabled = it))
                     },
                 )
-                HorizontalDivider()
+                SettingsDivider()
                 Column(
                     Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -1475,8 +2215,10 @@ private fun SettingsScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                HorizontalDivider()
+                SettingsDivider()
                 SettingsSwitch(
+                    icon = Icons.Filled.Security,
+                    iconBg = scheme.tertiaryContainer,
                     title = "Encryption (HTTPS)",
                     subtitle = "Self-signed certificate; the fingerprint is the cert SHA-256",
                     checked = settings.https,
@@ -1484,8 +2226,10 @@ private fun SettingsScreen(
                         controller.updateSettings(settings.copy(https = it))
                     },
                 )
-                HorizontalDivider()
+                SettingsDivider()
                 SettingsSwitch(
+                    icon = Icons.Filled.Link,
+                    iconBg = scheme.secondaryContainer,
                     title = "Download API",
                     subtitle = "Share via link: serve files to browsers on the network",
                     checked = settings.downloadApi,
@@ -1494,7 +2238,7 @@ private fun SettingsScreen(
                     },
                 )
                 if (advanced) {
-                    HorizontalDivider()
+                    SettingsDivider()
                     Column(
                         Modifier.padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -1555,7 +2299,7 @@ private fun SettingsScreen(
             item {
                 GroupCard {
                     settings.favorites.toList().forEachIndexed { index, fingerprint ->
-                        if (index > 0) HorizontalDivider()
+                        if (index > 0) SettingsDivider()
                         Row(
                             Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
@@ -1584,7 +2328,7 @@ private fun SettingsScreen(
 
         item {
             Text(
-                "LSEx 0.4.0 · LocalSend Protocol ${ProtocolConstants.VERSION} · " +
+                "LSEx 0.5.0 · LocalSend Protocol ${ProtocolConstants.VERSION} · " +
                     (if (rustCoreActive()) {
                         "Rust core active"
                     } else {
@@ -1598,18 +2342,216 @@ private fun SettingsScreen(
     }
 }
 
+// ── App picker: real icons + hide-system-apps toggle (v0.5.0) ──────────────
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun SectionTitle(text: String) {
-    Text(
-        text,
-        style = MaterialTheme.typography.titleMedium,
-        color = MaterialTheme.colorScheme.primary,
+private fun AppPickerDialog(
+    settings: AppSettings,
+    onToggleHideSystem: (Boolean) -> Unit,
+    onDismiss: () -> Unit,
+    onPick: (InstalledApp) -> Unit,
+) {
+    var apps by remember { mutableStateOf<List<InstalledApp>?>(null) }
+    var query by remember { mutableStateOf("") }
+    LaunchedEffect(Unit) {
+        apps = withContext(Dispatchers.Default) { loadInstalledApps() }
+    }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                Icon(
+                    Icons.Filled.Apps,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                    modifier = Modifier.padding(12.dp),
+                )
+            }
+        },
+        title = { Text("Send an app (APK)") },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedTextField(
+                    value = query,
+                    onValueChange = { query = it },
+                    label = { Text("Search apps") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        "Hide system apps",
+                        style = MaterialTheme.typography.bodyMedium,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Switch(
+                        checked = settings.hideSystemApps,
+                        onCheckedChange = onToggleHideSystem,
+                    )
+                }
+                val list = apps
+                when {
+                    list == null -> Box(
+                        Modifier.fillMaxWidth().height(120.dp),
+                        contentAlignment = Alignment.Center,
+                    ) { LoadingIndicator() }
+
+                    list.isEmpty() -> Text("No apps could be listed on this device.")
+                    else -> LazyColumn(Modifier.height(320.dp)) {
+                        items(
+                            list.filter { app ->
+                                (!settings.hideSystemApps || !app.isSystem) &&
+                                    (query.isBlank() ||
+                                        app.label.contains(query, ignoreCase = true))
+                            },
+                            key = { it.packageName },
+                        ) { app ->
+                            Row(
+                                Modifier
+                                    .fillMaxWidth()
+                                    .padding(vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                AppIcon(app.packageName, Modifier.size(42.dp))
+                                Spacer(Modifier.width(12.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        app.label,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        "${app.packageName} · ${formatSize(app.apkSize)}",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                                TextButton(onClick = { onPick(app) }) { Text("Add") }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {},
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text("Close") }
+        },
     )
 }
 
-/** A grouped settings-style card: rows separated by dividers, large shape. */
+// ── History + outbox rows ──────────────────────────────────────────────────
+
 @Composable
-private fun GroupCard(content: @Composable ColumnScope.() -> Unit) {
+private fun InfoChip(text: String) {
+    Surface(
+        shape = CircleShape,
+        color = MaterialTheme.colorScheme.surface,
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurface,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun HistoryRow(
+    entry: HistoryEntry,
+    onOpen: (() -> Unit)? = null,
+    onInstall: (() -> Unit)? = null,
+    onResend: (() -> Unit)? = null,
+) {
+    Row(
+        Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Icon(
+            if (entry.incoming) Icons.Filled.Download else Icons.Filled.Send,
+            contentDescription = null,
+        )
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f)) {
+            Text(
+                entry.fileName,
+                style = MaterialTheme.typography.bodyMedium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                "${entry.peerAlias} · ${formatSize(entry.size)}",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        if (onInstall != null) {
+            IconButton(onClick = onInstall) {
+                Icon(
+                    Icons.Filled.SystemUpdate,
+                    contentDescription = "Install this package",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        if (onOpen != null) {
+            IconButton(onClick = onOpen) {
+                Icon(
+                    Icons.Filled.OpenInNew,
+                    contentDescription = "Open file",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        if (onResend != null) {
+            IconButton(onClick = onResend) {
+                Icon(
+                    Icons.Filled.Send,
+                    contentDescription = "Stage for resending",
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+        }
+        Icon(
+            if (entry.success) Icons.Filled.CheckCircle else Icons.Filled.Error,
+            contentDescription = null,
+            tint = if (entry.success) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.error
+            },
+        )
+    }
+}
+
+private fun deviceTypeOf(name: String?): DeviceType? =
+    name?.let { runCatching { DeviceType.valueOf(it) }.getOrNull() }
+
+// ── Outbox (persistent sends: global + per-file retry) ─────────────────────
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun OutboxJobCard(
+    controller: LocalSendController,
+    job: OutboxJob,
+    grouped: Boolean = false,
+) {
+    var pin by remember(job.id) { mutableStateOf("") }
+    val isActiveJob = job.files.any { it.status == TransferStatus.ACTIVE }
+    val doneCount = job.files.count { it.status == TransferStatus.DONE }
+    val failedCount = job.files.count { it.status == TransferStatus.FAILED }
+    val summary = when {
+        job.finished -> "Sent ${formatSize(job.files.sumOf { it.size })}"
+        failedCount > 0 -> "$doneCount of ${job.files.size} sent · $failedCount failed"
+        else -> "$doneCount of ${job.files.size} sent"
+    }
     Card(
         Modifier.fillMaxWidth(),
         shape = MaterialTheme.shapes.large,
@@ -1617,35 +2559,203 @@ private fun GroupCard(content: @Composable ColumnScope.() -> Unit) {
             containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
         ),
     ) {
-        Column(content = content)
-    }
-}
-
-@Composable
-private fun SettingsSwitch(
-    title: String,
-    subtitle: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Row(
-        Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            Text(
-                subtitle,
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
+        Column(
+            Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    if (!grouped) {
+                        Text(
+                            "To ${job.targetAlias}",
+                            style = MaterialTheme.typography.titleMedium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                    Text(
+                        summary,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                if (job.chunked) InfoChip("Resumable")
+            }
+            job.files.forEach { file ->
+                OutboxFileRow(controller, job, file, enabled = !isActiveJob)
+            }
+            if (job.needsPin) {
+                OutlinedTextField(
+                    value = pin,
+                    onValueChange = { pin = it },
+                    label = { Text("PIN") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Button(
+                    onClick = { controller.retryOutboxJob(job.id, pin) },
+                    modifier = Modifier.fillMaxWidth(),
+                ) { Text("Retry with PIN") }
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (isActiveJob) {
+                    OutlinedButton(onClick = { controller.cancelSend() }) {
+                        Text("Cancel send")
+                    }
+                } else {
+                    if (!job.finished &&
+                        job.files.any { it.status != TransferStatus.DONE }
+                    ) {
+                        OutlinedButton(onClick = { controller.retryOutboxJob(job.id) }) {
+                            Icon(Icons.Filled.Replay, contentDescription = null)
+                            Spacer(Modifier.width(6.dp))
+                            Text("Retry")
+                        }
+                    }
+                    TextButton(onClick = { controller.dismissOutboxJob(job.id) }) {
+                        Text(if (job.finished) "Dismiss" else "Remove")
+                    }
+                }
+            }
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
-// ── Dialogs & rows ─────────────────────────────────────────────────────────
-
+/**
+ * One file of a send job as its OWN card (Ernest's sending-view request):
+ * progress bar plus a quick cancel while it's the file in flight.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun OutboxFileRow(
+    controller: LocalSendController,
+    job: OutboxJob,
+    file: OutboxFile,
+    enabled: Boolean,
+) {
+    Surface(
+        shape = RoundedCornerShape(14.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(horizontal = 12.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        file.displayPath ?: file.name,
+                        style = MaterialTheme.typography.bodyMedium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        when (file.status) {
+                            TransferStatus.DONE -> formatSize(file.size)
+                            TransferStatus.WAITING -> "Waiting · ${formatSize(file.size)}"
+                            TransferStatus.CANCELLED -> "Cancelled · ${formatSize(file.size)}"
+                            else ->
+                                "${formatSize(file.confirmedBytes)} / ${formatSize(file.size)}"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                when (file.status) {
+                    TransferStatus.DONE -> Icon(
+                        Icons.Filled.CheckCircle,
+                        contentDescription = "Done",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    TransferStatus.FAILED -> if (enabled) {
+                        IconButton(
+                            onClick = { controller.retryOutboxFile(job.id, file.fileId) },
+                        ) {
+                            Icon(
+                                Icons.Filled.Replay,
+                                contentDescription = "Retry this file",
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    } else {
+                        Icon(
+                            Icons.Filled.Error,
+                            contentDescription = "Failed",
+                            tint = MaterialTheme.colorScheme.error,
+                        )
+                    }
+                    TransferStatus.ACTIVE -> {
+                        LoadingIndicator(Modifier.size(20.dp))
+                        IconButton(onClick = { controller.cancelSend() }) {
+                            Icon(
+                                Icons.Filled.Close,
+                                contentDescription = "Cancel this send",
+                                tint = MaterialTheme.colorScheme.error,
+                            )
+                        }
+                    }
+                    else -> Unit
+                }
+            }
+            if (file.status == TransferStatus.ACTIVE ||
+                (file.confirmedBytes > 0 && file.status != TransferStatus.DONE)
+            ) {
+                LinearWavyProgressIndicator(
+                    progress = {
+                        if (file.size > 0) {
+                            (file.confirmedBytes.toFloat() / file.size).coerceIn(0f, 1f)
+                        } else {
+                            0f
+                        }
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            if (file.status == TransferStatus.FAILED) {
+                file.lastError?.let { error ->
+                    Text(
+                        error,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+            }
+        }
+    }
+}
+@Composable
+private fun QrCode(content: String) {
+    val matrix = remember(content) {
+        runCatching {
+            com.google.zxing.qrcode.QRCodeWriter().encode(
+                content, com.google.zxing.BarcodeFormat.QR_CODE, 0, 0,
+            )
+        }.getOrNull()
+    }
+    val dark = MaterialTheme.colorScheme.onSurface
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = Color.White,
+        modifier = Modifier.size(176.dp),
+    ) {
+        Canvas(Modifier.fillMaxSize().padding(10.dp)) {
+            matrix?.let { m ->
+                val cell = size.minDimension / m.width
+                for (x in 0 until m.width) {
+                    for (y in 0 until m.height) {
+                        if (m[x, y]) {
+                            drawRect(
+                                color = Color.Black,
+                                topLeft = androidx.compose.ui.geometry.Offset(x * cell, y * cell),
+                                size = androidx.compose.ui.geometry.Size(cell, cell),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
 @Composable
 private fun IncomingOfferDialog(controller: LocalSendController, offer: IncomingOffer) {
     var checked by remember(offer.sessionId) {
@@ -1708,7 +2818,6 @@ private fun IncomingOfferDialog(controller: LocalSendController, offer: Incoming
         },
     )
 }
-
 @Composable
 private fun TextMessageDialog(
     target: DiscoveredDevice?,
@@ -1807,92 +2916,6 @@ private fun IpAddressDialog(
         },
     )
 }
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun AppPickerDialog(
-    onDismiss: () -> Unit,
-    onPick: (InstalledApp) -> Unit,
-) {
-    var apps by remember { mutableStateOf<List<InstalledApp>?>(null) }
-    var query by remember { mutableStateOf("") }
-    LaunchedEffect(Unit) {
-        apps = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
-            loadInstalledApps()
-        }
-    }
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        icon = {
-            Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
-                Icon(
-                    Icons.Filled.Apps,
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onPrimaryContainer,
-                    modifier = Modifier.padding(12.dp),
-                )
-            }
-        },
-        title = { Text("Send an app (APK)") },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = query,
-                    onValueChange = { query = it },
-                    label = { Text("Search apps") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                val list = apps
-                when {
-                    list == null -> Box(
-                        Modifier.fillMaxWidth().height(120.dp),
-                        contentAlignment = Alignment.Center,
-                    ) { LoadingIndicator() }
-
-                    list.isEmpty() -> Text("No apps could be listed on this device.")
-                    else -> LazyColumn(Modifier.height(320.dp)) {
-                        items(
-                            list.filter {
-                                query.isBlank() || it.label.contains(query, ignoreCase = true)
-                            },
-                            key = { it.packageName },
-                        ) { app ->
-                            Row(
-                                Modifier
-                                    .fillMaxWidth()
-                                    .padding(vertical = 6.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(
-                                        app.label,
-                                        style = MaterialTheme.typography.bodyLarge,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                    Text(
-                                        "${app.packageName} · ${formatSize(app.apkSize)}",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        maxLines = 1,
-                                        overflow = TextOverflow.Ellipsis,
-                                    )
-                                }
-                                TextButton(onClick = { onPick(app) }) { Text("Add") }
-                            }
-                        }
-                    }
-                }
-            }
-        },
-        confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Close") }
-        },
-    )
-}
-
 @Composable
 private fun DeviceInfoDialog(
     device: DiscoveredDevice,
@@ -1975,7 +2998,6 @@ private fun TroubleshootDialog(onDismiss: () -> Unit) {
         },
     )
 }
-
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun FileProgressRow(progress: FileProgress) {
@@ -2014,45 +3036,6 @@ private fun FileProgressRow(progress: FileProgress) {
         }
     }
 }
-
-@Composable
-private fun HistoryRow(entry: HistoryEntry) {
-    Row(
-        Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            if (entry.incoming) Icons.Filled.Download else Icons.Filled.Send,
-            contentDescription = null,
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                entry.fileName,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Text(
-                "${entry.peerAlias} · ${formatSize(entry.size)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Icon(
-            if (entry.success) Icons.Filled.CheckCircle else Icons.Filled.Error,
-            contentDescription = null,
-            tint = if (entry.success) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.error
-            },
-        )
-    }
-}
-
 private fun deviceIcon(type: DeviceType?): ImageVector = when (type) {
     DeviceType.mobile -> Icons.Filled.PhoneAndroid
     DeviceType.web -> Icons.Filled.Language
@@ -2065,172 +3048,6 @@ private fun formatSize(bytes: Long): String = when {
     bytes < 1024 * 1024 * 1024 -> "${"%.1f".format(bytes / 1024.0 / 1024.0)} MB"
     else -> "${"%.2f".format(bytes / 1024.0 / 1024.0 / 1024.0)} GB"
 }
-
-// ── Outbox (persistent sends: global + per-file retry) ─────────────────────
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun OutboxJobCard(controller: LocalSendController, job: OutboxJob) {
-    var pin by remember(job.id) { mutableStateOf("") }
-    val isActiveJob = job.files.any { it.status == TransferStatus.ACTIVE }
-    val doneCount = job.files.count { it.status == TransferStatus.DONE }
-    val failedCount = job.files.count { it.status == TransferStatus.FAILED }
-    val summary = when {
-        job.finished -> "Sent ${formatSize(job.files.sumOf { it.size })}"
-        failedCount > 0 -> "$doneCount of ${job.files.size} sent · $failedCount failed"
-        else -> "$doneCount of ${job.files.size} sent"
-    }
-    Card(
-        Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.large,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        ),
-    ) {
-        Column(
-            Modifier.padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(
-                        "To ${job.targetAlias}",
-                        style = MaterialTheme.typography.titleMedium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        summary,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                if (job.chunked) InfoChip("Resumable")
-            }
-            job.files.forEach { file ->
-                OutboxFileRow(controller, job, file, enabled = !isActiveJob)
-            }
-            if (job.needsPin) {
-                OutlinedTextField(
-                    value = pin,
-                    onValueChange = { pin = it },
-                    label = { Text("PIN") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Button(
-                    onClick = { controller.retryOutboxJob(job.id, pin) },
-                    modifier = Modifier.fillMaxWidth(),
-                ) { Text("Retry with PIN") }
-            }
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                if (isActiveJob) {
-                    OutlinedButton(onClick = { controller.cancelSend() }) {
-                        Text("Cancel")
-                    }
-                } else {
-                    if (!job.finished &&
-                        job.files.any { it.status != TransferStatus.DONE }
-                    ) {
-                        OutlinedButton(onClick = { controller.retryOutboxJob(job.id) }) {
-                            Icon(Icons.Filled.Replay, contentDescription = null)
-                            Spacer(Modifier.width(6.dp))
-                            Text("Retry")
-                        }
-                    }
-                    TextButton(onClick = { controller.dismissOutboxJob(job.id) }) {
-                        Text(if (job.finished) "Dismiss" else "Remove")
-                    }
-                }
-            }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
-@Composable
-private fun OutboxFileRow(
-    controller: LocalSendController,
-    job: OutboxJob,
-    file: OutboxFile,
-    enabled: Boolean,
-) {
-    Column(Modifier.fillMaxWidth()) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f)) {
-                Text(
-                    file.displayPath ?: file.name,
-                    style = MaterialTheme.typography.bodyMedium,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-                Text(
-                    when (file.status) {
-                        TransferStatus.DONE -> formatSize(file.size)
-                        TransferStatus.WAITING -> "Waiting · ${formatSize(file.size)}"
-                        TransferStatus.CANCELLED -> "Cancelled · ${formatSize(file.size)}"
-                        else ->
-                            "${formatSize(file.confirmedBytes)} / ${formatSize(file.size)}"
-                    },
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
-            when (file.status) {
-                TransferStatus.DONE -> Icon(
-                    Icons.Filled.CheckCircle,
-                    contentDescription = "Done",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                TransferStatus.FAILED -> if (enabled) {
-                    IconButton(onClick = { controller.retryOutboxFile(job.id, file.fileId) }) {
-                        Icon(
-                            Icons.Filled.Replay,
-                            contentDescription = "Retry this file",
-                            tint = MaterialTheme.colorScheme.error,
-                        )
-                    }
-                } else {
-                    Icon(
-                        Icons.Filled.Error,
-                        contentDescription = "Failed",
-                        tint = MaterialTheme.colorScheme.error,
-                    )
-                }
-                TransferStatus.ACTIVE -> LoadingIndicator(Modifier.size(20.dp))
-                else -> Unit
-            }
-        }
-        if (file.status == TransferStatus.ACTIVE ||
-            (file.confirmedBytes > 0 && file.status != TransferStatus.DONE)
-        ) {
-            LinearWavyProgressIndicator(
-                progress = {
-                    if (file.size > 0) {
-                        (file.confirmedBytes.toFloat() / file.size).coerceIn(0f, 1f)
-                    } else {
-                        0f
-                    }
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
-        if (file.status == TransferStatus.FAILED) {
-            file.lastError?.let { error ->
-                Text(
-                    error,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.error,
-                )
-            }
-        }
-    }
-}
-
-// ── Connectivity shortcuts (Wi-Fi / hotspot / Wi-Fi Direct + QR) ───────────
-
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ConnectivityCard(

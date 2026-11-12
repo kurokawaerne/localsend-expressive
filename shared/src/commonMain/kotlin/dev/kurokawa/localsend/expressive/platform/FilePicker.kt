@@ -36,6 +36,14 @@ expect fun rememberMediaPickerLauncher(onPicked: (List<PickedFile>) -> Unit): ()
 expect fun rememberFolderPickerLauncher(onPicked: (List<PickedFile>) -> Unit): () -> Unit
 
 /**
+ * Pick the RECEIVE destination folder (v0.5.0, Ernest asked for SAF):
+ * delivers a SAF tree URI string on Android (persistable read/write
+ * grant taken), an absolute path on desktop.
+ */
+@Composable
+expect fun rememberDestinationPickerLauncher(onPicked: (String) -> Unit): () -> Unit
+
+/**
  * Files handed to the app from outside (Android share sheet). The Send
  * screen collects this flow and merges new files into its selection, then
  * calls [clearSharedFiles]. Always empty on desktop.

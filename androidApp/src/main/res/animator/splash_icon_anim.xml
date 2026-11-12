@@ -1,6 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Emphasized settle-in: the plane scales from 0.7 to 1.0 while fading in,
-     using the M3 emphasized curve (fast-out-slow-in approximation). -->
+<!-- Settle-in for the splash mark: scale from 0.7 to 1.0 around the
+     center pivot, M3 emphasized curve (fast-out-slow-in approximation).
+     Group alpha is NOT animated (AVD groups don't support it — that was
+     the v0.4.0 bug); the in-app Compose splash does the fading. -->
 <set xmlns:android="http://schemas.android.com/apk/res/android"
     android:ordering="together">
     <objectAnimator
@@ -17,11 +19,4 @@
         android:valueFrom="0.7"
         android:valueTo="1.0"
         android:valueType="floatType" />
-    <objectAnimator
-        android:duration="450"
-        android:interpolator="@android:interpolator/fast_out_slow_in"
-        android:propertyName="alpha"
-        android:valueFrom="0"
-        android:valueTo="255"
-        android:valueType="intType" />
 </set>

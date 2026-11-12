@@ -1,5 +1,7 @@
 package dev.kurokawa.localsend.expressive.platform
 
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Apps
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import dev.kurokawa.localsend.expressive.protocol.DeviceType
@@ -32,6 +34,21 @@ actual fun rememberClipboardText(): () -> String? {
 }
 
 actual fun loadInstalledApps(): List<InstalledApp> = emptyList()
+
+@Composable
+actual fun AppIcon(packageName: String, modifier: androidx.compose.ui.Modifier) {
+    androidx.compose.foundation.layout.Box(
+        modifier = modifier,
+        contentAlignment = androidx.compose.ui.Alignment.Center,
+    ) {
+        androidx.compose.material3.Icon(
+            Icons.Filled.Apps,
+            contentDescription = null,
+        )
+    }
+}
+
+actual fun usesSafDestination(): Boolean = false
 
 actual fun supportsQuickShareTile(): Boolean = false
 
