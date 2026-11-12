@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Splash-screen glyph: the paper plane, larger than the launcher icon
+<!-- Splash-screen glyph: the LSEx mark, larger than the launcher icon
      (splash icons aren't masked to the adaptive safe zone). The "plane"
      group is the target of the splash animation. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
@@ -7,14 +7,21 @@
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
+    <path
+        android:fillColor="@android:color/transparent"
+        android:strokeColor="#FFFFFF"
+        android:strokeAlpha="0.55"
+        android:strokeWidth="4"
+        android:strokeLineCap="round"
+        android:pathData="M54,4 A50,50 0 1 1 12.9,83.5" />
     <group
         android:name="plane"
         android:pivotX="54"
         android:pivotY="54"
-        android:translateX="6"
-        android:translateY="6"
-        android:scaleX="4"
-        android:scaleY="4">
+        android:translateX="15"
+        android:translateY="15"
+        android:scaleX="3.25"
+        android:scaleY="3.25">
         <path
             android:fillColor="#FFFFFF"
             android:pathData="M2.01,21L23,12L2.01,3L2,10l15,2L2,14z" />

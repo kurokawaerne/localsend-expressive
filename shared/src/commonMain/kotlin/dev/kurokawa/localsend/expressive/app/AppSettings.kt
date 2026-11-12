@@ -31,6 +31,42 @@ data class AppSettings(
     val favorites: Set<String> = emptySet(),
     /** Stable random fingerprint used in HTTP mode (persisted so favorites keep matching). */
     val httpFingerprint: String = "",
+    // ── v0.4.0: full parity with the official app's settings ──
+    /** Route received images/videos into the gallery (Pictures/Movies) instead of Downloads. */
+    val saveToGallery: Boolean = true,
+    /** Record finished transfers in the history list. */
+    val saveToHistory: Boolean = true,
+    /** After receiving, verify the SHA-256 the sender announced; reject mismatches. */
+    val verifyChecksums: Boolean = false,
+    /** Compute SHA-256 checksums for files we send (slower on huge files). */
+    val createChecksums: Boolean = false,
+    /** Auto-accept uploads that arrive through the receive-via-link page. */
+    val shareViaLinkAutoAccept: Boolean = false,
+    /** Master switch for splash/progress animations. */
+    val enableAnimations: Boolean = true,
+    /** Custom multicast group address; empty = protocol default 224.0.0.167. */
+    val multicastAddress: String = "",
+    /** Seconds the Send screen spends actively scanning after it opens / refresh is hit. */
+    val discoveryTimeoutSec: Int = 10,
+    /** Comma-separated IPs/CIDRs; when non-empty, only these peers may talk to us. */
+    val networkWhitelist: String = "",
+    /** Comma-separated IPs/CIDRs that are always ignored/rejected. */
+    val networkBlacklist: String = "",
+    /** UI language: "system", "en" or "es". */
+    val language: String = "system",
+    /** Whether the receive server runs at all (official's server on/off switch). */
+    val serverEnabled: Boolean = true,
+    /** Desktop: keep the window above others. */
+    val alwaysOnTop: Boolean = false,
+    /** Desktop: restore the window position/size on launch. */
+    val saveWindowPlacement: Boolean = true,
+    /** Desktop: closing the window minimizes to the tray instead of quitting. */
+    val minimizeToTray: Boolean = false,
+    // ── v0.4.0: resumable transfers ──
+    /** Retry failed sends automatically (backoff), before parking them in the outbox. */
+    val autoRetry: Boolean = true,
+    /** Use the LSEx chunked/resumable extension when the peer supports it. */
+    val chunkedTransfers: Boolean = true,
 )
 
 /** One finished (or failed) transfer, shown in the history list. */

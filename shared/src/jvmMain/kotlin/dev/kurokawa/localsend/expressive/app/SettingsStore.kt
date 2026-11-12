@@ -15,6 +15,7 @@ class SettingsStore {
 
     private val settingsFile: File get() = File(platformDataDir(), "settings.json")
     private val historyFile: File get() = File(platformDataDir(), "history.json")
+    private val outboxFile: File get() = File(platformDataDir(), "outbox.json")
 
     fun loadSettings(): AppSettings =
         runCatching {
@@ -39,6 +40,23 @@ class SettingsStore {
         runCatching {
             historyFile.writeText(
                 json.encodeToString(ListSerializer(HistoryEntry.serializer()), history.take(200)),
+            )
+        }
+    }
+
+    fun loadOutbox(): List<OutboxJob> =
+        runCatching {
+            if (outboxFile.isFile) {
+                json.decodeFromString(ListSerializer(OutboxJob.serializer()), outboxFile.readText())
+            } else {
+                emptyList()
+            }
+        }.getOrDefault(emptyList())
+
+    fun saveOutbox(jobs: List<OutboxJob>) {
+        runCatching {
+            outboxFile.writeText(
+                json.encodeToString(ListSerializer(OutboxJob.serializer()), jobs),
             )
         }
     }

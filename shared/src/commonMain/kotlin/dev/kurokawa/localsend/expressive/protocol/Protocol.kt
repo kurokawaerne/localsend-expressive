@@ -19,6 +19,23 @@ object ProtocolConstants {
     const val PATH_CANCEL = "/api/localsend/v2/cancel"
     const val PATH_PREPARE_DOWNLOAD = "/api/localsend/v2/prepare-download"
     const val PATH_DOWNLOAD = "/api/localsend/v2/download"
+
+    // ── LSEx extension: chunked, resumable uploads ──
+    // NOT part of Protocol v2.2. The official /upload takes a whole file in
+    // one request, so a dropped connection restarts that file from zero.
+    // LSEx peers probe PATH_LSEX_CAPABILITIES first; when the peer answers,
+    // files move in 1 MiB chunks the receiver stages on disk, and a send
+    // resumes from the receiver's confirmed byte count — even across an
+    // app restart on either side (as long as the receive session lives).
+    // Official peers simply 404 the probe and get the classic whole-file
+    // upload, so interoperability is unchanged.
+    const val PATH_LSEX_CAPABILITIES = "/api/lsex/v1/capabilities"
+    const val PATH_LSEX_UPLOAD_CHUNK = "/api/lsex/v1/upload-chunk"
+    const val PATH_LSEX_UPLOAD_STATUS = "/api/lsex/v1/upload-status"
+    const val PATH_LSEX_FINISH_FILE = "/api/lsex/v1/finish-file"
+
+    /** Header carrying the hex SHA-256 of one chunk's bytes. */
+    const val HEADER_CHUNK_SHA256 = "X-Chunk-Sha256"
 }
 
 /**

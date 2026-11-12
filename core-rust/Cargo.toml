@@ -1,0 +1,26 @@
+[package]
+name = "lsex-core"
+version = "0.4.0"
+edition = "2021"
+description = "Rust native core for LocalSend Expressive: resumable-transfer chunk math and SHA-256, mirrored by a pure-Kotlin twin"
+license = "Apache-2.0"
+
+[lib]
+name = "lsex_core"
+# rlib for Rust tests / linking from other Rust code, cdylib for
+# loading from Kotlin through JNI (Android .so / desktop shared lib).
+crate-type = ["rlib", "cdylib"]
+
+[features]
+# JNI bindings (src/jni_bindings.rs). Off by default so the pure
+# crate builds and tests with std only — no network, no crates.io.
+default = []
+jni = ["dep:jni"]
+
+[dependencies]
+jni = { version = "0.21", optional = true }
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1

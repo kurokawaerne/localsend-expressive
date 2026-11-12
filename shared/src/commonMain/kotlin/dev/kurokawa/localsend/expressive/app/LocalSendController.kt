@@ -37,6 +37,8 @@ data class SendState(
     val active: Boolean = true,
     val error: String? = null,
     val needsPin: Boolean = false,
+    /** The outbox job this state mirrors (null for ephemeral text sends). */
+    val jobId: String? = null,
 )
 
 /**
@@ -52,11 +54,35 @@ interface LocalSendController {
     val sendState: StateFlow<SendState?>
     val history: StateFlow<List<HistoryEntry>>
 
+    /** True while an active discovery scan burst is running. */
+    val scanning: StateFlow<Boolean>
+
+    /** Files currently offered through share-via-link (Download API). */
+    val webShareFiles: StateFlow<List<PickedFile>>
+
+    /** Display path of the most recently received file (e.g. "Download/Photos/a.jpg"). */
+    val lastSavedTo: StateFlow<String?>
+
+    /** This device's LAN IPv4 address (for the share-via-link URL), if any. */
+    val localIpAddress: StateFlow<String?>
+
+    /** Persistent send queue: survives restarts; retry whole jobs or single files. */
+    val outbox: StateFlow<List<OutboxJob>>
+
     fun start()
     fun stop()
 
-    /** Answer a pending [incomingOffer]. */
-    fun respondOffer(accept: Boolean)
+    /**
+     * Answer a pending [incomingOffer] with the accepted file ids
+     * (per-file selection), or null to decline the whole offer.
+     */
+    fun respondOffer(acceptedFileIds: Set<String>?)
+
+    /** Re-announce in a burst and mark scanning active for the discovery timeout. */
+    fun refreshDiscovery()
+
+    /** Choose which picked files share-via-link serves. */
+    fun setWebShareFiles(files: List<PickedFile>)
 
     /** Send [files] to [target]; pass [pin] when the peer asked for one (401). */
     fun sendFiles(target: DiscoveredDevice, files: List<PickedFile>, pin: String? = null)
@@ -69,6 +95,18 @@ interface LocalSendController {
 
     fun cancelSend()
     fun clearSendState()
+
+    /** Re-run a whole outbox job (every file that isn't DONE). */
+    fun retryOutboxJob(jobId: String, pin: String? = null)
+
+    /** Re-run one file of an outbox job. */
+    fun retryOutboxFile(jobId: String, fileId: String, pin: String? = null)
+
+    /** Global retry: re-run every failed/interrupted file in every job. */
+    fun retryAllFailed()
+
+    /** Remove a job from the outbox (e.g. once finished, or given up on). */
+    fun dismissOutboxJob(jobId: String)
 
     fun updateSettings(settings: AppSettings)
     fun toggleFavorite(fingerprint: String)

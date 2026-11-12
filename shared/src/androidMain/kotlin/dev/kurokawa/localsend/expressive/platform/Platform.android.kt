@@ -2,6 +2,8 @@ package dev.kurokawa.localsend.expressive.platform
 
 import android.content.Context
 import android.net.wifi.WifiManager
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import dev.kurokawa.localsend.expressive.protocol.DeviceType
 
 actual fun platformDeviceType(): DeviceType = DeviceType.mobile
@@ -34,4 +36,50 @@ actual class MulticastLock {
         runCatching { lock?.release() }
         lock = null
     }
+}
+
+@Composable
+actual fun rememberClipboardText(): () -> String? {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    return remember(context) {
+        {
+            val clipboard = context.getSystemService(Context.CLIPBOARD_SERVICE)
+                as? android.content.ClipboardManager
+            clipboard?.primaryClip?.takeIf { it.itemCount > 0 }
+                ?.getItemAt(0)?.coerceToText(context)?.toString()
+        }
+    }
+}
+
+actual fun loadInstalledApps(): List<InstalledApp> {
+    val context = AppContextHolder.appContext ?: return emptyList()
+    val pm = context.packageManager
+    return pm.getInstalledApplications(android.content.pm.PackageManager.GET_META_DATA)
+        .filter { it.sourceDir != null }
+        .mapNotNull { app ->
+            val file = java.io.File(app.sourceDir)
+            InstalledApp(
+                label = pm.getApplicationLabel(app).toString(),
+                packageName = app.packageName,
+                apkHandle = app.sourceDir,
+                apkSize = file.length(),
+            )
+        }
+        .sortedBy { it.label.lowercase() }
+}
+
+actual fun supportsQuickShareTile(): Boolean = true
+
+actual fun systemLanguageCode(): String =
+    java.util.Locale.getDefault().language.ifBlank { "en" }
+
+/** Set by the QS TileService (same process) when the user taps the LSEx tile. */
+object QuickShareSignal {
+    val requests = kotlinx.coroutines.flow.MutableStateFlow(0)
+}
+
+actual fun quickShareRequests(): kotlinx.coroutines.flow.StateFlow<Int> = QuickShareSignal.requests
+
+actual fun clearQuickShareRequest() {
+    QuickShareSignal.requests.value = 0
 }
