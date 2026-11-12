@@ -216,7 +216,7 @@ actual class ConnectivityController {
             val ssid = config.ssid ?: return@runCatching null
             HotspotInfo(ssid, config.passphrase.orEmpty())
         } else {
-            val config: WifiConfiguration = reservation.wifiConfiguration
+            val config = reservation.wifiConfiguration ?: return@runCatching null
             val ssid = config.SSID?.trim('"') ?: return@runCatching null
             HotspotInfo(ssid, config.preSharedKey?.trim('"').orEmpty())
         }
