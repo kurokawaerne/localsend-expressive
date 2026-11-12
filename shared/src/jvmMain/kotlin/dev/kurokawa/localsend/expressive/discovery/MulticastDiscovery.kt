@@ -48,7 +48,12 @@ class MulticastDiscovery(
 
     /** Listen for announcements and peer responses until the coroutine is cancelled. */
     suspend fun listen() = withContext(Dispatchers.IO) {
-        val socket = MulticastSocket(local.port)
+        // SO_REUSEADDR: the official app (or a second instance) may already
+        // hold this port on the same device — without reuse the bind fails
+        // and discovery silently dies.
+        val socket = MulticastSocket(null as java.net.SocketAddress?)
+        socket.reuseAddress = true
+        socket.bind(java.net.InetSocketAddress(local.port))
         try {
             socket.joinGroup(group)
             val buffer = ByteArray(16 * 1024)

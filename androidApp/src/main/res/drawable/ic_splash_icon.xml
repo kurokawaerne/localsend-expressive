@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Splash-screen glyph: the paper plane, larger than the launcher icon
+     (splash icons aren't masked to the adaptive safe zone). The "plane"
+     group is the target of the splash animation. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:name="plane"
+        android:pivotX="54"
+        android:pivotY="54"
+        android:translateX="6"
+        android:translateY="6"
+        android:scaleX="4"
+        android:scaleY="4">
+        <path
+            android:fillColor="#FFFFFF"
+            android:pathData="M2.01,21L23,12L2.01,3L2,10l15,2L2,14z" />
+    </group>
+</vector>

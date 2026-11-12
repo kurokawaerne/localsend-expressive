@@ -62,6 +62,33 @@ class ModelsTest {
     }
 
     @Test
+    fun announcementContainsEveryFieldTheOfficialAppRequires() {
+        // Regression test for the v0.2.x discovery failure: the official
+        // receiver's parser requires ALL RegisterDto fields. Our JSON used
+        // to omit fields equal to their defaults (no version/port/protocol),
+        // and official devices silently discarded our announcements.
+        val dto = RegisterDto(
+            alias = "Calm Harbor",
+            deviceModel = "Xiaomi 2201117TG",
+            deviceType = DeviceType.mobile,
+            fingerprint = "ABCDEF",
+            announce = true,
+        )
+        val element = kotlinx.serialization.json.Json.parseToJsonElement(
+            LocalSendJson.encodeToString(dto),
+        ) as kotlinx.serialization.json.JsonObject
+        for (key in listOf(
+            "alias", "version", "deviceModel", "deviceType",
+            "fingerprint", "port", "protocol", "download", "announce",
+        )) {
+            kotlin.test.assertTrue(key in element, "announcement is missing '$key': $element")
+        }
+        assertEquals("2.2", element.getValue("version").let {
+            (it as kotlinx.serialization.json.JsonPrimitive).content
+        })
+    }
+
+    @Test
     fun unknownDeviceTypeFallsBackToDesktop() {
         val json = """{"alias":"X","fingerprint":"f","deviceType":"toaster"}"""
         val dto = LocalSendJson.decodeFromString<RegisterDto>(json)

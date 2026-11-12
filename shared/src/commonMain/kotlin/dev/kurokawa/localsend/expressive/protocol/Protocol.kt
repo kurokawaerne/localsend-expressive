@@ -5,7 +5,10 @@ import kotlin.random.Random
 
 /** LocalSend Protocol v2.2 constants. Spec: https://github.com/localsend/protocol */
 object ProtocolConstants {
-    const val VERSION = "2.0"
+    // The wire version current official builds (1.17+/1.18, Rust core) send.
+    // The spec document is "Protocol v2.2"; its JSON examples still show the
+    // older "2.0", but peers are matched by major version and 2.2 is current.
+    const val VERSION = "2.2"
     const val MULTICAST_ADDRESS = "224.0.0.167"
     const val DEFAULT_PORT = 53317
 
@@ -24,7 +27,12 @@ object ProtocolConstants {
  */
 val LocalSendJson = Json {
     ignoreUnknownKeys = true
-    encodeDefaults = false
+    // The official receiver (Rust core, serde) REQUIRES every RegisterDto
+    // field — version, port, protocol, download included. Omitting defaults
+    // (encodeDefaults = false) made our announcements unparseable, so peers
+    // silently ignored us. Always emit the full field set, like the official
+    // app does.
+    encodeDefaults = true
     explicitNulls = false
 }
 

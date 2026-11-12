@@ -6,6 +6,12 @@ import dev.kurokawa.localsend.expressive.protocol.DeviceType
 
 actual fun platformDeviceType(): DeviceType = DeviceType.mobile
 
+actual fun platformDeviceModel(): String =
+    listOfNotNull(android.os.Build.MANUFACTURER, android.os.Build.MODEL)
+        .filter { it.isNotBlank() }
+        .joinToString(" ")
+        .ifEmpty { "Android" }
+
 /**
  * Android drops multicast packets unless a WifiManager.MulticastLock is held,
  * so discovery holds this lock for the whole session (M1).

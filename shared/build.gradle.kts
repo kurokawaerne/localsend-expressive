@@ -8,6 +8,12 @@ plugins {
     alias(libs.plugins.compose.compiler)
 }
 
+compose.resources {
+    publicResClass = true
+    packageOfResClass = "dev.kurokawa.localsend.expressive.resources"
+    generateResClass = org.jetbrains.compose.resources.ResourcesExtension.ResourceClassGeneration.Always
+}
+
 kotlin {
     androidTarget {
         compilerOptions { jvmTarget.set(JvmTarget.JVM_17) }
@@ -33,6 +39,9 @@ kotlin {
             implementation(compose.runtime)
             implementation(compose.foundation)
             implementation(compose.ui)
+            // Compose Resources runtime: the generated Res accessors (fonts)
+            // and org.jetbrains.compose.resources.Font live here.
+            implementation(compose.components.resources)
             implementation(libs.compose.material3)
             implementation(libs.compose.icons.extended)
             implementation(libs.kotlinx.serialization.json)
@@ -47,7 +56,11 @@ kotlin {
             // ("CIO Engine does not currently support HTTPS" — startup crash).
             implementation(libs.ktor.server.netty)
             implementation(libs.ktor.server.content.negotiation)
-            implementation(libs.ktor.client.cio)
+            // OkHttp engine for the client: JSSE TLS can PRESENT our
+            // self-signed client certificate. Official peers (v2.2) use
+            // mutual TLS — the Ktor CIO client cannot present certificates
+            // at all, which broke every send to the official app.
+            implementation(libs.ktor.client.okhttp)
             // Self-signed TLS certificate generation (HTTPS mode, M1).
             implementation(libs.bcprov)
             implementation(libs.bcpkix)
