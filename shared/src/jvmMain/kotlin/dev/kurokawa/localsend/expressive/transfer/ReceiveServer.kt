@@ -81,7 +81,15 @@ class ReceiveServer(
         suspend fun onOffer(offer: IncomingOffer): Set<String>?
 
         fun onReceiveProgress(sessionId: String, files: List<FileProgress>)
-        fun onFileReceived(sessionId: String, peer: RegisterDto, file: FileDto, savedToDisplay: String)
+
+        /** [savedUri] lets History open the file later (content URI / path). */
+        fun onFileReceived(
+            sessionId: String,
+            peer: RegisterDto,
+            file: FileDto,
+            savedToDisplay: String,
+            savedUri: String?,
+        )
         fun onSessionFinished(sessionId: String, peer: RegisterDto)
     }
 
@@ -332,6 +340,7 @@ class ReceiveServer(
                     size = fileDto.size,
                     saveToGallery = settings.saveToGallery,
                     destinationFolder = settings.destinationFolder,
+                    destinationTreeUri = settings.destinationTreeUri,
                 )
                 val digest = MessageDigest.getInstance("SHA-256")
                 var receivedBytes = 0L
@@ -381,7 +390,7 @@ class ReceiveServer(
                     fileId, fileDto.fileName, fileDto.size, receivedBytes, TransferStatus.DONE,
                 )
                 callbacks.onReceiveProgress(session.id, session.progress.values.toList())
-                callbacks.onFileReceived(session.id, session.peer, fileDto, target.displayName)
+                callbacks.onFileReceived(session.id, session.peer, fileDto, target.displayName, target.resultUri)
                 if (session.received.size == session.files.size) {
                     activeSession = null
                     callbacks.onSessionFinished(session.id, session.peer)
@@ -510,6 +519,7 @@ class ReceiveServer(
                     size = fileDto.size,
                     saveToGallery = settings.saveToGallery,
                     destinationFolder = settings.destinationFolder,
+                    destinationTreeUri = settings.destinationTreeUri,
                 )
                 val digest = MessageDigest.getInstance("SHA-256")
                 val copied = runCatching { staging.publishTo(target, digest) }.getOrElse {
@@ -543,7 +553,7 @@ class ReceiveServer(
                     fileId, fileDto.fileName, fileDto.size, copied, TransferStatus.DONE,
                 )
                 callbacks.onReceiveProgress(session.id, session.progress.values.toList())
-                callbacks.onFileReceived(session.id, session.peer, fileDto, target.displayName)
+                callbacks.onFileReceived(session.id, session.peer, fileDto, target.displayName, target.resultUri)
                 if (session.received.size == session.files.size) {
                     session.abortStaging()
                     activeSession = null

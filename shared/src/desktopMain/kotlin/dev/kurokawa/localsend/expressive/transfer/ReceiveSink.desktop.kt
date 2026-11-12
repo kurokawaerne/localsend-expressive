@@ -12,6 +12,7 @@ actual fun createReceiveTarget(
     size: Long,
     saveToGallery: Boolean,
     destinationFolder: String,
+    destinationTreeUri: String,
 ): ReceiveTarget {
     val base = if (destinationFolder.isNotBlank()) {
         File(destinationFolder).apply { mkdirs() }
@@ -21,13 +22,17 @@ actual fun createReceiveTarget(
     val finalFile = File(base, relativePath)
     finalFile.parentFile?.mkdirs()
     val tempFile = File(finalFile.parentFile, finalFile.name + ".part")
+    // commit() may rename to a collision-free sibling; resultUri follows it.
+    var committedFile: File = finalFile
     return object : ReceiveTarget {
         override val displayName: String = finalFile.absolutePath
+        override val resultUri: String get() = committedFile.absolutePath
 
         override fun openOutput(): OutputStream = FileOutputStream(tempFile)
 
         override fun commit() {
             val target = uniqueFile(finalFile)
+            committedFile = target
             if (!tempFile.renameTo(target)) {
                 tempFile.copyTo(target, overwrite = false)
                 tempFile.delete()

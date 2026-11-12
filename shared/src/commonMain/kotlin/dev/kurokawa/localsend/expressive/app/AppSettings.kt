@@ -67,6 +67,16 @@ data class AppSettings(
     val autoRetry: Boolean = true,
     /** Use the LSEx chunked/resumable extension when the peer supports it. */
     val chunkedTransfers: Boolean = true,
+    // ── v0.5.0 ──
+    /**
+     * Android: a Storage Access Framework tree URI the user picked as the
+     * receive destination. When set, received files are written into that
+     * exact folder (through DocumentFile) instead of MediaStore Downloads.
+     * Empty = platform default. Ignored on desktop.
+     */
+    val destinationTreeUri: String = "",
+    /** App picker: hide system apps (they're rarely what you want to send). */
+    val hideSystemApps: Boolean = true,
 )
 
 /** One finished (or failed) transfer, shown in the history list. */
@@ -78,4 +88,16 @@ data class HistoryEntry(
     val size: Long,
     val incoming: Boolean,
     val success: Boolean,
+    /**
+     * Where the file can be opened from: a content:// URI (MediaStore or
+     * SAF) for received files on Android, an absolute path on desktop.
+     * Empty for entries written before v0.5.0.
+     */
+    val uri: String = "",
+    /**
+     * For outgoing entries: the PickedFile handle (content URI on Android,
+     * path on desktop) so the file can be re-sent from History. Empty when
+     * unknown (text messages, pre-v0.5.0 entries).
+     */
+    val handle: String = "",
 )

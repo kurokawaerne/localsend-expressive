@@ -87,8 +87,18 @@ interface LocalSendController {
     /** Send [files] to [target]; pass [pin] when the peer asked for one (401). */
     fun sendFiles(target: DiscoveredDevice, files: List<PickedFile>, pin: String? = null)
 
+    /**
+     * Send [files] to several devices at once (v0.5.0 multi-target): one
+     * independent outbox job per target, so each device can accept, fail
+     * and retry on its own.
+     */
+    fun sendFilesToTargets(targets: List<DiscoveredDevice>, files: List<PickedFile>)
+
     /** Send a plain text message (a first-class transfer in the protocol). */
     fun sendText(target: DiscoveredDevice, text: String, pin: String? = null)
+
+    /** Send the same text message to several devices (v0.5.0 multi-target). */
+    fun sendTextToTargets(targets: List<DiscoveredDevice>, text: String)
 
     /** Probe a manually entered IP (legacy discovery fallback / direct connect). */
     fun probeDevice(ip: String)
