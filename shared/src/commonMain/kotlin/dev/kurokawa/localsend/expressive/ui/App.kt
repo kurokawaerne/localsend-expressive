@@ -236,6 +236,14 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.draw.clip
+import dev.kurokawa.localsend.expressive.platform.platformDeviceModel
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.unit.IntOffset
 
 private enum class MainTab { Home, Connect, Settings }
 
@@ -724,6 +732,7 @@ private sealed interface StagedItem {
 
 private enum class ContentTab { Apps, Photos, Videos, Audio, Files, Text, Web }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun HomeScreen(
     controller: LocalSendController,
@@ -1092,7 +1101,7 @@ private fun HomeScreen(
                                     staged = staged + StagedItem.TextItem(text)
                                 },
                             )
-                            ContentTab.Web -> WebSharePanel(controller, settings)
+                            ContentTab.Web -> WebSharePanel(controller, settings, local, localIp)
                         }
                     }
                 }
@@ -1326,7 +1335,7 @@ private fun HomeScreen(
                 }
             }
             if (historyExpanded) {
-                items(history, key = { it.id }) { entry ->
+                items(history, key = { "${it.timeMillis}:${it.fileName}" }) { entry ->
                     HistoryRow(
                         entry = entry,
                         onOpen = { openReceivedFile(entry.uri, entry.fileName) },
@@ -1405,7 +1414,12 @@ private fun HomeScreen(
         }
     }
     infoDevice?.let { device ->
-        DeviceInfoDialog(device = device, onDismiss = { infoDevice = null })
+        DeviceInfoDialog(
+            device = device,
+            isFavorite = device.info.fingerprint in settings.favorites,
+            onToggleFavorite = { controller.toggleFavorite(device.info.fingerprint) },
+            onDismiss = { infoDevice = null },
+        )
     }
     if (showTroubleshoot) {
         TroubleshootDialog(onDismiss = { showTroubleshoot = false })
@@ -1431,6 +1445,7 @@ private fun formatDate(millis: Long): String {
     return "$year-${p2(m)}-${p2(d)}"
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun AppsBrowser(
     settings: AppSettings,
@@ -1500,6 +1515,7 @@ private fun AppsBrowser(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MediaBrowser(
     kind: MediaKind,
@@ -1609,6 +1625,7 @@ private fun MediaBrowser(
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun FileBrowser(
     stagedIds: Set<String>,
@@ -1883,7 +1900,7 @@ private fun StagedItemCard(
                 ) {
                     IconButton(
                         onClick = {
-                            scope.launch { state.animateTo(0) }
+                            scope.launch { state.snapTo(0) }
                             onEdit()
                         },
                         modifier = Modifier.size(44.dp),
@@ -1923,7 +1940,7 @@ private fun StagedItemCard(
                 .combinedClickable(
                     onClick = {
                         if (state.currentValue == 1) {
-                            scope.launch { state.animateTo(0) }
+                            scope.launch { state.snapTo(0) }
                         }
                     },
                     onLongClick = {
@@ -2241,6 +2258,7 @@ private fun WebSharePanel(
 
 // ── Connect: Zapya-organised connection view ───────────────────────────────
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ConnectScreen(
     controller: LocalSendController,
@@ -2625,7 +2643,12 @@ private fun ConnectScreen(
     }
 
     infoDevice?.let { device ->
-        DeviceInfoDialog(device = device, onDismiss = { infoDevice = null })
+        DeviceInfoDialog(
+            device = device,
+            isFavorite = device.info.fingerprint in settings.favorites,
+            onToggleFavorite = { controller.toggleFavorite(device.info.fingerprint) },
+            onDismiss = { infoDevice = null },
+        )
     }
 
     if (showScanner) {
@@ -2681,6 +2704,7 @@ private fun ConnectScreen(
 }
 
 /** Concentric-ring radar with a slow sweep and device bubbles (Zapya layout). */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun RadarView(
     devices: List<DiscoveredDevice>,
@@ -2706,7 +2730,7 @@ private fun RadarView(
     ) {
         val centerX = maxWidth / 2
         val centerY = maxHeight / 2
-        val maxRadius = min(maxWidth, maxHeight) / 2 - 14.dp
+        val maxRadius = minOf(maxWidth, maxHeight) / 2 - 14.dp
         Canvas(Modifier.fillMaxSize()) {
             val c = Offset(size.width / 2, size.height / 2)
             val rMax = size.minDimension / 2 - 14.dp.toPx()
@@ -3088,7 +3112,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
         }
 
         // ── Desktop (window behaviour) ──
-        if (platformDeviceType() == DeviceType.DESKTOP) {
+        if (platformDeviceType() == DeviceType.desktop) {
             item { SectionTitle("Desktop") }
             item {
                 SegmentedList(

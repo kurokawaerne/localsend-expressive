@@ -107,7 +107,7 @@ fun QuickSaveConnectedGroup(
     Row(modifier.fillMaxWidth()) {
         options.forEachIndexed { index, label ->
             val shapes = when {
-                options.size == 1 -> ButtonGroupDefaults.connectedButtonShapes()
+                options.size == 1 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
                 index == 0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
                 index == options.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
                 else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
