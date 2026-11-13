@@ -182,7 +182,7 @@ actual class ConnectivityController {
             true
         }.getOrDefault(false)
         @Suppress("DEPRECATION")
-        val started = runCatching { wifiManager.startScan() }.getOrDefault(false)
+        val started = runCatching { wifiManager?.startScan() }.getOrNull() == true
         if (!registered || !started) {
             // Android throttles scans (about 4 per 2 minutes per app):
             // keep the cached list and stop pretending we are scanning.
@@ -588,8 +588,12 @@ actual class ConnectivityController {
         }
         try {
             manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
-                override fun onSuccess() = proceed()
-                override fun onFailure(reason: Int) = proceed()
+                override fun onSuccess() {
+                    proceed()
+                }
+                override fun onFailure(reason: Int) {
+                    proceed()
+                }
             })
         } catch (e: Exception) {
             proceed()
