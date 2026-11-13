@@ -13,10 +13,11 @@ actual fun platformDataDir(): File {
 }
 
 actual fun platformDownloadsDir(): File {
-    val context = AppContextHolder.appContext
-        ?: error("AppContextHolder not initialised — MainActivity must set it first")
-    val external = context.getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS)
-    return (external ?: File(context.filesDir, "Download")).apply { mkdirs() }
+    // The PUBLIC Downloads folder — never the app-specific sandbox under
+    // Android/data (getExternalFilesDir), which is invisible to the user
+    // in their file manager (Ernest's v0.8.0 report).
+    val public = Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_DOWNLOADS)
+    return File(public, "LSEx").apply { mkdirs() }
 }
 
 actual fun openPickedInput(handle: String): InputStream {

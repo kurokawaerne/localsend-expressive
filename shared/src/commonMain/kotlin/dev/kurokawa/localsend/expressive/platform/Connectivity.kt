@@ -10,6 +10,15 @@ data class HotspotInfo(
     val password: String,
 )
 
+/** A nearby Wi-Fi network the user could join from the WiFi section. */
+data class WifiNetwork(
+    val ssid: String,
+    val secured: Boolean,
+    /** Signal strength in dBm (e.g. -55); higher is stronger. */
+    val level: Int,
+    val connected: Boolean = false,
+)
+
 /** Observable state of the main-page connectivity shortcuts. */
 data class ConnectivityState(
     /** Null = unknown on this platform. */
@@ -22,6 +31,10 @@ data class ConnectivityState(
     val busy: Boolean = false,
     /** Last user-facing note (errors, hints), cleared on the next action. */
     val message: String? = null,
+    /** Nearby Wi-Fi networks from the last scan (WiFi section list). */
+    val wifiNetworks: List<WifiNetwork> = emptyList(),
+    /** A Wi-Fi network scan is running. */
+    val scanningNetworks: Boolean = false,
 )
 
 /**
@@ -42,6 +55,8 @@ expect class ConnectivityController() {
     fun toggleHotspot()
     fun toggleWifiDirect()
     fun clearMessage()
+    /** Scan for nearby Wi-Fi networks (results land in [ConnectivityState.wifiNetworks]). */
+    fun scanWifiNetworks()
 }
 
 /** Open a URL in the platform browser (e.g. a scanned web-share link). */

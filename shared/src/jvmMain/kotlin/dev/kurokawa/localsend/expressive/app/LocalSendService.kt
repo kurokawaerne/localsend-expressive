@@ -73,6 +73,9 @@ class LocalSendService : LocalSendController {
     override val incomingOffer: StateFlow<IncomingOffer?> = _incomingOffer
 
     private val _incomingProgress = MutableStateFlow<List<FileProgress>>(emptyList())
+    private val _incomingPeer = MutableStateFlow<String?>(null)
+    override val incomingPeer: StateFlow<String?> = _incomingPeer
+    private val sessionPeers = ConcurrentHashMap<String, String>()
     override val incomingProgress: StateFlow<List<FileProgress>> = _incomingProgress
 
     private val _sendState = MutableStateFlow<SendState?>(null)
@@ -314,8 +317,10 @@ class LocalSendService : LocalSendController {
         }
         return LocalDevice(
             alias = s.alias.ifEmpty { randomAlias() },
-            deviceModel = platformDeviceModel(),
-            deviceType = platformDeviceType(),
+            deviceModel = s.deviceModel.ifEmpty { platformDeviceModel() },
+            deviceType = s.deviceType.takeIf { it.isNotEmpty() }
+                ?.let { name -> DeviceType.entries.firstOrNull { it.name == name } }
+                ?: platformDeviceType(),
             fingerprint = fingerprint,
             port = s.port,
             protocol = if (s.https) "https" else "http",
@@ -379,10 +384,18 @@ class LocalSendService : LocalSendController {
             addHistory(peer.alias, text.take(120), text.toByteArray(Charsets.UTF_8).size.toLong(), incoming = true, success = true)
         }
 
-        override suspend fun onOffer(offer: IncomingOffer): Set<String>? = awaitOfferDecision(offer)
+        override suspend fun onOffer(offer: IncomingOffer): Set<String>? {
+            sessionPeers[offer.sessionId] = offer.peer.fingerprint
+            return awaitOfferDecision(offer)
+        }
 
         override fun onReceiveProgress(sessionId: String, files: List<FileProgress>) {
             _incomingProgress.value = files
+            val live = files.any {
+                it.status == TransferStatus.ACTIVE || it.status == TransferStatus.WAITING
+            }
+            _incomingPeer.value = if (live) sessionPeers[sessionId] else null
+            if (!live) sessionPeers.remove(sessionId)
         }
 
         override fun onFileReceived(
@@ -990,11 +1003,24 @@ class LocalSendService : LocalSendController {
     ) {
         val file = jobById(jobId)?.files?.firstOrNull { it.fileId == fileId }
             ?: throw IOException("Outbox file vanished")
+        // Progress must reach the OUTBOX state, not just the legacy
+        // sendState mirror: the transfer sheet and the global pill render
+        // OutboxFile.confirmedBytes, which is otherwise only written once
+        // at completion (the v0.8.0 "stuck at 0 B" bug). mutateFile also
+        // persists outbox.json, so throttle to ~4 pushes/sec or 1 MiB.
+        var lastPushAt = 0L
+        var lastPushBytes = 0L
         client.upload(
             target, sessionId, fileId, token, file.size,
             openStream = { openPickedInput(file.handle) },
         ) { sent ->
             liveDone[fileId] = sent
+            val now = System.currentTimeMillis()
+            if (now - lastPushAt >= 250 || sent - lastPushBytes >= 1_048_576) {
+                lastPushAt = now
+                lastPushBytes = sent
+                mutateFile(jobId, fileId) { it.copy(confirmedBytes = sent) }
+            }
             jobById(jobId)?.let { publishJobState(it) }
         }
     }

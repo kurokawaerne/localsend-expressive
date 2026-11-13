@@ -11,11 +11,14 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateValueAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.border
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -39,6 +42,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonGroup
+import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.Checkbox
@@ -60,6 +65,10 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
+import androidx.compose.material3.ShortNavigationBar
+import androidx.compose.material3.SplitButtonDefaults
+import androidx.compose.material3.SplitButtonLayout
+import androidx.compose.material3.ShortNavigationBarItem
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
@@ -68,6 +77,8 @@ import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.ToggleButton
+import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -82,15 +93,20 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.material3.MaterialShapes
+import androidx.compose.material3.toShape
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import dev.kurokawa.localsend.expressive.LocalDevice
@@ -112,7 +128,9 @@ import dev.kurokawa.localsend.expressive.platform.installPackage
 import dev.kurokawa.localsend.expressive.platform.installerSupported
 import dev.kurokawa.localsend.expressive.platform.isInstallablePackage
 import dev.kurokawa.localsend.expressive.platform.joinWifiNetwork
+import dev.kurokawa.localsend.expressive.platform.WifiNetwork
 import dev.kurokawa.localsend.expressive.platform.loadInstalledApps
+import dev.kurokawa.localsend.expressive.platform.deleteReceivedFile
 import dev.kurokawa.localsend.expressive.platform.openReceivedFile
 import dev.kurokawa.localsend.expressive.platform.openUrl
 import dev.kurokawa.localsend.expressive.platform.parseWifiQr
@@ -133,6 +151,24 @@ import dev.kurokawa.localsend.expressive.platform.supportsQuickShareTile
 import dev.kurokawa.localsend.expressive.platform.systemLanguageCode
 import dev.kurokawa.localsend.expressive.protocol.DeviceType
 import dev.kurokawa.localsend.expressive.protocol.ProtocolConstants
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.material3.ColorScheme
+import androidx.compose.ui.graphics.Matrix
+import androidx.compose.ui.graphics.Outline
+import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.LayoutDirection
+import androidx.graphics.shapes.Morph
+import dev.kurokawa.localsend.expressive.theme.DarkScheme
+import dev.kurokawa.localsend.expressive.theme.LightScheme
+import dev.kurokawa.localsend.expressive.theme.MinusColorSchemeIds
+import dev.kurokawa.localsend.expressive.theme.MonoDarkScheme
+import dev.kurokawa.localsend.expressive.theme.MonoLightScheme
+import dev.kurokawa.localsend.expressive.theme.minusColorScheme
 import dev.kurokawa.localsend.expressive.theme.LocalSendExpressiveTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
@@ -161,7 +197,11 @@ import dev.kurokawa.localsend.expressive.platform.platformHasSystemSplash
 import dev.kurokawa.localsend.expressive.platform.prefersSwipeActions
 import dev.kurokawa.localsend.expressive.platform.rememberStorageAccess
 import dev.kurokawa.localsend.expressive.platform.storageRoots
+import kotlin.math.PI
+import kotlin.math.min
 import kotlin.math.roundToInt
+import kotlin.math.sin
+import kotlin.math.sqrt
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.DropdownMenu
@@ -187,49 +227,16 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import dev.kurokawa.localsend.expressive.platform.platformDeviceModel
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.geometry.center
 import androidx.compose.ui.unit.IntOffset
 
 private enum class MainTab { Home, Share, Settings }
 
 // ── UI strings (language setting: system / English / Español) ──────────────
-
-private data class UiStrings(
-    val send: String,
-    val receive: String,
-    val settings: String,
-    val connect: String,
-    val nearbyDevices: String,
-    val selection: String,
-    val readyToSend: String,
-    val history: String,
-    val searching: String,
-    val troubleshoot: String,
-)
-
-private val EnStrings = UiStrings(
-    send = "Send", receive = "Receive", settings = "Settings", connect = "Connect",
-    nearbyDevices = "Nearby devices", selection = "Selection",
-    readyToSend = "Ready to send", history = "History",
-    searching = "Searching for devices…", troubleshoot = "Troubleshoot",
-)
-
-private val EsStrings = UiStrings(
-    send = "Enviar", receive = "Recibir", settings = "Ajustes", connect = "Conectar",
-    nearbyDevices = "Dispositivos cercanos", selection = "Selección",
-    readyToSend = "Listo para enviar", history = "Historial",
-    searching = "Buscando dispositivos…", troubleshoot = "Solución de problemas",
-)
-
-private val LocalStrings = staticCompositionLocalOf { EnStrings }
-
-private fun stringsFor(language: String): UiStrings = when (language) {
-    "es" -> EsStrings
-    "en" -> EnStrings
-    else -> if (systemLanguageCode() == "es") EsStrings else EnStrings
-}
 
 // ── Root + splash ──────────────────────────────────────────────────────────
 
@@ -244,13 +251,14 @@ fun AppRoot(controller: LocalSendController, onReady: () -> Unit = {}) {
     val settings by controller.settings.collectAsState()
     LocalSendExpressiveTheme(settings) {
         CompositionLocalProvider(LocalStrings provides stringsFor(settings.language)) {
-            var showSplash by remember { mutableStateOf(true) }
+            var showSplash by rememberSaveable { mutableStateOf(true) }
             AppScaffold(controller, settings)
-            // v0.6.0: ONE splash only. Android has the system splash
-            // (held by MainActivity until the first frame), so the
-            // in-app overlay only runs where no system splash exists
-            // (desktop). Ernest: the double splash "is not normal".
-            if (showSplash && settings.enableAnimations && !platformHasSystemSplash()) {
+            // The animated splash runs on Android too (v0.9.0): the
+            // system splash is only a static frame — no text, no corner
+            // animation, no dynamic color — and Ernest's splash spec is
+            // the animated one. It shows once per cold start;
+            // rememberSaveable keeps rotation from replaying it.
+            if (showSplash && settings.enableAnimations) {
                 SplashOverlay { showSplash = false }
             }
             LaunchedEffect(Unit) { onReady() }
@@ -295,56 +303,87 @@ private fun LsexWordmark(modifier: Modifier = Modifier) {
     val scheme = MaterialTheme.colorScheme
     Text(
         buildAnnotatedString {
-            withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = scheme.primary)) {
+            withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = scheme.primary)) {
                 append("LocalSend")
             }
             withStyle(
                 SpanStyle(
+                    // The mockup's "Ex" is a serif italic flourish set
+                    // against the rounded sans — Serif italic is the
+                    // closest platform match.
+                    fontFamily = FontFamily.Serif,
                     fontWeight = FontWeight.Bold,
                     fontStyle = FontStyle.Italic,
                     color = scheme.primary,
                 ),
             ) { append("Ex") }
         },
-        style = MaterialTheme.typography.headlineSmall,
+        style = MaterialTheme.typography.headlineMedium,
         modifier = modifier,
     )
 }
 
 /**
- * Animated splash (Ernest's spec): the two arrows fly in from opposite
- * corners of the screen and meet in the center, settling into the static
- * splash (pale circle + arrows + wordmark). Desktop only — Android uses
- * the system splash with the same artwork.
+ * Animated splash (Ernest's exact spec): the two comparison arrows start
+ * at the TOP and BOTTOM corners of the screen, sweep quickly to the
+ * center along an almost-circular arc, BOUNCE when they meet, and settle
+ * into the static mark (pale circle + arrows) with the wordmark at the
+ * bottom. Colors come from the live color scheme, so the splash follows
+ * dynamic color like the rest of the app. Runs on every platform —
+ * Android's system splash (same artwork, light/dark adaptive) hands off
+ * to it. Hardened: the completion callback fires from a finally block,
+ * so no animation failure can trap the user on the splash.
  */
 @Composable
 private fun SplashOverlay(onDone: () -> Unit) {
-    var started by remember { mutableStateOf(false) }
+    val progress = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
-        withFrameNanos { }
-        started = true
-        delay(1500)
-        onDone()
+        try {
+            progress.animateTo(1f, tween(durationMillis = 1150, easing = LinearEasing))
+            delay(320)
+        } finally {
+            onDone()
+        }
     }
-    val progress by animateFloatAsState(
-        targetValue = if (started) 1f else 0f,
-        animationSpec = spring(
-            dampingRatio = Spring.DampingRatioMediumBouncy,
-            stiffness = Spring.StiffnessLow,
-        ),
-        label = "splashArrows",
-    )
     val primary = MaterialTheme.colorScheme.primary
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
         BoxWithConstraints(Modifier.fillMaxSize()) {
             val wPx = constraints.maxWidth.toFloat()
             val hPx = constraints.maxHeight.toFloat()
-            // Arrow 1 (points up-right) flies from the bottom-left corner.
+            val t = progress.value
+            // Ease-out for the flight itself (fast start, gentle arrival).
+            val te = 1f - (1f - t).let { it * it * it }
+            // Bounce: once the arrows meet (~82% in), they rebound a
+            // little way back along their paths and settle again.
+            val bouncePhase = ((te - 0.82f) / 0.18f).coerceIn(0f, 1f)
+            val rebound = if (te > 0.82f) {
+                sin(bouncePhase * PI.toFloat()) * min(wPx, hPx) * 0.028f
+            } else {
+                0f
+            }
+            // Position of one arrow: corner -> center along a quadratic
+            // arc (the perpendicular bulge peaks mid-flight and curves
+            // BOTH arrows in the same rotational sense — the "almost
+            // circular" sweep), plus the rebound along the travel axis.
+            fun arrowOffset(startX: Float, startY: Float): Offset {
+                val vx = -startX
+                val vy = -startY
+                val len = sqrt(vx * vx + vy * vy).coerceAtLeast(1f)
+                val bulge = sin(te * PI.toFloat()) * min(wPx, hPx) * 0.10f
+                val along = te + rebound / len
+                return Offset(
+                    startX + vx * along + (-vy / len) * bulge * (1f - te),
+                    startY + vy * along + (vx / len) * bulge * (1f - te),
+                )
+            }
+            val fade = 0.3f + 0.7f * te
+            // Arrow 1 (points up-right) starts at the BOTTOM-left corner.
+            val o1 = arrowOffset(-wPx * 0.44f, hPx * 0.32f)
             Canvas(
                 Modifier.fillMaxSize().graphicsLayer {
-                    translationX = -(wPx * 0.42f) * (1f - progress)
-                    translationY = (hPx * 0.30f) * (1f - progress)
-                    alpha = 0.35f + 0.65f * progress
+                    translationX = o1.x
+                    translationY = o1.y
+                    alpha = fade
                 },
             ) {
                 val cx = size.width / 2f
@@ -355,12 +394,13 @@ private fun SplashOverlay(onDone: () -> Unit) {
                 drawLine(primary, Offset(cx - s * 0.35f, cy - s * 0.2f), Offset(cx + s * 0.05f, cy + s * 0.45f), stroke)
                 drawLine(primary, Offset(cx - s * 0.35f, cy + s * 1.1f), Offset(cx + s * 0.05f, cy + s * 0.45f), stroke)
             }
-            // Arrow 2 (points down-left) flies from the top-right corner.
+            // Arrow 2 (points down-left) starts at the TOP-right corner.
+            val o2 = arrowOffset(wPx * 0.44f, -hPx * 0.32f)
             Canvas(
                 Modifier.fillMaxSize().graphicsLayer {
-                    translationX = (wPx * 0.42f) * (1f - progress)
-                    translationY = -(hPx * 0.30f) * (1f - progress)
-                    alpha = 0.35f + 0.65f * progress
+                    translationX = o2.x
+                    translationY = o2.y
+                    alpha = fade
                 },
             ) {
                 val cx = size.width / 2f
@@ -371,18 +411,16 @@ private fun SplashOverlay(onDone: () -> Unit) {
                 drawLine(primary, Offset(cx + s * 0.35f, cy + s * 0.2f), Offset(cx - s * 0.05f, cy - s * 0.45f), stroke)
                 drawLine(primary, Offset(cx + s * 0.35f, cy - s * 1.1f), Offset(cx - s * 0.05f, cy - s * 0.45f), stroke)
             }
-            Column(
-                Modifier.align(Alignment.Center),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(18.dp),
+            // The settled mark fades in as the arrows land.
+            Box(
+                Modifier.align(Alignment.Center)
+                    .graphicsLayer { alpha = ((te - 0.6f) / 0.4f).coerceIn(0f, 1f) },
             ) {
-                Box(Modifier.graphicsLayer { alpha = ((progress - 0.55f) / 0.45f).coerceIn(0f, 1f) }) {
-                    ArrowsMark(120.dp)
-                }
+                ArrowsMark(120.dp)
             }
             Box(
                 Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp)
-                    .graphicsLayer { alpha = ((progress - 0.55f) / 0.45f).coerceIn(0f, 1f) },
+                    .graphicsLayer { alpha = ((te - 0.6f) / 0.4f).coerceIn(0f, 1f) },
             ) {
                 LsexWordmark()
             }
@@ -391,6 +429,7 @@ private fun SplashOverlay(onDone: () -> Unit) {
 }
 
 @Composable
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 private fun AppScaffold(controller: LocalSendController, settings: AppSettings) {
     val strings = LocalStrings.current
     var tab by rememberSaveable { mutableStateOf(MainTab.Home) }
@@ -426,16 +465,11 @@ private fun AppScaffold(controller: LocalSendController, settings: AppSettings) 
     var showLinkPage by remember { mutableStateOf(false) }
     var showTransfers by remember { mutableStateOf(false) }
 
-    // Global transfer pill state (Ernest's addendum): visible on EVERY
-    // page while anything is sending or receiving.
-    val outbox by controller.outbox.collectAsState()
-    val sendState by controller.sendState.collectAsState()
-    val incomingProgress by controller.incomingProgress.collectAsState()
-    val sendingActive = outbox.any { job ->
-        !job.paused && job.files.any { it.status == TransferStatus.ACTIVE }
-    } || (sendState?.active == true)
-    val receivingActive = incomingProgress.any { it.status == TransferStatus.ACTIVE }
-    val transferActive = sendingActive || receivingActive
+    // The global transfer pill lives in GlobalTransferPillHost below:
+    // it collects the progress flows ITSELF (v0.9.0 perf pass). When the
+    // scaffold collected them, every progress tick — several per second
+    // during a transfer — recomposed the whole screen tree, which was
+    // the "scrolling doesn't feel smooth" jank Ernest reported.
 
     // Share sheet: files handed to us by other apps join the staging area.
     val sharedFiles by sharedFilesFlow().collectAsState()
@@ -455,11 +489,16 @@ private fun AppScaffold(controller: LocalSendController, settings: AppSettings) 
         }
     }
 
-    BoxWithConstraints(
-        Modifier
-            .fillMaxSize()
-            .background(MaterialTheme.colorScheme.background),
+    // A root Surface, not just a background paint: the Surface is what
+    // provides LocalContentColor (onBackground) to bare Texts. Without
+    // it, headings outside cards fell back to the composition default —
+    // BLACK — and vanished on the dark background (Ernest's monochrome
+    // screenshots: "Your device" / "Setup your connection" invisible).
+    Surface(
+        color = MaterialTheme.colorScheme.background,
+        modifier = Modifier.fillMaxSize(),
     ) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 840.dp
         val content: @Composable () -> Unit = {
             when (tab) {
@@ -535,16 +574,12 @@ private fun AppScaffold(controller: LocalSendController, settings: AppSettings) 
                     ) {
                         content()
                     }
-                    if (transferActive) {
-                        GlobalTransferPill(
-                            controller = controller,
-                            sending = sendingActive,
-                            receiving = receivingActive,
-                            modifier = Modifier
-                                .align(Alignment.BottomEnd)
-                                .padding(20.dp),
-                        ) { showTransfers = true }
-                    }
+                    GlobalTransferPillHost(
+                        controller = controller,
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(20.dp),
+                    ) { showTransfers = true }
                 }
             }
         } else {
@@ -566,49 +601,83 @@ private fun AppScaffold(controller: LocalSendController, settings: AppSettings) 
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    if (transferActive) {
-                        GlobalTransferPill(
-                            controller = controller,
-                            sending = sendingActive,
-                            receiving = receivingActive,
-                            modifier = Modifier,
-                        ) { showTransfers = true }
-                    }
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.surfaceContainer,
-                        shadowElevation = 6.dp,
+                    // Same width as the nav bar (Ernest: the floating
+                    // transfer pill matches his mockup's bar width).
+                    GlobalTransferPillHost(
+                        controller = controller,
+                        modifier = Modifier.fillMaxWidth(0.827f),
+                    ) { showTransfers = true }
+                    // The native expressive short navigation bar
+                    // (Ernest's "XR nav bar"): 64dp, surfaceContainer,
+                    // growing 56x32 indicator, filled selected icon,
+                    // secondary active label — floated with margins and
+                    // full rounding exactly like his mockup. The custom
+                    // pill and its dark backdrop box are gone.
+                    ShortNavigationBar(
+                        modifier = Modifier
+                            // Ernest: nav width EXACTLY as mocked —
+                            // measured on his mockups (home + share):
+                            // the bar spans x 86..913 of 1000, i.e.
+                            // 82.7% of the screen width, ~8.65% margins.
+                            .fillMaxWidth(0.827f)
+                            .shadow(8.dp, RoundedCornerShape(36.dp))
+                            .clip(RoundedCornerShape(36.dp)),
+                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+                        contentColor = MaterialTheme.colorScheme.onSurface,
+                        windowInsets = WindowInsets(0, 0, 0, 0),
                     ) {
-                        Row(
-                            Modifier.padding(horizontal = 10.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            PillNavItem(
-                                icon = MaterialSymbols.Outlined.Home,
-                                selectedIcon = MaterialSymbols.OutlinedFilled.Home,
-                                label = "Home",
-                                selected = tab == MainTab.Home,
-                            ) { tab = MainTab.Home }
-                            PillNavItem(
-                                icon = MaterialSymbols.Outlined.Compare_arrows,
-                                selectedIcon = MaterialSymbols.OutlinedFilled.Compare_arrows,
-                                label = strings.send,
-                                selected = tab == MainTab.Share,
-                            ) { tab = MainTab.Share }
-                            PillNavItem(
-                                icon = MaterialSymbols.Outlined.Settings,
-                                selectedIcon = MaterialSymbols.OutlinedFilled.Settings,
-                                label = strings.settings,
-                                selected = tab == MainTab.Settings,
-                            ) { tab = MainTab.Settings }
-                        }
+                        ShortNavigationBarItem(
+                            selected = tab == MainTab.Home,
+                            onClick = { tab = MainTab.Home },
+                            icon = {
+                                Icon(
+                                    if (tab == MainTab.Home) {
+                                        MaterialSymbols.OutlinedFilled.Home
+                                    } else {
+                                        MaterialSymbols.Outlined.Home
+                                    },
+                                    contentDescription = null,
+                                )
+                            },
+                            label = { Text("Home") },
+                        )
+                        ShortNavigationBarItem(
+                            selected = tab == MainTab.Share,
+                            onClick = { tab = MainTab.Share },
+                            icon = {
+                                Icon(
+                                    if (tab == MainTab.Share) {
+                                        MaterialSymbols.OutlinedFilled.Compare_arrows
+                                    } else {
+                                        MaterialSymbols.Outlined.Compare_arrows
+                                    },
+                                    contentDescription = null,
+                                )
+                            },
+                            label = { Text(strings.send) },
+                        )
+                        ShortNavigationBarItem(
+                            selected = tab == MainTab.Settings,
+                            onClick = { tab = MainTab.Settings },
+                            icon = {
+                                Icon(
+                                    if (tab == MainTab.Settings) {
+                                        MaterialSymbols.OutlinedFilled.Settings
+                                    } else {
+                                        MaterialSymbols.Outlined.Settings
+                                    },
+                                    contentDescription = null,
+                                )
+                            },
+                            label = { Text(strings.settings) },
+                        )
                     }
                 }
             }
         }
     }
 
+    }
     offer?.let { IncomingOfferDialog(controller, it) }
     if (showIpDialog) {
         IpAddressDialog(
@@ -779,6 +848,49 @@ private sealed interface StagedItem {
 
 private enum class ContentTab { Apps, Photos, Videos, Audio, Files, Text, Web }
 
+/**
+ * The expressive connected button group (the segmented button's official
+ * successor): equal widths, 2dp gaps, pill outer ends, inner corners that
+ * tighten on press, the checked item filled with primary — the Quick
+ * Save-style control Ernest asked for, matching his mockups.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ConnectedChoiceGroup(
+    options: List<Pair<ImageVector, String>>,
+    selectedIndex: Int,
+    modifier: Modifier = Modifier,
+    onSelect: (Int) -> Unit,
+) {
+    ButtonGroup(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(ButtonGroupDefaults.ConnectedSpaceBetween),
+    ) {
+        options.forEachIndexed { index, (icon, label) ->
+            ToggleButton(
+                checked = selectedIndex == index,
+                onCheckedChange = { onSelect(index) },
+                shapes = when (index) {
+                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                    options.lastIndex -> ButtonGroupDefaults.connectedTrailingButtonShapes()
+                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                },
+                colors = ToggleButtonDefaults.toggleButtonColors(
+                    checkedContainerColor = MaterialTheme.colorScheme.primary,
+                    checkedContentColor = MaterialTheme.colorScheme.onPrimary,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                ),
+                modifier = Modifier.weight(1f),
+            ) {
+                Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
+                Spacer(Modifier.width(6.dp))
+                Text(label, maxLines = 1, softWrap = false)
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun HomeScreen(
@@ -796,6 +908,8 @@ private fun HomeScreen(
     var historyExpanded by rememberSaveable { mutableStateOf(true) }
     var connSettingsKind by remember { mutableStateOf<String?>(null) }
     var showScanner by remember { mutableStateOf(false) }
+    var joinTarget by remember { mutableStateOf<WifiNetwork?>(null) }
+    var joinNote by remember { mutableStateOf<String?>(null) }
     var homeNote by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
 
@@ -804,6 +918,10 @@ private fun HomeScreen(
     // The connection mode follows reality: if our hotspot or P2P group is
     // up, that mode is the selected one.
     var mode by rememberSaveable { mutableStateOf(0) }
+    // Scan for the WiFi section's network list whenever it is shown.
+    LaunchedEffect(mode) {
+        if (mode == 0) connectivity.scanWifiNetworks()
+    }
     LaunchedEffect(connState.hotspot, connState.wifiDirect) {
         mode = when {
             connState.hotspot != null -> 1
@@ -888,26 +1006,17 @@ private fun HomeScreen(
                     Modifier.padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                        val modes = listOf(
-                            Triple("WiFi", MaterialSymbols.Outlined.Wifi, 0),
-                            Triple("Hotspot", MaterialSymbols.Outlined.Wifi_tethering, 1),
-                            Triple("WDirect", MaterialSymbols.Outlined.Router, 2),
-                        )
-                        modes.forEach { (label, icon, index) ->
-                            SegmentedButton(
-                                selected = mode == index,
-                                onClick = {
-                                    mode = index
-                                    connectivity.clearMessage()
-                                },
-                                shape = SegmentedButtonDefaults.itemShape(index, modes.size),
-                                icon = {
-                                    Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-                                },
-                                label = { Text(label, maxLines = 1, softWrap = false) },
-                            )
-                        }
+                    ConnectedChoiceGroup(
+                        options = listOf(
+                            MaterialSymbols.Outlined.Wifi to "WiFi",
+                            MaterialSymbols.Outlined.Wifi_tethering to "Hotspot",
+                            MaterialSymbols.Outlined.Router to "WDirect",
+                        ),
+                        selectedIndex = mode,
+                        modifier = Modifier.fillMaxWidth(),
+                    ) { index ->
+                        mode = index
+                        connectivity.clearMessage()
                     }
                     when (mode) {
                         0 -> {
@@ -953,6 +1062,89 @@ private fun HomeScreen(
                                 Icon(MaterialSymbols.Outlined.Qr_code_scanner, contentDescription = null)
                                 Spacer(Modifier.width(8.dp))
                                 Text("Scan a code to join a network")
+                            }
+                            if (connState.wifiNetworks.isNotEmpty()) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Text(
+                                        "Nearby networks",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    IconButton(onClick = { connectivity.scanWifiNetworks() }) {
+                                        Icon(
+                                            MaterialSymbols.Outlined.Refresh,
+                                            contentDescription = "Scan again",
+                                        )
+                                    }
+                                }
+                                connState.wifiNetworks.take(8).forEach { network ->
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        // Mockup anatomy: the signal glyph sits
+                                        // in a filled circle, Connect is a
+                                        // filled pill button.
+                                        Surface(
+                                            shape = CircleShape,
+                                            color = MaterialTheme.colorScheme.surfaceContainerHighest,
+                                            modifier = Modifier.size(40.dp),
+                                        ) {
+                                            Box(contentAlignment = Alignment.Center) {
+                                                Icon(
+                                                    when {
+                                                        network.level >= -55 ->
+                                                            MaterialSymbols.Outlined.Signal_wifi_4_bar
+                                                        network.level >= -70 ->
+                                                            MaterialSymbols.Outlined.Wifi_2_bar
+                                                        else -> MaterialSymbols.Outlined.Wifi_1_bar
+                                                    },
+                                                    contentDescription = null,
+                                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                    modifier = Modifier.size(20.dp),
+                                                )
+                                            }
+                                        }
+                                        Spacer(Modifier.width(12.dp))
+                                        Text(
+                                            network.ssid,
+                                            style = MaterialTheme.typography.bodyLarge,
+                                            modifier = Modifier.weight(1f),
+                                            maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
+                                        )
+                                        if (network.secured) {
+                                            Icon(
+                                                MaterialSymbols.Outlined.Lock,
+                                                contentDescription = "Secured",
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                modifier = Modifier.size(16.dp),
+                                            )
+                                            Spacer(Modifier.width(6.dp))
+                                        }
+                                        if (network.connected) {
+                                            Text(
+                                                "Connected",
+                                                style = MaterialTheme.typography.labelLarge,
+                                                color = MaterialTheme.colorScheme.primary,
+                                            )
+                                        } else {
+                                            Button(onClick = {
+                                                if (network.secured) {
+                                                    joinTarget = network
+                                                } else {
+                                                    joinNote = joinWifiNetwork(
+                                                        network.ssid, null, null,
+                                                    )
+                                                }
+                                            }) { Text("Connect") }
+                                        }
+                                    }
+                                }
+                            }
+                            if (joinNote != null) {
+                                Text(
+                                    joinNote!!,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                         }
                         1 -> {
@@ -1097,9 +1289,15 @@ private fun HomeScreen(
                                 modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
                             )
                         } else {
-                            history.take(30).forEach { entry ->
+                            val shown = history.take(30)
+                            Column(
+                                Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
+                                verticalArrangement = Arrangement.spacedBy(3.dp),
+                            ) {
+                            shown.forEachIndexed { index, entry ->
                                 HistoryRow(
                                     entry = entry,
+                                    shape = historyTileShape(index, shown.size),
                                     onOpen = entry.uri.takeIf { it.isNotEmpty() }
                                         ?.let { uri -> { openReceivedFile(uri, entry.fileName) } },
                                     onInstall = if (
@@ -1136,7 +1334,17 @@ private fun HomeScreen(
                                     } else {
                                         null
                                     },
+                                    onRemove = { controller.removeHistoryEntry(entry) },
+                                    onDeleteFile = if (entry.incoming && entry.uri.isNotEmpty()) {
+                                        {
+                                            deleteReceivedFile(entry.uri)
+                                            controller.removeHistoryEntry(entry)
+                                        }
+                                    } else {
+                                        null
+                                    },
                                 )
+                            }
                             }
                         }
                     }
@@ -1186,6 +1394,37 @@ private fun HomeScreen(
             },
             confirmButton = {
                 TextButton(onClick = { showScanner = false }) { Text("Close") }
+            },
+        )
+    }
+    val joining = joinTarget
+    if (joining != null) {
+        var password by remember(joining.ssid) { mutableStateOf("") }
+        AlertDialog(
+            onDismissRequest = { joinTarget = null },
+            title = { Text("Join “${joining.ssid}”") },
+            text = {
+                OutlinedTextField(
+                    value = password,
+                    onValueChange = { password = it },
+                    label = { Text("Password") },
+                    singleLine = true,
+                    visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    joinTarget = null
+                    scope.launch {
+                        joinNote = withContext(Dispatchers.IO) {
+                            joinWifiNetwork(joining.ssid, password, "WPA")
+                        }
+                    }
+                }) { Text("Connect") }
+            },
+            dismissButton = {
+                TextButton(onClick = { joinTarget = null }) { Text("Cancel") }
             },
         )
     }
@@ -1242,8 +1481,11 @@ private fun ConnectionSettingsDialog(
                 }
                 Text(
                     if (isHotspot) {
-                        "On Android the system assigns the hotspot name and password; " +
-                            "your choices apply on desktop and are used wherever the platform allows."
+                        "Applied when the hotspot starts (Android 11+). " +
+                            "If a device refuses custom settings, the hotspot starts " +
+                            "with system defaults instead — the running hotspot card " +
+                            "always shows the name and password that actually took effect."
+                            
                     } else {
                         "Wi-Fi Direct uses your name, password and band when the group is created (Android 10+)."
                     },
@@ -1730,10 +1972,13 @@ private fun StagedItemCard(
     item: StagedItem,
     onEdit: () -> Unit,
     onDiscard: () -> Unit,
+    shape: RoundedCornerShape = RoundedCornerShape(18.dp),
 ) {
     if (!prefersSwipeActions()) {
         // Desktop (pointer): actions stay visible.
-        StagedItemCardContent(item, onEdit, onDiscard, showActions = true)
+        Surface(shape = shape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+            StagedItemCardContent(item, onEdit, onDiscard, showActions = true)
+        }
         return
     }
     // Touch: Edit / Discard hide behind a left swipe and stay revealed
@@ -1766,7 +2011,7 @@ private fun StagedItemCard(
     Box(
         Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(18.dp))
+            .clip(shape)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest),
     ) {
         Row(
@@ -1812,7 +2057,7 @@ private fun StagedItemCard(
             }
         }
         Surface(
-            shape = RoundedCornerShape(18.dp),
+            shape = shape,
             color = MaterialTheme.colorScheme.surfaceContainerLow,
             modifier = Modifier
                 .fillMaxWidth()
@@ -1963,6 +2208,7 @@ private fun StagedEditDialog(
  * saturated full pill (background color AND shape change — no check
  * icon), with platform + IP chips and info / favorite actions.
  */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun DeviceCard(
     device: DiscoveredDevice,
@@ -1971,6 +2217,8 @@ private fun DeviceCard(
     onClick: () -> Unit,
     onToggleFavorite: () -> Unit,
     onInfo: () -> Unit,
+    /** Live transfer progress with this device (0..1), null when idle. */
+    transferFraction: Float? = null,
 ) {
     val scheme = MaterialTheme.colorScheme
     val shape by androidx.compose.animation.core.animateDpAsState(
@@ -1996,6 +2244,31 @@ private fun DeviceCard(
         shape = RoundedCornerShape(shape),
         modifier = Modifier.fillMaxWidth(),
     ) {
+        Box {
+            // Ernest's mockup: the transfer progress runs BEHIND the
+            // device card — a soft fill to the current fraction plus the
+            // wavy line along the card's bottom edge.
+            if (transferFraction != null) {
+                Box(
+                    Modifier
+                        .matchParentSize()
+                        .background(
+                            (if (isSelected) scheme.onPrimary else scheme.primary)
+                                .copy(alpha = 0.13f),
+                        ),
+                ) {
+                    Box(
+                        Modifier
+                            .fillMaxHeight()
+                            .fillMaxWidth(transferFraction.coerceIn(0f, 1f))
+                            .background(
+                                (if (isSelected) scheme.onPrimary else scheme.primary)
+                                    .copy(alpha = 0.16f),
+                            ),
+                    )
+                }
+            }
+            Column {
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -2069,6 +2342,14 @@ private fun DeviceCard(
                     contentDescription = "Favorite",
                     tint = if (isFavorite && !isSelected) scheme.primary else subdued,
                 )
+            }
+        }
+            if (transferFraction != null) {
+                LinearWavyProgressIndicator(
+                    progress = { transferFraction.coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
             }
         }
     }
@@ -2168,180 +2449,472 @@ private fun WebSharePanel(
 // NOT collect the devices/outbox flows, so background transfer activity
 // no longer recomposes it (the v0.4.0 "Skipped 52 frames" lag).
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun SectionTitle(text: String) {
     Text(
         text,
-        style = MaterialTheme.typography.titleMedium,
+        style = MaterialTheme.typography.labelLargeEmphasized,
         color = MaterialTheme.colorScheme.primary,
     )
 }
 
+// ── Settings: Minus-faithful segmented lists ──────────────────────────────
+//
+// Copied from Minus's settings (Ernest's main MD3E reference): a group is
+// a column of individual surfaceContainer tiles separated by 3dp gaps,
+// position corners 16dp outer / 4dp inner, group headers in the
+// emphasized label style in primary, a 40dp icon circle per row
+// (surfaceContainerHighest + primary glyph; active swaps to
+// onSecondaryContainer + secondaryContainer), whole-row switch targets
+// with a divider and a decorative switch, and selectable rows that light
+// up in secondaryContainer. Everything is scheme tokens, so monochrome
+// stays legible by construction — no fixed hues anywhere.
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun GroupCard(content: @Composable ColumnScope.() -> Unit) {
-    Card(
-        Modifier.fillMaxWidth(),
-        shape = MaterialTheme.shapes.extraLarge,
-        colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
-        ),
-    ) {
-        Column(content = content)
-    }
-}
-
-// ── Settings: Android-style segmented lists, vivid icon tones ──────────────
-
-/**
- * One vivid icon tone (Android Settings recipe, Ernest's reference
- * screenshot): a saturated light fill with a darker glyph of the same
- * hue. Fixed hues — dynamic color must not wash them out.
- */
-private data class IconTone(val fill: Color, val glyph: Color)
-
-private val ToneSky = IconTone(Color(0xFF8FD3FF), Color(0xFF0B4A6F))
-private val ToneBlue = IconTone(Color(0xFFA8C7FA), Color(0xFF17418C))
-private val TonePink = IconTone(Color(0xFFF8BBD0), Color(0xFF880E4F))
-private val ToneMagenta = IconTone(Color(0xFFF48FB1), Color(0xFF6A0DAD))
-private val ToneOrange = IconTone(Color(0xFFFFCC80), Color(0xFF7A3E00))
-private val TonePeach = IconTone(Color(0xFFFFAB91), Color(0xFF7A2E0E))
-private val ToneYellow = IconTone(Color(0xFFFFEE58), Color(0xFF6D5C00))
-private val ToneGreen = IconTone(Color(0xFFA5D6A7), Color(0xFF1B5E20))
-private val ToneTeal = IconTone(Color(0xFF80CBC4), Color(0xFF004D40))
-private val TonePurple = IconTone(Color(0xFFCE93D8), Color(0xFF4A148C))
-private val ToneRed = IconTone(Color(0xFFF2B8B5), Color(0xFF601410))
-private val ToneGray = IconTone(Color(0xFFCFD8DC), Color(0xFF37474F))
-
-@Composable
-private fun SettingIconChip(icon: ImageVector, tone: IconTone) {
-    Surface(
-        shape = CircleShape,
-        color = tone.fill,
-        modifier = Modifier.size(44.dp),
-    ) {
-        Box(contentAlignment = Alignment.Center) {
-            Icon(
-                icon,
-                contentDescription = null,
-                tint = tone.glyph,
-                modifier = Modifier.size(22.dp),
-            )
-        }
-    }
+private fun MinusGroupHeader(text: String) {
+    Text(
+        text,
+        style = MaterialTheme.typography.labelLargeEmphasized,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(start = 4.dp, bottom = 10.dp),
+    )
 }
 
 /**
- * MD3E segmented list: rows are tiles separated by 2dp gaps of the
- * background — outer corners 20dp, inner corners 6dp, no dividers.
+ * One settings group: optional header + tiles spaced 3dp. Each row
+ * receives its index, the row count, and its position shape.
  */
 @Composable
-private fun SegmentedList(rows: List<@Composable () -> Unit>) {
-    Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-        rows.forEachIndexed { index, row ->
-            val top = if (index == 0) 20.dp else 6.dp
-            val bottom = if (index == rows.lastIndex) 20.dp else 6.dp
-            Surface(
-                shape = RoundedCornerShape(
-                    topStart = top, topEnd = top,
-                    bottomStart = bottom, bottomEnd = bottom,
-                ),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                row()
+private fun MinusGroup(
+    title: String?,
+    rows: List<@Composable (Int, Int, RoundedCornerShape) -> Unit>,
+) {
+    Column {
+        if (title != null) MinusGroupHeader(title)
+        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            rows.forEachIndexed { index, row ->
+                row(index, rows.size, historyTileShape(index, rows.size))
             }
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun SwitchRow(
+private fun MinusLeadingIcon(icon: ImageVector, active: Boolean) {
+    val scheme = MaterialTheme.colorScheme
+    val converter = Color.VectorConverter(
+        androidx.compose.ui.graphics.colorspace.ColorSpaces.Srgb,
+    )
+    val bg by animateValueAsState(
+        targetValue = if (active) {
+            scheme.onSecondaryContainer
+        } else {
+            scheme.surfaceContainerHighest
+        },
+        typeConverter = converter,
+        animationSpec = tween(250),
+        label = "minusIconBg",
+    )
+    val fg by animateValueAsState(
+        targetValue = if (active) scheme.secondaryContainer else scheme.primary,
+        typeConverter = converter,
+        animationSpec = tween(250),
+        label = "minusIconFg",
+    )
+    Surface(shape = CircleShape, color = bg, modifier = Modifier.size(40.dp)) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = fg,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun MinusTile(
+    shape: RoundedCornerShape,
+    content: @Composable () -> Unit,
+) {
+    Surface(
+        shape = shape,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        content()
+    }
+}
+
+/**
+ * Minus switch row: the WHOLE row is the switch target; when ON, the
+ * tile fills with secondaryContainer and its corners morph toward
+ * extraLarge (28dp), and the icon circle goes active. The Switch itself
+ * is decorative (no own change handler).
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun MinusSwitchRow(
+    index: Int,
+    count: Int,
     icon: ImageVector,
-    tone: IconTone,
     title: String,
     subtitle: String? = null,
     checked: Boolean,
     onCheckedChange: (Boolean) -> Unit,
 ) {
-    Row(
-        Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        SettingIconChip(icon, tone)
-        Spacer(Modifier.width(14.dp))
-        Column(Modifier.weight(1f)) {
-            Text(title, style = MaterialTheme.typography.bodyLarge)
-            if (subtitle != null) {
-                Text(
-                    subtitle,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+    val scheme = MaterialTheme.colorScheme
+    val frac by animateFloatAsState(
+        targetValue = if (checked) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium,
+        ),
+        label = "minusSwitchMorph",
+    )
+    val baseTop = if (index == 0) 16f else 4f
+    val baseBottom = if (index == count - 1) 16f else 4f
+    val shape = RoundedCornerShape(
+        topStart = (baseTop + (28f - baseTop) * frac).dp,
+        topEnd = (baseTop + (28f - baseTop) * frac).dp,
+        bottomStart = (baseBottom + (28f - baseBottom) * frac).dp,
+        bottomEnd = (baseBottom + (28f - baseBottom) * frac).dp,
+    )
+    val container by animateValueAsState(
+        targetValue = if (checked) {
+            scheme.secondaryContainer
+        } else {
+            scheme.surfaceContainer
+        },
+        typeConverter = Color.VectorConverter(
+            androidx.compose.ui.graphics.colorspace.ColorSpaces.Srgb,
+        ),
+        animationSpec = tween(250),
+        label = "minusSwitchBg",
+    )
+    Surface(shape = shape, color = container, modifier = Modifier.fillMaxWidth()) {
+        Row(
+            Modifier
+                .toggleable(
+                    value = checked,
+                    role = Role.Switch,
+                    onValueChange = onCheckedChange,
                 )
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            MinusLeadingIcon(icon, checked)
+            Spacer(Modifier.width(16.dp))
+            Column(Modifier.weight(1f)) {
+                Text(title, style = MaterialTheme.typography.bodyMediumEmphasized)
+                if (subtitle != null) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = if (checked) {
+                            scheme.onSecondaryContainer
+                        } else {
+                            scheme.onSurfaceVariant
+                        },
+                    )
+                }
             }
+            Spacer(Modifier.width(12.dp))
+            Box(
+                Modifier
+                    .height(32.dp)
+                    .width(1.dp)
+                    .background(scheme.outline.copy(alpha = 0.5f)),
+            )
+            Spacer(Modifier.width(12.dp))
+            Switch(checked = checked, onCheckedChange = null)
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun DropdownRow(
+private fun MinusNavRow(
+    shape: RoundedCornerShape,
     icon: ImageVector,
-    tone: IconTone,
     title: String,
-    options: List<Pair<String, String>>,
-    selected: String,
-    onSelect: (String) -> Unit,
+    subtitle: String? = null,
+    value: String? = null,
+    expanded: Boolean? = null,
+    onClick: () -> Unit,
 ) {
-    var expanded by remember { mutableStateOf(false) }
-    ExposedDropdownMenuBox(
-        expanded = expanded,
-        onExpandedChange = { expanded = it },
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        shape = shape,
+        color = scheme.surfaceContainer,
+        modifier = Modifier.fillMaxWidth(),
     ) {
         Row(
             Modifier
-                .menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable)
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 13.dp),
+                .clickable(onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            SettingIconChip(icon, tone)
-            Spacer(Modifier.width(14.dp))
+            MinusLeadingIcon(icon, false)
+            Spacer(Modifier.width(16.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.bodyLarge)
-                Text(
-                    options.firstOrNull { it.first == selected }?.second ?: selected,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
+                Text(title, style = MaterialTheme.typography.bodyMediumEmphasized)
+                if (subtitle != null) {
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = scheme.onSurfaceVariant,
+                    )
+                }
             }
-            Icon(
-                if (expanded) MaterialSymbols.Outlined.Expand_less else MaterialSymbols.Outlined.Expand_more,
-                contentDescription = null,
-            )
-        }
-        ExposedDropdownMenu(
-            expanded = expanded,
-            onDismissRequest = { expanded = false },
-        ) {
-            options.forEach { (value, label) ->
-                DropdownMenuItem(
-                    text = { Text(label) },
-                    trailingIcon = {
-                        if (value == selected) {
-                            Icon(MaterialSymbols.Outlined.Check, contentDescription = "Selected")
-                        }
+            when {
+                expanded != null -> Icon(
+                    if (expanded) {
+                        MaterialSymbols.Outlined.Expand_less
+                    } else {
+                        MaterialSymbols.Outlined.Expand_more
                     },
-                    onClick = {
-                        expanded = false
-                        onSelect(value)
-                    },
+                    contentDescription = null,
+                    tint = scheme.onSurfaceVariant,
+                )
+                value != null -> Text(
+                    value,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = scheme.primary,
+                )
+                else -> Icon(
+                    MaterialSymbols.Outlined.Chevron_right,
+                    contentDescription = null,
+                    tint = scheme.onSurfaceVariant,
                 )
             }
         }
     }
 }
 
+/** One option inside an expanded accordion (Minus selectable row). */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun MinusSelectableRow(
+    shape: RoundedCornerShape,
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        shape = if (selected) RoundedCornerShape(16.dp) else shape,
+        color = if (selected) {
+            scheme.secondaryContainer
+        } else {
+            scheme.surfaceContainer
+        },
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Row(
+            Modifier
+                .clickable(onClick = onClick)
+                .padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                label,
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (selected) {
+                    scheme.onSecondaryContainer
+                } else {
+                    scheme.onSurface
+                },
+                modifier = Modifier.weight(1f),
+            )
+            if (selected) {
+                Icon(
+                    MaterialSymbols.Outlined.Check,
+                    contentDescription = "Selected",
+                    tint = scheme.primary,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Minus's circle ↔ clover morph path (its MorphPolygonShape, copied
+ * from AppearanceOptionsScreen).
+ */
+private class MorphPolygonShape(
+    private val morph: Morph,
+    private val progress: Float,
+) : Shape {
+    override fun createOutline(
+        size: Size,
+        layoutDirection: LayoutDirection,
+        density: Density,
+    ): Outline = Outline.Generic(createPath(morph, progress, size, size))
+
+    companion object {
+        fun createPath(
+            morph: Morph,
+            progress: Float,
+            size: Size,
+            containerSize: Size,
+        ): Path {
+            // CMP's graphics-shapes has no Morph.toPath — build the
+            // path from the morph's cubics directly (same geometry).
+            val path = Path()
+            val cubics = morph.asCubics(progress)
+            if (cubics.isNotEmpty()) {
+                path.moveTo(cubics.first().anchor0X, cubics.first().anchor0Y)
+                for (cubic in cubics) {
+                    path.cubicTo(
+                        cubic.control0X, cubic.control0Y,
+                        cubic.control1X, cubic.control1Y,
+                        cubic.anchor1X, cubic.anchor1Y,
+                    )
+                }
+                path.close()
+            }
+            val bounds = path.getBounds()
+            val maxDimension = maxOf(bounds.width, bounds.height)
+            val scale = if (maxDimension > 0f) {
+                size.minDimension / maxDimension
+            } else {
+                1f
+            }
+            val matrix = Matrix()
+            matrix.scale(scale, scale)
+            path.transform(matrix)
+            val newBounds = path.getBounds()
+            path.translate(containerSize.center - newBounds.center)
+            return path
+        }
+    }
+}
+
+/**
+ * Minus's color-scheme swatch, copied from its
+ * AppearanceOptionsScreen: a 54dp circle that morphs into a clover
+ * (spring, low-bouncy) when selected and gains a 2dp onSurface ring;
+ * inside, the scheme's surfaceVariant with primary bottom-left and
+ * tertiaryContainer bottom-right, clipped to the morph.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun MinusSwatch(
+    scheme: ColorScheme,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val morph = remember {
+        Morph(MaterialShapes.Circle, MaterialShapes.Clover4Leaf)
+    }
+    val progress by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessLow,
+        ),
+        label = "swatchMorph",
+    )
+    val borderColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.65f)
+    Box(
+        modifier = Modifier
+            .size(54.dp)
+            .clickable(
+                interactionSource = remember { MutableInteractionSource() },
+                indication = null,
+            ) { onClick() },
+        contentAlignment = Alignment.Center,
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val fullPath = MorphPolygonShape.createPath(
+                morph, progress, size, size,
+            )
+            if (selected) {
+                drawPath(
+                    path = fullPath,
+                    color = borderColor,
+                    style = Stroke(width = 2.dp.toPx()),
+                )
+            }
+            val innerSize = Size(
+                width = size.width - if (selected) 1.dp.toPx() else 0f,
+                height = size.height - if (selected) 1.dp.toPx() else 0f,
+            )
+            val innerPath = MorphPolygonShape.createPath(
+                morph, progress, innerSize, size,
+            )
+            clipPath(innerPath) {
+                drawRect(color = scheme.surfaceVariant)
+                drawRect(
+                    color = scheme.primary,
+                    size = size,
+                    topLeft = Offset(-size.width / 2f, size.height / 2f),
+                )
+                drawRect(
+                    color = scheme.tertiaryContainer,
+                    size = size,
+                    topLeft = Offset(size.width / 2f, size.height / 2f),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * Minus's theme-mode picker (its ThemeSection): a connected
+ * ToggleButton group — System / Light / Dark — with the unchecked
+ * container in surfaceVariant and the checked state on the default
+ * ToggleButton colors.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun MinusThemeModeGroup(
+    selectedIndex: Int,
+    onSelect: (Int) -> Unit,
+) {
+    val options = listOf(
+        MaterialSymbols.OutlinedFilled.Brightness_4 to "System",
+        MaterialSymbols.OutlinedFilled.Light_mode to "Light",
+        MaterialSymbols.OutlinedFilled.Dark_mode to "Dark",
+    )
+    ButtonGroup(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(
+            ButtonGroupDefaults.ConnectedSpaceBetween,
+        ),
+    ) {
+        options.forEachIndexed { index, (icon, label) ->
+            ToggleButton(
+                checked = selectedIndex == index,
+                onCheckedChange = { if (it) onSelect(index) },
+                modifier = Modifier.weight(1f),
+                colors = ToggleButtonDefaults.toggleButtonColors(
+                    containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                ),
+                shapes = when (index) {
+                    0 -> ButtonGroupDefaults.connectedLeadingButtonShapes()
+                    options.lastIndex ->
+                        ButtonGroupDefaults.connectedTrailingButtonShapes()
+                    else -> ButtonGroupDefaults.connectedMiddleButtonShapes()
+                },
+            ) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    modifier = Modifier.size(ToggleButtonDefaults.IconSize),
+                )
+                Spacer(Modifier.width(ToggleButtonDefaults.IconSpacing))
+                Text(label, maxLines = 1)
+            }
+        }
+    }
+}
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun SettingsScreen(controller: LocalSendController, settings: AppSettings) {
     val strings = LocalStrings.current
@@ -2355,6 +2928,9 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
         }
     }
     var aliasText by remember(settings.alias) { mutableStateOf(settings.alias) }
+    var modelText by remember(settings.deviceModel) {
+        mutableStateOf(settings.deviceModel)
+    }
     var portText by remember(settings.port) { mutableStateOf(settings.port.toString()) }
     var pinText by remember(settings.pin) { mutableStateOf(settings.pin) }
     var timeoutText by remember(settings.discoveryTimeoutSec) {
@@ -2374,182 +2950,479 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
     }
     var showAvatarPicker by remember { mutableStateOf(false) }
     var connDialog by remember { mutableStateOf<String?>(null) }
+    // Which inline picker/editor is expanded (accordion pattern, Minus).
+    var expandedPicker by rememberSaveable { mutableStateOf<String?>(null) }
+    fun togglePicker(key: String) {
+        expandedPicker = if (expandedPicker == key) null else key
+    }
+
+    // Every language the official LocalSend ships (UiStrings.kt).
+    val languageOptions = listOf("system" to "System") + UiLanguageOptions
+    val deviceTypeOptions = listOf(
+        "" to "Automatic",
+        "mobile" to "Mobile",
+        "desktop" to "Desktop",
+        "web" to "Web",
+        "headless" to "Headless",
+        "server" to "Server",
+    )
+    val orderOptions = listOf(
+        "smallest" to "Smallest files first",
+        "arrival" to "Arrival order",
+        "largest" to "Largest files first",
+        "name" to "By name",
+    )
 
     LazyColumn(
         Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 128.dp),
+        contentPadding = PaddingValues(
+            start = 16.dp, end = 16.dp, top = 16.dp, bottom = 128.dp,
+        ),
         verticalArrangement = Arrangement.spacedBy(22.dp),
     ) {
         item {
             Text(strings.settings, style = MaterialTheme.typography.headlineMedium)
         }
 
-        // Profile header (Minus style): avatar + identity. Tapping the
-        // avatar opens the avatar picker (Ernest's v0.8.0 request);
-        // the default avatar is the platform device-type glyph.
+        // ── Profile: avatar + name + device info, edited in place ──
         item {
-            Surface(
-                shape = MaterialTheme.shapes.extraLarge,
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Row(
-                    Modifier.padding(18.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Surface(
-                        shape = CircleShape,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier
-                            .size(60.dp)
-                            .clip(CircleShape)
-                            .clickable { showAvatarPicker = true },
-                    ) {
-                        Box(contentAlignment = Alignment.Center) {
-                            Icon(
-                                avatarIcon(settings.avatar) ?: deviceIcon(local.deviceType),
-                                contentDescription = "Change avatar",
-                                tint = MaterialTheme.colorScheme.onPrimary,
-                                modifier = Modifier.size(30.dp),
-                            )
+            MinusGroup(
+                title = null,
+                rows = buildList {
+                    add { _, _, shape ->
+                        MinusTile(shape) {
+                            Row(
+                                Modifier.padding(18.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier
+                                        .size(60.dp)
+                                        .clip(CircleShape)
+                                        .clickable { showAvatarPicker = true },
+                                ) {
+                                    Box(contentAlignment = Alignment.Center) {
+                                        Icon(
+                                            avatarIcon(settings.avatar)
+                                                ?: deviceIcon(local.deviceType),
+                                            contentDescription = "Change avatar",
+                                            tint = MaterialTheme.colorScheme.onPrimary,
+                                            modifier = Modifier.size(30.dp),
+                                        )
+                                    }
+                                }
+                                Spacer(Modifier.width(16.dp))
+                                Column(Modifier.weight(1f)) {
+                                    Text(
+                                        settings.alias.ifEmpty { local.alias },
+                                        style = MaterialTheme.typography.titleLarge,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                    Text(
+                                        "${local.deviceModel ?: "This device"} · " +
+                                            "tap the avatar to change it",
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme
+                                            .onSurfaceVariant,
+                                    )
+                                }
+                            }
                         }
                     }
-                    Spacer(Modifier.width(16.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            settings.alias.ifEmpty { local.alias },
-                            style = MaterialTheme.typography.titleLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            "${local.deviceModel ?: "This device"} · tap the avatar to change it",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    add { _, _, shape ->
+                        MinusNavRow(
+                            shape = shape,
+                            icon = MaterialSymbols.OutlinedFilled.Badge,
+                            title = "Device name",
+                            value = settings.alias.ifEmpty { local.alias },
+                            expanded = expandedPicker == "name",
+                            onClick = { togglePicker("name") },
                         )
                     }
-                }
-            }
+                    if (expandedPicker == "name") {
+                        add { _, _, shape ->
+                            MinusTile(shape) {
+                                Column(
+                                    Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    OutlinedTextField(
+                                        value = aliasText,
+                                        onValueChange = { aliasText = it },
+                                        label = { Text("Device name (alias)") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    Button(
+                                        onClick = {
+                                            controller.updateSettings(
+                                                settings.copy(
+                                                    alias = aliasText.trim(),
+                                                ),
+                                            )
+                                            expandedPicker = null
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) { Text("Save name") }
+                                }
+                            }
+                        }
+                    }
+                    add { _, _, shape ->
+                        MinusNavRow(
+                            shape = shape,
+                            icon = MaterialSymbols.OutlinedFilled.Smartphone,
+                            title = "Device model",
+                            value = settings.deviceModel
+                                .ifEmpty { platformDeviceModel() ?: "—" },
+                            expanded = expandedPicker == "model",
+                            onClick = { togglePicker("model") },
+                        )
+                    }
+                    if (expandedPicker == "model") {
+                        add { _, _, shape ->
+                            MinusTile(shape) {
+                                Column(
+                                    Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                                ) {
+                                    OutlinedTextField(
+                                        value = modelText,
+                                        onValueChange = { modelText = it },
+                                        label = {
+                                            Text("Device model (empty = automatic)")
+                                        },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    Button(
+                                        onClick = {
+                                            controller.updateSettings(
+                                                settings.copy(
+                                                    deviceModel = modelText.trim(),
+                                                ),
+                                            )
+                                            expandedPicker = null
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) { Text("Save model") }
+                                }
+                            }
+                        }
+                    }
+                    add { _, _, shape ->
+                        MinusNavRow(
+                            shape = shape,
+                            icon = MaterialSymbols.OutlinedFilled.Info,
+                            title = "Device type",
+                            value = deviceTypeOptions
+                                .firstOrNull { it.first == settings.deviceType }
+                                ?.second ?: "Automatic",
+                            expanded = expandedPicker == "type",
+                            onClick = { togglePicker("type") },
+                        )
+                    }
+                    if (expandedPicker == "type") {
+                        deviceTypeOptions.forEach { (value, label) ->
+                            add { _, _, shape ->
+                                MinusSelectableRow(
+                                    shape = shape,
+                                    label = label,
+                                    selected = settings.deviceType == value,
+                                    onClick = {
+                                        controller.updateSettings(
+                                            settings.copy(deviceType = value),
+                                        )
+                                        expandedPicker = null
+                                    },
+                                )
+                            }
+                        }
+                    }
+                },
+            )
         }
 
         // ── General ──
-        item { SectionTitle("General") }
         item {
-            val rows = mutableListOf<@Composable () -> Unit>(
-                {
-                    DropdownRow(
-                        icon = MaterialSymbols.OutlinedFilled.Dark_mode,
-                        tone = ToneBlue,
-                        title = "Theme",
-                        options = listOf(
-                            "system" to "System",
-                            "light" to "Light",
-                            "dark" to "Dark",
-                        ),
-                        selected = settings.themeMode,
-                        onSelect = {
-                            controller.updateSettings(settings.copy(themeMode = it))
-                        },
-                    )
-                },
-                {
-                    DropdownRow(
-                        icon = MaterialSymbols.OutlinedFilled.Palette,
-                        tone = ToneMagenta,
-                        title = "Colors",
-                        options = listOf(
-                            "dynamic" to "Wallpaper",
-                            "brand" to "LSEx teal",
-                        ),
-                        selected = settings.colorMode,
-                        onSelect = {
-                            controller.updateSettings(settings.copy(colorMode = it))
-                        },
-                    )
-                },
-                {
-                    DropdownRow(
-                        icon = MaterialSymbols.OutlinedFilled.Language,
-                        tone = ToneGray,
-                        title = "Language",
-                        options = listOf(
-                            "system" to "System",
-                            "en" to "English",
-                            "es" to "Español",
-                        ),
-                        selected = settings.language,
-                        onSelect = {
-                            controller.updateSettings(settings.copy(language = it))
-                        },
-                    )
-                },
-                {
-                    SwitchRow(
-                        icon = MaterialSymbols.OutlinedFilled.Animation,
-                        tone = ToneTeal,
-                        title = "Animations",
-                        subtitle = "Splash and expressive motion",
-                        checked = settings.enableAnimations,
-                        onCheckedChange = {
-                            controller.updateSettings(settings.copy(enableAnimations = it))
-                        },
-                    )
-                },
-            )
-            if (supportsQuickShareTile()) {
-                rows += {
-                    Row(
-                        Modifier.padding(horizontal = 16.dp, vertical = 13.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        SettingIconChip(MaterialSymbols.OutlinedFilled.Share, ToneSky)
-                        Spacer(Modifier.width(14.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text("Quick share tile", style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                "Add the LSEx tile from your Quick Settings panel " +
-                                    "editor to start a share in one tap.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
+            MinusGroup(
+                title = "General",
+                rows = buildList {
+                    add { _, _, shape ->
+                        // Appearance, laid out like Minus's appearance
+                        // screen: mode group, then the "Color scheme"
+                        // header over the morphing swatch row.
+                        MinusTile(shape) {
+                            Column(
+                                Modifier.padding(vertical = 16.dp),
+                                verticalArrangement =
+                                    Arrangement.spacedBy(16.dp),
+                            ) {
+                                Row(
+                                    Modifier.padding(horizontal = 16.dp),
+                                    verticalAlignment =
+                                        Alignment.CenterVertically,
+                                ) {
+                                    MinusLeadingIcon(
+                                        MaterialSymbols.OutlinedFilled
+                                            .Palette,
+                                        false,
+                                    )
+                                    Spacer(Modifier.width(16.dp))
+                                    Text(
+                                        "Appearance",
+                                        style = MaterialTheme.typography
+                                            .bodyMediumEmphasized,
+                                    )
+                                }
+                                Column(
+                                    Modifier.padding(horizontal = 16.dp),
+                                ) {
+                                    MinusThemeModeGroup(
+                                        selectedIndex =
+                                            when (settings.themeMode) {
+                                                "light" -> 1
+                                                "dark" -> 2
+                                                else -> 0
+                                            },
+                                        onSelect = { index ->
+                                            controller.updateSettings(
+                                                settings.copy(
+                                                    themeMode = listOf(
+                                                        "system",
+                                                        "light",
+                                                        "dark",
+                                                    )[index],
+                                                ),
+                                            )
+                                        },
+                                    )
+                                }
+                                Column(
+                                    verticalArrangement =
+                                        Arrangement.spacedBy(8.dp),
+                                ) {
+                                    Text(
+                                        "Color scheme",
+                                        style = MaterialTheme.typography
+                                            .labelMedium,
+                                        color = MaterialTheme.colorScheme
+                                            .onSurfaceVariant,
+                                        modifier = Modifier.padding(
+                                            horizontal = 16.dp,
+                                        ),
+                                    )
+                                    val darkNow =
+                                        when (settings.themeMode) {
+                                            "light" -> false
+                                            "dark" -> true
+                                            else -> isSystemInDarkTheme()
+                                        }
+                                    LazyRow(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        contentPadding = PaddingValues(
+                                            horizontal = 16.dp,
+                                        ),
+                                        horizontalArrangement =
+                                            Arrangement.spacedBy(12.dp),
+                                    ) {
+                                        items(
+                                            listOf("brand") +
+                                                MinusColorSchemeIds +
+                                                listOf("mono"),
+                                        ) { id ->
+                                            val swatchScheme = when (id) {
+                                                "brand" -> if (darkNow) {
+                                                    DarkScheme
+                                                } else {
+                                                    LightScheme
+                                                }
+                                                "mono" -> if (darkNow) {
+                                                    MonoDarkScheme
+                                                } else {
+                                                    MonoLightScheme
+                                                }
+                                                else -> minusColorScheme(
+                                                    id, darkNow,
+                                                ) ?: if (darkNow) {
+                                                    DarkScheme
+                                                } else {
+                                                    LightScheme
+                                                }
+                                            }
+                                            MinusSwatch(
+                                                scheme = swatchScheme,
+                                                selected =
+                                                    settings.colorMode == id ||
+                                                        (id == "brand" &&
+                                                            settings
+                                                                .colorMode ==
+                                                                "dynamic"),
+                                                onClick = {
+                                                    controller
+                                                        .updateSettings(
+                                                            settings.copy(
+                                                                colorMode = id,
+                                                            ),
+                                                        )
+                                                },
+                                            )
+                                        }
+                                    }
+                                }
+                            }
                         }
                     }
-                }
-            }
-            rows += {
-                SwitchRow(
-                    icon = MaterialSymbols.OutlinedFilled.Tune,
-                    tone = ToneRed,
-                    title = "Advanced settings",
-                    subtitle = "Show the advanced sections, like the official app",
-                    checked = advanced,
-                    onCheckedChange = { advanced = it },
-                )
-            }
-            SegmentedList(rows)
+                    add { index, count, _ ->
+                        // Minus's Material You toggle: wallpaper colors
+                        // apply to the brand scheme only.
+                        MinusSwitchRow(
+                            index = index,
+                            count = count,
+                            icon = MaterialSymbols.OutlinedFilled.Palette,
+                            title = "Material You",
+                            subtitle =
+                                "Wallpaper colors for the brand theme",
+                            checked = settings.dynamicColor ||
+                                settings.colorMode == "dynamic",
+                            onCheckedChange = { on ->
+                                controller.updateSettings(
+                                    settings.copy(
+                                        dynamicColor = on,
+                                        colorMode = if (!on &&
+                                            settings.colorMode == "dynamic"
+                                        ) {
+                                            "brand"
+                                        } else {
+                                            settings.colorMode
+                                        },
+                                    ),
+                                )
+                            },
+                        )
+                    }
+                    add { _, _, shape ->
+                        MinusNavRow(
+                            shape = shape,
+                            icon = MaterialSymbols.OutlinedFilled.Language,
+                            title = "Language",
+                            value = languageOptions
+                                .firstOrNull { it.first == settings.language }
+                                ?.second ?: "System",
+                            expanded = expandedPicker == "language",
+                            onClick = { togglePicker("language") },
+                        )
+                    }
+                    if (expandedPicker == "language") {
+                        languageOptions.forEach { (value, label) ->
+                            add { _, _, shape ->
+                                MinusSelectableRow(
+                                    shape = shape,
+                                    label = label,
+                                    selected = settings.language == value,
+                                    onClick = {
+                                        controller.updateSettings(
+                                            settings.copy(language = value),
+                                        )
+                                        expandedPicker = null
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    add { index, count, _ ->
+                        MinusSwitchRow(
+                            index = index,
+                            count = count,
+                            icon = MaterialSymbols.OutlinedFilled.Animation,
+                            title = "Animations",
+                            subtitle = "Splash and expressive motion",
+                            checked = settings.enableAnimations,
+                            onCheckedChange = {
+                                controller.updateSettings(
+                                    settings.copy(enableAnimations = it),
+                                )
+                            },
+                        )
+                    }
+                    if (supportsQuickShareTile()) {
+                        add { _, _, shape ->
+                            MinusTile(shape) {
+                                Row(
+                                    Modifier.padding(
+                                        horizontal = 16.dp, vertical = 12.dp,
+                                    ),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    MinusLeadingIcon(
+                                        MaterialSymbols.OutlinedFilled.Share,
+                                        false,
+                                    )
+                                    Spacer(Modifier.width(16.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(
+                                            "Quick share tile",
+                                            style = MaterialTheme.typography
+                                                .bodyMediumEmphasized,
+                                        )
+                                        Text(
+                                            "Add the LSEx tile from your Quick " +
+                                                "Settings panel editor to start " +
+                                                "a share in one tap.",
+                                            style = MaterialTheme.typography
+                                                .bodySmall,
+                                            color = MaterialTheme.colorScheme
+                                                .onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    add { index, count, _ ->
+                        MinusSwitchRow(
+                            index = index,
+                            count = count,
+                            icon = MaterialSymbols.OutlinedFilled.Tune,
+                            title = "Advanced settings",
+                            subtitle = "Show the advanced sections, " +
+                                "like the official app",
+                            checked = advanced,
+                            onCheckedChange = { advanced = it },
+                        )
+                    }
+                },
+            )
         }
 
         // ── Desktop (window behaviour) ──
         if (platformDeviceType() == DeviceType.desktop) {
-            item { SectionTitle("Desktop") }
             item {
-                SegmentedList(
-                    listOf(
-                        {
-                            SwitchRow(
+                MinusGroup(
+                    title = "Desktop",
+                    rows = listOf(
+                        { index: Int, count: Int, _: RoundedCornerShape ->
+                            MinusSwitchRow(
+                                index = index,
+                                count = count,
                                 icon = MaterialSymbols.OutlinedFilled.Push_pin,
-                                tone = ToneOrange,
                                 title = "Always on top",
                                 checked = settings.alwaysOnTop,
                                 onCheckedChange = {
-                                    controller.updateSettings(settings.copy(alwaysOnTop = it))
+                                    controller.updateSettings(
+                                        settings.copy(alwaysOnTop = it),
+                                    )
                                 },
                             )
                         },
-                        {
-                            SwitchRow(
+                        { index: Int, count: Int, _: RoundedCornerShape ->
+                            MinusSwitchRow(
+                                index = index,
+                                count = count,
                                 icon = MaterialSymbols.OutlinedFilled.Save,
-                                tone = ToneGreen,
                                 title = "Save window placement",
                                 checked = settings.saveWindowPlacement,
                                 onCheckedChange = {
@@ -2559,10 +3432,11 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                                 },
                             )
                         },
-                        {
-                            SwitchRow(
+                        { index: Int, count: Int, _: RoundedCornerShape ->
+                            MinusSwitchRow(
+                                index = index,
+                                count = count,
                                 icon = MaterialSymbols.OutlinedFilled.Web_asset,
-                                tone = TonePurple,
                                 title = "Minimize to tray",
                                 checked = settings.minimizeToTray,
                                 onCheckedChange = {
@@ -2578,186 +3452,245 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
         }
 
         // ── Receive ──
-        item { SectionTitle(strings.receive) }
         item {
-            val rows = mutableListOf<@Composable () -> Unit>(
-                {
-                    Column(
-                        Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        Text("Quick Save", style = MaterialTheme.typography.bodyLarge)
-                        Text(
-                            "Skip the accept prompt — for everyone, or only for favorites.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                        QuickSaveConnectedGroup(
-                            options = listOf("Off", "Favorites", "Everyone"),
-                            selectedIndex = when {
-                                settings.quickSave -> 2
-                                settings.autoAcceptFavorites -> 1
-                                else -> 0
+            MinusGroup(
+                title = strings.receive,
+                rows = buildList {
+                    add { _, _, shape ->
+                        MinusTile(shape) {
+                            Column(
+                                Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    "Quick Save",
+                                    style = MaterialTheme.typography
+                                        .bodyMediumEmphasized,
+                                )
+                                Text(
+                                    "Skip the accept prompt — for everyone, " +
+                                        "or only for favorites.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme
+                                        .onSurfaceVariant,
+                                )
+                                QuickSaveConnectedGroup(
+                                    options = listOf("Off", "Favorites", "Everyone"),
+                                    selectedIndex = when {
+                                        settings.quickSave -> 2
+                                        settings.autoAcceptFavorites -> 1
+                                        else -> 0
+                                    },
+                                    onSelect = { index ->
+                                        controller.updateSettings(
+                                            settings.copy(
+                                                quickSave = index == 2,
+                                                autoAcceptFavorites = index == 1,
+                                            ),
+                                        )
+                                    },
+                                )
+                            }
+                        }
+                    }
+                    add { index, count, _ ->
+                        MinusSwitchRow(
+                            index = index,
+                            count = count,
+                            icon = MaterialSymbols.OutlinedFilled.Pin,
+                            title = "Require PIN",
+                            subtitle = if (settings.pin.isNotEmpty()) {
+                                "Senders must enter your PIN (set in Network)"
+                            } else {
+                                "Anyone on the network can offer files"
                             },
-                            onSelect = { index ->
+                            checked = settings.pin.isNotEmpty(),
+                            onCheckedChange = { enabled ->
                                 controller.updateSettings(
                                     settings.copy(
-                                        quickSave = index == 2,
-                                        autoAcceptFavorites = index == 1,
+                                        pin = if (enabled) {
+                                            settings.pin.ifEmpty { "1234" }
+                                        } else {
+                                            ""
+                                        },
                                     ),
                                 )
                             },
                         )
                     }
-                },
-                {
-                    SwitchRow(
-                        icon = MaterialSymbols.OutlinedFilled.Pin,
-                        tone = ToneYellow,
-                        title = "Require PIN",
-                        subtitle = if (settings.pin.isNotEmpty()) {
-                            "Senders must enter your PIN (set in Network)"
-                        } else {
-                            "Anyone on the network can offer files"
-                        },
-                        checked = settings.pin.isNotEmpty(),
-                        onCheckedChange = { enabled ->
-                            controller.updateSettings(
-                                settings.copy(
-                                    pin = if (enabled) settings.pin.ifEmpty { "1234" } else "",
-                                ),
-                            )
-                        },
-                    )
-                },
-                {
-                    SwitchRow(
-                        icon = MaterialSymbols.OutlinedFilled.Photo_library,
-                        tone = TonePink,
-                        title = "Save to Gallery",
-                        subtitle = "Photos and videos go to Pictures / Movies",
-                        checked = settings.saveToGallery,
-                        onCheckedChange = {
-                            controller.updateSettings(settings.copy(saveToGallery = it))
-                        },
-                    )
-                },
-                {
-                    SwitchRow(
-                        icon = MaterialSymbols.OutlinedFilled.Done_all,
-                        tone = ToneGreen,
-                        title = "Auto Finish",
-                        subtitle = "Close the receive progress when a transfer ends",
-                        checked = settings.autoFinish,
-                        onCheckedChange = {
-                            controller.updateSettings(settings.copy(autoFinish = it))
-                        },
-                    )
-                },
-                {
-                    SwitchRow(
-                        icon = MaterialSymbols.OutlinedFilled.History,
-                        tone = ToneBlue,
-                        title = "Save to History",
-                        checked = settings.saveToHistory,
-                        onCheckedChange = {
-                            controller.updateSettings(settings.copy(saveToHistory = it))
-                        },
-                    )
-                },
-            )
-            if (advanced) {
-                rows += {
-                    SwitchRow(
-                        icon = MaterialSymbols.OutlinedFilled.Verified,
-                        tone = ToneTeal,
-                        title = "Verify checksums",
-                        subtitle = "Reject files whose SHA-256 doesn't match",
-                        checked = settings.verifyChecksums,
-                        onCheckedChange = {
-                            controller.updateSettings(settings.copy(verifyChecksums = it))
-                        },
-                    )
-                }
-            }
-            rows += {
-                Column(
-                    Modifier.padding(16.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text("Destination folder", style = MaterialTheme.typography.bodyLarge)
-                    if (usesSafDestination()) {
-                        Text(
-                            if (settings.destinationTreeUri.isEmpty()) {
-                                "Downloads (default)"
-                            } else {
-                                "Custom folder (picked with the system picker)"
+                    add { index, count, _ ->
+                        MinusSwitchRow(
+                            index = index,
+                            count = count,
+                            icon = MaterialSymbols.OutlinedFilled.Photo_library,
+                            title = "Save to Gallery",
+                            subtitle = "Photos and videos go to Pictures / Movies",
+                            checked = settings.saveToGallery,
+                            onCheckedChange = {
+                                controller.updateSettings(
+                                    settings.copy(saveToGallery = it),
+                                )
                             },
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Button(onClick = destinationPicker) { Text("Choose folder") }
-                            if (settings.destinationTreeUri.isNotEmpty()) {
-                                OutlinedButton(
-                                    onClick = {
-                                        controller.updateSettings(
-                                            settings.copy(destinationTreeUri = ""),
-                                        )
-                                    },
-                                ) { Text("Use Downloads") }
-                            }
-                        }
-                    } else {
-                        OutlinedTextField(
-                            value = destinationText,
-                            onValueChange = { destinationText = it },
-                            label = { Text("Destination folder path") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
+                    }
+                    add { index, count, _ ->
+                        MinusSwitchRow(
+                            index = index,
+                            count = count,
+                            icon = MaterialSymbols.OutlinedFilled.Done_all,
+                            title = "Auto Finish",
+                            subtitle = "Close the receive progress " +
+                                "when a transfer ends",
+                            checked = settings.autoFinish,
+                            onCheckedChange = {
+                                controller.updateSettings(
+                                    settings.copy(autoFinish = it),
+                                )
+                            },
                         )
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedButton(onClick = destinationPicker) { Text("Browse…") }
-                            Button(
-                                onClick = {
+                    }
+                    add { index, count, _ ->
+                        MinusSwitchRow(
+                            index = index,
+                            count = count,
+                            icon = MaterialSymbols.OutlinedFilled.History,
+                            title = "Save to History",
+                            checked = settings.saveToHistory,
+                            onCheckedChange = {
+                                controller.updateSettings(
+                                    settings.copy(saveToHistory = it),
+                                )
+                            },
+                        )
+                    }
+                    if (advanced) {
+                        add { index, count, _ ->
+                            MinusSwitchRow(
+                                index = index,
+                                count = count,
+                                icon = MaterialSymbols.OutlinedFilled.Verified,
+                                title = "Verify checksums",
+                                subtitle = "Reject files whose SHA-256 " +
+                                    "doesn't match",
+                                checked = settings.verifyChecksums,
+                                onCheckedChange = {
                                     controller.updateSettings(
-                                        settings.copy(destinationFolder = destinationText.trim()),
+                                        settings.copy(verifyChecksums = it),
                                     )
                                 },
-                            ) { Text("Save destination") }
+                            )
                         }
                     }
-                }
-            }
-            SegmentedList(rows)
+                    add { _, _, shape ->
+                        MinusTile(shape) {
+                            Column(
+                                Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                Text(
+                                    "Destination folder",
+                                    style = MaterialTheme.typography
+                                        .bodyMediumEmphasized,
+                                )
+                                if (usesSafDestination()) {
+                                    Text(
+                                        if (settings.destinationTreeUri.isEmpty()) {
+                                            "Downloads (default)"
+                                        } else {
+                                            "Custom folder (picked with " +
+                                                "the system picker)"
+                                        },
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme
+                                            .onSurfaceVariant,
+                                    )
+                                    Row(
+                                        horizontalArrangement =
+                                            Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        Button(onClick = destinationPicker) {
+                                            Text("Choose folder")
+                                        }
+                                        if (settings.destinationTreeUri
+                                                .isNotEmpty()
+                                        ) {
+                                            OutlinedButton(
+                                                onClick = {
+                                                    controller.updateSettings(
+                                                        settings.copy(
+                                                            destinationTreeUri = "",
+                                                        ),
+                                                    )
+                                                },
+                                            ) { Text("Use Downloads") }
+                                        }
+                                    }
+                                } else {
+                                    OutlinedTextField(
+                                        value = destinationText,
+                                        onValueChange = { destinationText = it },
+                                        label = { Text("Destination folder path") },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    Row(
+                                        horizontalArrangement =
+                                            Arrangement.spacedBy(8.dp),
+                                    ) {
+                                        OutlinedButton(onClick = destinationPicker) {
+                                            Text("Browse…")
+                                        }
+                                        Button(
+                                            onClick = {
+                                                controller.updateSettings(
+                                                    settings.copy(
+                                                        destinationFolder =
+                                                            destinationText.trim(),
+                                                    ),
+                                                )
+                                            },
+                                        ) { Text("Save destination") }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                },
+            )
         }
 
         // ── Sending (advanced) ──
         if (advanced) {
-            item { SectionTitle("Sending") }
             item {
-                SegmentedList(
-                    listOf(
-                        {
-                            SwitchRow(
+                MinusGroup(
+                    title = "Sending",
+                    rows = listOf(
+                        { index: Int, count: Int, _: RoundedCornerShape ->
+                            MinusSwitchRow(
+                                index = index,
+                                count = count,
                                 icon = MaterialSymbols.OutlinedFilled.Link,
-                                tone = ToneSky,
                                 title = "Auto-accept web uploads",
-                                subtitle = "Receive-via-link uploads skip the prompt",
+                                subtitle = "Receive-via-link uploads " +
+                                    "skip the prompt",
                                 checked = settings.shareViaLinkAutoAccept,
                                 onCheckedChange = {
                                     controller.updateSettings(
-                                        settings.copy(shareViaLinkAutoAccept = it),
+                                        settings.copy(
+                                            shareViaLinkAutoAccept = it,
+                                        ),
                                     )
                                 },
                             )
                         },
-                        {
-                            SwitchRow(
+                        { index: Int, count: Int, _: RoundedCornerShape ->
+                            MinusSwitchRow(
+                                index = index,
+                                count = count,
                                 icon = MaterialSymbols.OutlinedFilled.Fingerprint,
-                                tone = TonePurple,
                                 title = "Create checksums",
-                                subtitle = "SHA-256 for every file sent (slower on huge files)",
+                                subtitle = "SHA-256 for every file sent " +
+                                    "(slower on huge files)",
                                 checked = settings.createChecksums,
                                 onCheckedChange = {
                                     controller.updateSettings(
@@ -2766,24 +3699,30 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
                                 },
                             )
                         },
-                        {
-                            SwitchRow(
+                        { index: Int, count: Int, _: RoundedCornerShape ->
+                            MinusSwitchRow(
+                                index = index,
+                                count = count,
                                 icon = MaterialSymbols.OutlinedFilled.Replay,
-                                tone = ToneOrange,
                                 title = "Retry automatically",
-                                subtitle = "Failed sends back off and retry on their own",
+                                subtitle = "Failed sends back off and " +
+                                    "retry on their own",
                                 checked = settings.autoRetry,
                                 onCheckedChange = {
-                                    controller.updateSettings(settings.copy(autoRetry = it))
+                                    controller.updateSettings(
+                                        settings.copy(autoRetry = it),
+                                    )
                                 },
                             )
                         },
-                        {
-                            SwitchRow(
+                        { index: Int, count: Int, _: RoundedCornerShape ->
+                            MinusSwitchRow(
+                                index = index,
+                                count = count,
                                 icon = MaterialSymbols.OutlinedFilled.Bolt,
-                                tone = ToneYellow,
                                 title = "Chunked transfers",
-                                subtitle = "Resumable 1 MiB chunks between LSEx devices",
+                                subtitle = "Resumable 1 MiB chunks " +
+                                    "between LSEx devices",
                                 checked = settings.chunkedTransfers,
                                 onCheckedChange = {
                                     controller.updateSettings(
@@ -2797,247 +3736,296 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
             }
         }
 
-        // ── Network ──
-        item { SectionTitle("Connection") }
+        // ── Connection ──
         item {
-            SegmentedList(
-                listOf(
-                    {
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { connDialog = "hotspot" }
-                                .padding(horizontal = 16.dp, vertical = 13.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            SettingIconChip(MaterialSymbols.OutlinedFilled.Wifi_tethering, ToneOrange)
-                            Spacer(Modifier.width(14.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text("Hotspot", style = MaterialTheme.typography.bodyLarge)
-                                Text(
-                                    "Name, password and band for your hotspot",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            Icon(MaterialSymbols.Outlined.Chevron_right, contentDescription = null)
-                        }
-                    },
-                    {
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { connDialog = "p2p" }
-                                .padding(horizontal = 16.dp, vertical = 13.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            SettingIconChip(MaterialSymbols.OutlinedFilled.Router, ToneTeal)
-                            Spacer(Modifier.width(14.dp))
-                            Column(Modifier.weight(1f)) {
-                                Text("Wi-Fi Direct", style = MaterialTheme.typography.bodyLarge)
-                                Text(
-                                    "Group name, password and band",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            Icon(MaterialSymbols.Outlined.Chevron_right, contentDescription = null)
-                        }
-                    },
-                    {
-                        DropdownRow(
-                            icon = MaterialSymbols.OutlinedFilled.Sort,
-                            tone = ToneSky,
-                            title = "Receive queue order",
-                            options = listOf(
-                                "smallest" to "Smallest files first",
-                                "arrival" to "Arrival order",
-                                "largest" to "Largest files first",
-                                "name" to "By name",
-                            ),
-                            selected = settings.receiveOrder,
-                            onSelect = {
-                                controller.updateSettings(settings.copy(receiveOrder = it))
-                            },
+            MinusGroup(
+                title = "Connection",
+                rows = buildList {
+                    add { _, _, shape ->
+                        MinusNavRow(
+                            shape = shape,
+                            icon = MaterialSymbols.OutlinedFilled.Wifi_tethering,
+                            title = "Hotspot",
+                            subtitle = "Name, password and band for your hotspot",
+                            onClick = { connDialog = "hotspot" },
                         )
-                    },
-                ),
+                    }
+                    add { _, _, shape ->
+                        MinusNavRow(
+                            shape = shape,
+                            icon = MaterialSymbols.OutlinedFilled.Router,
+                            title = "Wi-Fi Direct",
+                            subtitle = "Group name, password and band",
+                            onClick = { connDialog = "p2p" },
+                        )
+                    }
+                    add { _, _, shape ->
+                        MinusNavRow(
+                            shape = shape,
+                            icon = MaterialSymbols.OutlinedFilled.Sort,
+                            title = "Receive queue order",
+                            value = orderOptions
+                                .firstOrNull { it.first == settings.receiveOrder }
+                                ?.second ?: "Smallest files first",
+                            expanded = expandedPicker == "order",
+                            onClick = { togglePicker("order") },
+                        )
+                    }
+                    if (expandedPicker == "order") {
+                        orderOptions.forEach { (value, label) ->
+                            add { _, _, shape ->
+                                MinusSelectableRow(
+                                    shape = shape,
+                                    label = label,
+                                    selected = settings.receiveOrder == value,
+                                    onClick = {
+                                        controller.updateSettings(
+                                            settings.copy(receiveOrder = value),
+                                        )
+                                        expandedPicker = null
+                                    },
+                                )
+                            }
+                        }
+                    }
+                },
             )
         }
 
-        item { SectionTitle("Network") }
+        // ── Network ──
         item {
-            val rows = mutableListOf<@Composable () -> Unit>(
-                {
-                    SwitchRow(
-                        icon = MaterialSymbols.OutlinedFilled.Dns,
-                        tone = ToneGreen,
-                        title = "Server",
-                        subtitle = "Other devices can find and send to you",
-                        checked = settings.serverEnabled,
-                        onCheckedChange = {
-                            controller.updateSettings(settings.copy(serverEnabled = it))
-                        },
-                    )
-                },
-                {
-                    Column(
-                        Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        OutlinedTextField(
-                            value = aliasText,
-                            onValueChange = { aliasText = it },
-                            label = { Text("Device name (alias)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        OutlinedTextField(
-                            value = portText,
-                            onValueChange = { portText = it.filter { c -> c.isDigit() } },
-                            label = { Text("Port") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        OutlinedTextField(
-                            value = pinText,
-                            onValueChange = { pinText = it },
-                            label = { Text("PIN (empty = no PIN)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Button(
-                            onClick = {
+            MinusGroup(
+                title = "Network",
+                rows = buildList {
+                    add { index, count, _ ->
+                        MinusSwitchRow(
+                            index = index,
+                            count = count,
+                            icon = MaterialSymbols.OutlinedFilled.Dns,
+                            title = "Server",
+                            subtitle = "Other devices can find and send to you",
+                            checked = settings.serverEnabled,
+                            onCheckedChange = {
                                 controller.updateSettings(
-                                    settings.copy(
-                                        alias = aliasText.trim(),
-                                        port = portText.toIntOrNull()
-                                            ?: ProtocolConstants.DEFAULT_PORT,
-                                        pin = pinText.trim(),
-                                    ),
+                                    settings.copy(serverEnabled = it),
                                 )
                             },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Save name, port and PIN") }
+                        )
                     }
-                },
-                {
-                    SwitchRow(
-                        icon = MaterialSymbols.OutlinedFilled.Lock,
-                        tone = ToneBlue,
-                        title = "Encryption (HTTPS)",
-                        subtitle = "Self-signed certificate, fingerprint-verified",
-                        checked = settings.https,
-                        onCheckedChange = {
-                            controller.updateSettings(settings.copy(https = it))
-                        },
-                    )
-                },
-                {
-                    SwitchRow(
-                        icon = MaterialSymbols.OutlinedFilled.Language,
-                        tone = ToneTeal,
-                        title = "Download API",
-                        subtitle = "Share-via-link web page and uploads",
-                        checked = settings.downloadApi,
-                        onCheckedChange = {
-                            controller.updateSettings(settings.copy(downloadApi = it))
-                        },
-                    )
+                    add { _, _, shape ->
+                        MinusTile(shape) {
+                            Column(
+                                Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                OutlinedTextField(
+                                    value = portText,
+                                    onValueChange = {
+                                        portText = it.filter { c -> c.isDigit() }
+                                    },
+                                    label = { Text("Port") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                OutlinedTextField(
+                                    value = pinText,
+                                    onValueChange = { pinText = it },
+                                    label = { Text("PIN (empty = no PIN)") },
+                                    singleLine = true,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                                Button(
+                                    onClick = {
+                                        controller.updateSettings(
+                                            settings.copy(
+                                                port = portText.toIntOrNull()
+                                                    ?: ProtocolConstants
+                                                        .DEFAULT_PORT,
+                                                pin = pinText.trim(),
+                                            ),
+                                        )
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) { Text("Save port and PIN") }
+                            }
+                        }
+                    }
+                    add { index, count, _ ->
+                        MinusSwitchRow(
+                            index = index,
+                            count = count,
+                            icon = MaterialSymbols.OutlinedFilled.Lock,
+                            title = "Encryption (HTTPS)",
+                            subtitle = "Self-signed certificate, " +
+                                "fingerprint-verified",
+                            checked = settings.https,
+                            onCheckedChange = {
+                                controller.updateSettings(
+                                    settings.copy(https = it),
+                                )
+                            },
+                        )
+                    }
+                    add { index, count, _ ->
+                        MinusSwitchRow(
+                            index = index,
+                            count = count,
+                            icon = MaterialSymbols.OutlinedFilled.Language,
+                            title = "Download API",
+                            subtitle = "Share-via-link web page and uploads",
+                            checked = settings.downloadApi,
+                            onCheckedChange = {
+                                controller.updateSettings(
+                                    settings.copy(downloadApi = it),
+                                )
+                            },
+                        )
+                    }
+                    if (advanced) {
+                        add { _, _, shape ->
+                            MinusTile(shape) {
+                                Column(
+                                    Modifier.padding(16.dp),
+                                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                                ) {
+                                    InfoRow(
+                                        "Device model",
+                                        local.deviceModel ?: "—",
+                                    )
+                                    InfoRow(
+                                        "Device type",
+                                        local.deviceType.name.lowercase(),
+                                    )
+                                    InfoRow(
+                                        "Fingerprint",
+                                        local.fingerprint.take(24) + "…",
+                                    )
+                                    InfoRow(
+                                        "Transfer core",
+                                        if (rustCoreActive()) {
+                                            "Rust (native)"
+                                        } else {
+                                            "Kotlin fallback"
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        add { _, _, shape ->
+                            MinusTile(shape) {
+                                Column(
+                                    Modifier.padding(16.dp),
+                                    verticalArrangement =
+                                        Arrangement.spacedBy(10.dp),
+                                ) {
+                                    OutlinedTextField(
+                                        value = timeoutText,
+                                        onValueChange = {
+                                            timeoutText =
+                                                it.filter { c -> c.isDigit() }
+                                        },
+                                        label = {
+                                            Text("Discovery timeout (seconds)")
+                                        },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    OutlinedTextField(
+                                        value = multicastText,
+                                        onValueChange = { multicastText = it },
+                                        label = {
+                                            Text(
+                                                "Multicast group " +
+                                                    "(empty = 224.0.0.167)",
+                                            )
+                                        },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    OutlinedTextField(
+                                        value = whitelistText,
+                                        onValueChange = { whitelistText = it },
+                                        label = {
+                                            Text(
+                                                "Network whitelist " +
+                                                    "(IPs/CIDRs, comma-separated)",
+                                            )
+                                        },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    OutlinedTextField(
+                                        value = blacklistText,
+                                        onValueChange = { blacklistText = it },
+                                        label = {
+                                            Text(
+                                                "Network blacklist " +
+                                                    "(IPs/CIDRs, comma-separated)",
+                                            )
+                                        },
+                                        singleLine = true,
+                                        modifier = Modifier.fillMaxWidth(),
+                                    )
+                                    Button(
+                                        onClick = {
+                                            controller.updateSettings(
+                                                settings.copy(
+                                                    discoveryTimeoutSec =
+                                                        timeoutText.toIntOrNull()
+                                                            ?: 10,
+                                                    multicastAddress =
+                                                        multicastText.trim(),
+                                                    networkWhitelist =
+                                                        whitelistText.trim(),
+                                                    networkBlacklist =
+                                                        blacklistText.trim(),
+                                                ),
+                                            )
+                                        },
+                                        modifier = Modifier.fillMaxWidth(),
+                                    ) { Text("Save advanced network settings") }
+                                }
+                            }
+                        }
+                    }
                 },
             )
-            if (advanced) {
-                rows += {
-                    Column(
-                        Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        InfoRow("Device model", platformDeviceModel())
-                        InfoRow("Device type", local.deviceType.name.lowercase())
-                        InfoRow("Fingerprint", local.fingerprint.take(24) + "…")
-                        InfoRow(
-                            "Transfer core",
-                            if (rustCoreActive()) "Rust (native)" else "Kotlin fallback",
-                        )
-                    }
-                }
-                rows += {
-                    Column(
-                        Modifier.padding(16.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        OutlinedTextField(
-                            value = timeoutText,
-                            onValueChange = { timeoutText = it.filter { c -> c.isDigit() } },
-                            label = { Text("Discovery timeout (seconds)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        OutlinedTextField(
-                            value = multicastText,
-                            onValueChange = { multicastText = it },
-                            label = { Text("Multicast group (empty = 224.0.0.167)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        OutlinedTextField(
-                            value = whitelistText,
-                            onValueChange = { whitelistText = it },
-                            label = { Text("Network whitelist (IPs/CIDRs, comma-separated)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        OutlinedTextField(
-                            value = blacklistText,
-                            onValueChange = { blacklistText = it },
-                            label = { Text("Network blacklist (IPs/CIDRs, comma-separated)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Button(
-                            onClick = {
-                                controller.updateSettings(
-                                    settings.copy(
-                                        discoveryTimeoutSec = timeoutText.toIntOrNull() ?: 10,
-                                        multicastAddress = multicastText.trim(),
-                                        networkWhitelist = whitelistText.trim(),
-                                        networkBlacklist = blacklistText.trim(),
-                                    ),
-                                )
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text("Save advanced network settings") }
-                    }
-                }
-            }
-            SegmentedList(rows)
         }
 
         // ── Favorites ──
         if (settings.favorites.isNotEmpty()) {
-            item { SectionTitle("Favorites") }
             item {
-                SegmentedList(
-                    settings.favorites.map { fingerprint ->
-                        {
-                            Row(
-                                Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                SettingIconChip(MaterialSymbols.OutlinedFilled.Star, ToneYellow)
-                                Spacer(Modifier.width(14.dp))
-                                Text(
-                                    fingerprint.take(20) + "…",
-                                    style = MaterialTheme.typography.bodyMedium,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                IconButton(
-                                    onClick = { controller.toggleFavorite(fingerprint) },
+                MinusGroup(
+                    title = "Favorites",
+                    rows = settings.favorites.map { fingerprint ->
+                        { _: Int, _: Int, shape: RoundedCornerShape ->
+                            MinusTile(shape) {
+                                Row(
+                                    Modifier.padding(
+                                        horizontal = 16.dp, vertical = 10.dp,
+                                    ),
+                                    verticalAlignment = Alignment.CenterVertically,
                                 ) {
-                                    Icon(
-                                        MaterialSymbols.OutlinedFilled.Close,
-                                        contentDescription = "Remove favorite",
+                                    MinusLeadingIcon(
+                                        MaterialSymbols.OutlinedFilled.Star,
+                                        false,
                                     )
+                                    Spacer(Modifier.width(16.dp))
+                                    Text(
+                                        fingerprint.take(20) + "…",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    IconButton(
+                                        onClick = {
+                                            controller.toggleFavorite(fingerprint)
+                                        },
+                                    ) {
+                                        Icon(
+                                            MaterialSymbols.OutlinedFilled.Close,
+                                            contentDescription = "Remove favorite",
+                                        )
+                                    }
                                 }
                             }
                         }
@@ -3046,9 +4034,116 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
             }
         }
 
+        // ── Donate ──
+        item {
+            val ltcAddress = "ltc1q2t7pg8xyyqvu2cm2jxpxtqcxr5layxztf32q5g"
+            val wallets = listOf(
+                "Bitcoin (BTC)" to
+                    "bc1qvfr0kk56lhjn72fklaeg83flq3tjapls6gtpmy",
+                "Bitcoin Cash (BCH)" to
+                    "qpg572zm69ln9tskesg4lptqjdde29260uqqvg4zpk",
+                "TON" to
+                    "UQAOQmzcUNKFfyvKMr8z5dTK1rBdj1D4uopw0G9Lxnpp6lw3",
+                "USDT (TRC20 · Tron)" to
+                    "TVfwxMMa4dsAsRmd6VNkV1sUcGFK8TKwSA",
+                "USDT (ERC20 · Ethereum)" to
+                    "0x796759d5c38fF7CF1b452b8AB92a5ec23f16CC66",
+                "Tron (TRX)" to
+                    "TVfwxMMa4dsAsRmd6VNkV1sUcGFK8TKwSA",
+                "Ethereum (ETH)" to
+                    "0x796759d5c38fF7CF1b452b8AB92a5ec23f16CC66",
+            )
+            MinusGroup(
+                title = "Donate",
+                rows = buildList {
+                    add { _, _, shape ->
+                        MinusTile(shape) {
+                            Column(
+                                Modifier.padding(16.dp),
+                                horizontalAlignment =
+                                    Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(10.dp),
+                            ) {
+                                Text(
+                                    "😺 The QR code is my 🪙Litecoin wallet, " +
+                                        "which is the preferred coin.",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    textAlign = TextAlign.Center,
+                                )
+                                QrCode(ltcAddress)
+                                Text(
+                                    "Litecoin (LTC)",
+                                    style = MaterialTheme.typography
+                                        .bodyMediumEmphasized,
+                                )
+                                Text(
+                                    ltcAddress,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme
+                                        .onSurfaceVariant,
+                                    fontFamily = FontFamily.Monospace,
+                                    textAlign = TextAlign.Center,
+                                )
+                            }
+                        }
+                    }
+                    wallets.forEach { (label, address) ->
+                        add { _, _, shape ->
+                            MinusTile(shape) {
+                                Column(
+                                    Modifier.padding(
+                                        horizontal = 16.dp, vertical = 12.dp,
+                                    ),
+                                    verticalArrangement =
+                                        Arrangement.spacedBy(2.dp),
+                                ) {
+                                    Text(
+                                        label,
+                                        style = MaterialTheme.typography
+                                            .bodyMediumEmphasized,
+                                    )
+                                    Text(
+                                        address,
+                                        style = MaterialTheme.typography
+                                            .bodySmall,
+                                        color = MaterialTheme.colorScheme
+                                            .onSurfaceVariant,
+                                        fontFamily = FontFamily.Monospace,
+                                    )
+                                }
+                            }
+                        }
+                    }
+                    add { _, _, shape ->
+                        MinusTile(shape) {
+                            Column(
+                                Modifier.padding(16.dp),
+                                verticalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    "Huge thanks for the support 🙂! ✨",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                )
+                                Text(
+                                    "print(\"You're helping me get done " +
+                                        "with my studies, pay internet and " +
+                                        "get some snacks\")",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme
+                                        .onSurfaceVariant,
+                                    fontFamily = FontFamily.Monospace,
+                                )
+                            }
+                        }
+                    }
+                },
+            )
+        }
+
         item {
             Text(
-                "LSEx 0.6.0 · LocalSend Protocol 2.2 · Unofficial, credits to the LocalSend project",
+                "LSEx 0.9.0 · LocalSend Protocol 2.2 · Unofficial, " +
+                    "credits to the LocalSend project",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
@@ -3088,12 +4183,160 @@ private fun InfoChip(text: String) {
         )
     }
 }
+/** Position corners for a segmented list (Minus anatomy): 16dp outer, 4dp inner. */
+private fun historyTileShape(index: Int, count: Int): RoundedCornerShape = when {
+    count == 1 -> RoundedCornerShape(16.dp)
+    index == 0 -> RoundedCornerShape(
+        topStart = 16.dp, topEnd = 16.dp, bottomStart = 4.dp, bottomEnd = 4.dp,
+    )
+    index == count - 1 -> RoundedCornerShape(
+        topStart = 4.dp, topEnd = 4.dp, bottomStart = 16.dp, bottomEnd = 16.dp,
+    )
+    else -> RoundedCornerShape(4.dp)
+}
+
+/** One circular action button behind a swipe-revealed row (mockup style). */
+@Composable
+private fun SwipeCircleButton(
+    container: Color,
+    content: Color,
+    icon: ImageVector,
+    description: String,
+    onClick: () -> Unit,
+) {
+    Surface(shape = CircleShape, color = container) {
+        IconButton(onClick = onClick, modifier = Modifier.size(44.dp)) {
+            Icon(icon, contentDescription = description, tint = content)
+        }
+    }
+}
+
 @Composable
 private fun HistoryRow(
     entry: HistoryEntry,
+    shape: RoundedCornerShape,
     onOpen: (() -> Unit)? = null,
     onInstall: (() -> Unit)? = null,
     onResend: (() -> Unit)? = null,
+    onRemove: () -> Unit,
+    onDeleteFile: (() -> Unit)? = null,
+) {
+    if (!prefersSwipeActions()) {
+        // Pointer platforms: actions stay visible on the tile.
+        Surface(shape = shape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
+            HistoryRowContent(entry, onOpen, onInstall, onResend, onRemove, showActions = true)
+        }
+        return
+    }
+    // Touch: a left swipe reveals the mockup's circular action buttons —
+    // remove-entry, the row's primary action (open / install / resend),
+    // and for received files a red delete that removes the file itself.
+    // (v0.8.0 shipped History with NO slide options at all.)
+    val hasPrimary = onOpen != null || onInstall != null || onResend != null
+    val actionCount = 1 + (if (hasPrimary) 1 else 0) + (if (onDeleteFile != null) 1 else 0)
+    val density = LocalDensity.current
+    val revealPx = with(density) { (actionCount * 52).dp.toPx() }
+    val state = remember {
+        AnchoredDraggableState(
+            initialValue = 0,
+            anchors = DraggableAnchors {
+                0 at 0f
+                1 at -revealPx
+            },
+        )
+    }
+    LaunchedEffect(revealPx) {
+        state.updateAnchors(DraggableAnchors {
+            0 at 0f
+            1 at -revealPx
+        })
+    }
+    val scope = rememberCoroutineScope()
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .clip(shape)
+            .background(MaterialTheme.colorScheme.surfaceContainerHighest),
+    ) {
+        Row(
+            Modifier.matchParentSize().padding(end = 8.dp),
+            horizontalArrangement = Arrangement.End,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SwipeCircleButton(
+                container = MaterialTheme.colorScheme.surfaceContainerLow,
+                content = MaterialTheme.colorScheme.onSurface,
+                icon = MaterialSymbols.Outlined.Close,
+                description = "Remove from history",
+            ) {
+                scope.launch { state.snapTo(0) }
+                onRemove()
+            }
+            if (hasPrimary) {
+                Spacer(Modifier.width(8.dp))
+                SwipeCircleButton(
+                    container = MaterialTheme.colorScheme.secondaryContainer,
+                    content = MaterialTheme.colorScheme.onSecondaryContainer,
+                    icon = when {
+                        onOpen != null -> MaterialSymbols.Outlined.Open_in_new
+                        onInstall != null -> MaterialSymbols.Outlined.System_update
+                        else -> MaterialSymbols.Outlined.Send
+                    },
+                    description = when {
+                        onOpen != null -> "Open file"
+                        onInstall != null -> "Install this package"
+                        else -> "Resend"
+                    },
+                ) {
+                    scope.launch { state.snapTo(0) }
+                    (onOpen ?: onInstall ?: onResend)?.invoke()
+                }
+            }
+            if (onDeleteFile != null) {
+                Spacer(Modifier.width(8.dp))
+                SwipeCircleButton(
+                    container = MaterialTheme.colorScheme.error,
+                    content = MaterialTheme.colorScheme.onError,
+                    icon = MaterialSymbols.Outlined.Delete,
+                    description = "Delete the received file",
+                ) {
+                    scope.launch { state.snapTo(0) }
+                    onDeleteFile()
+                }
+            }
+        }
+        Surface(
+            shape = shape,
+            color = MaterialTheme.colorScheme.surfaceContainerLow,
+            modifier = Modifier
+                .fillMaxWidth()
+                .offset {
+                    val off = state.offset
+                    IntOffset(if (off.isNaN()) 0 else off.roundToInt(), 0)
+                }
+                .anchoredDraggable(state, Orientation.Horizontal)
+                .combinedClickable(
+                    onClick = {
+                        if (state.currentValue == 1) {
+                            scope.launch { state.snapTo(0) }
+                        }
+                    },
+                    onLongClick = { (onOpen ?: onInstall ?: onResend)?.invoke() },
+                ),
+        ) {
+            HistoryRowContent(entry, onOpen, onInstall, onResend, onRemove, showActions = false)
+        }
+    }
+}
+
+@Composable
+private fun HistoryRowContent(
+    entry: HistoryEntry,
+    onOpen: (() -> Unit)?,
+    onInstall: (() -> Unit)?,
+    onResend: (() -> Unit)?,
+    onRemove: () -> Unit,
+    showActions: Boolean,
 ) {
     Row(
         Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
@@ -3119,30 +4362,39 @@ private fun HistoryRow(
                 overflow = TextOverflow.Ellipsis,
             )
         }
-        if (onInstall != null) {
-            IconButton(onClick = onInstall) {
-                Icon(
-                    MaterialSymbols.Outlined.System_update,
-                    contentDescription = "Install this package",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+        if (showActions) {
+            if (onInstall != null) {
+                IconButton(onClick = onInstall) {
+                    Icon(
+                        MaterialSymbols.Outlined.System_update,
+                        contentDescription = "Install this package",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
-        }
-        if (onOpen != null) {
-            IconButton(onClick = onOpen) {
-                Icon(
-                    MaterialSymbols.Outlined.Open_in_new,
-                    contentDescription = "Open file",
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+            if (onOpen != null) {
+                IconButton(onClick = onOpen) {
+                    Icon(
+                        MaterialSymbols.Outlined.Open_in_new,
+                        contentDescription = "Open file",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
             }
-        }
-        if (onResend != null) {
-            IconButton(onClick = onResend) {
+            if (onResend != null) {
+                IconButton(onClick = onResend) {
+                    Icon(
+                        MaterialSymbols.Outlined.Send,
+                        contentDescription = "Stage for resending",
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+            IconButton(onClick = onRemove) {
                 Icon(
-                    MaterialSymbols.Outlined.Send,
-                    contentDescription = "Stage for resending",
-                    tint = MaterialTheme.colorScheme.primary,
+                    MaterialSymbols.Outlined.Close,
+                    contentDescription = "Remove from history",
+                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
         }
@@ -3764,6 +5016,8 @@ private fun ShareScreen(
     val devices by controller.devices.collectAsState()
     val scanning by controller.scanning.collectAsState()
     val outbox by controller.outbox.collectAsState()
+    val incomingPeer by controller.incomingPeer.collectAsState()
+    val incomingProgress by controller.incomingProgress.collectAsState()
     val scope = rememberCoroutineScope()
     var infoDevice by remember { mutableStateOf<DiscoveredDevice?>(null) }
     var editIndex by remember { mutableStateOf(-1) }
@@ -3867,67 +5121,43 @@ private fun ShareScreen(
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
-                Row {
-                    Button(
-                        onClick = { doSend() },
-                        enabled = staged.isNotEmpty() && targets.isNotEmpty(),
-                        shape = RoundedCornerShape(
-                            topStart = 50.dp, bottomStart = 50.dp,
-                            topEnd = 8.dp, bottomEnd = 8.dp,
-                        ),
-                        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 10.dp),
+                // The official expressive SplitButton: leading = Send,
+                // trailing = a toggle whose chevron spins as its menu
+                // opens and whose shape morphs to a full pill.
+                Box {
+                    SplitButtonLayout(
+                        leadingButton = {
+                            SplitButtonDefaults.LeadingButton(
+                                onClick = { doSend() },
+                                enabled = staged.isNotEmpty() && targets.isNotEmpty(),
+                            ) {
+                                Icon(MaterialSymbols.Outlined.Send, contentDescription = null)
+                                Spacer(Modifier.width(6.dp))
+                                Text("Send")
+                            }
+                        },
+                        trailingButton = {
+                            SplitButtonDefaults.TrailingButton(
+                                checked = sendMenuOpen,
+                                onCheckedChange = { sendMenuOpen = it },
+                            ) {
+                                val chevronRotation by animateFloatAsState(
+                                    if (sendMenuOpen) 180f else 0f,
+                                )
+                                Icon(
+                                    MaterialSymbols.Outlined.Expand_more,
+                                    contentDescription = "More send options",
+                                    modifier = Modifier.graphicsLayer {
+                                        rotationZ = chevronRotation
+                                    },
+                                )
+                            }
+                        },
+                    )
+                    DropdownMenu(
+                        expanded = sendMenuOpen,
+                        onDismissRequest = { sendMenuOpen = false },
                     ) {
-                        Icon(MaterialSymbols.Outlined.Send, contentDescription = null)
-                        Spacer(Modifier.width(6.dp))
-                        Text("Send")
-                    }
-                    Spacer(Modifier.width(2.dp))
-                    Box {
-                        Button(
-                            onClick = { sendMenuOpen = true },
-                            shape = RoundedCornerShape(
-                                topStart = 8.dp, bottomStart = 8.dp,
-                                topEnd = 50.dp, bottomEnd = 50.dp,
-                            ),
-                            contentPadding = PaddingValues(horizontal = 10.dp, vertical = 10.dp),
-                        ) {
-                            Icon(MaterialSymbols.Outlined.Expand_more, contentDescription = "More send options")
-                        }
-                        DropdownMenu(
-                            expanded = sendMenuOpen,
-                            onDismissRequest = { sendMenuOpen = false },
-                        ) {
-                            DropdownMenuItem(
-                                text = { Text("Send via link") },
-                                leadingIcon = {
-                                    Icon(MaterialSymbols.Outlined.Link, contentDescription = null)
-                                },
-                                onClick = {
-                                    sendMenuOpen = false
-                                    onShareViaLink()
-                                },
-                            )
-                            DropdownMenuItem(
-                                text = { Text("Send to multiple devices") },
-                                leadingIcon = {
-                                    Icon(MaterialSymbols.Outlined.Group, contentDescription = null)
-                                },
-                                trailingIcon = {
-                                    if (settings.multiDeviceSend) {
-                                        Icon(MaterialSymbols.Outlined.Check, contentDescription = "On")
-                                    }
-                                },
-                                onClick = {
-                                    sendMenuOpen = false
-                                    val nowOn = !settings.multiDeviceSend
-                                    controller.updateSettings(
-                                        settings.copy(multiDeviceSend = nowOn),
-                                    )
-                                    if (!nowOn) {
-                                        onSelectedChange(selectedFingerprints.take(1).toSet())
-                                    }
-                                },
-                            )
                             DropdownMenuItem(
                                 text = { Text("Add device by IP") },
                                 leadingIcon = {
@@ -3938,7 +5168,6 @@ private fun ShareScreen(
                                     onAddByIp()
                                 },
                             )
-                        }
                     }
                 }
             }
@@ -3978,18 +5207,63 @@ private fun ShareScreen(
         }
         items(orderedDevices, key = { it.info.fingerprint }) { device ->
             val isSelected = device.info.fingerprint in selectedFingerprints
+            // A device counts as "in a transfer" when an outbox job for
+            // it has files queued or moving (not just mid-file — between
+            // files and while queued count too, or the tap falls through
+            // to selection toggling: the v0.8.0 "sometimes won't open"
+            // bug), or when we are receiving from it right now.
             val hasActiveTransfer = outbox.any { job ->
                 job.targetFingerprint == device.info.fingerprint &&
-                    job.files.any { it.status == TransferStatus.ACTIVE }
-            }
+                    job.files.any {
+                        it.status == TransferStatus.ACTIVE ||
+                            it.status == TransferStatus.WAITING
+                    }
+            } || incomingPeer == device.info.fingerprint
             val failedJob = outbox.firstOrNull { job ->
                 job.targetFingerprint == device.info.fingerprint && job.hasFailures
+            }
+            // Live progress with THIS device, drawn behind its card
+            // (Ernest's mockup): sending from the outbox job, receiving
+            // from the incoming progress attributed to this peer.
+            val transferFraction: Float? = when {
+                hasActiveTransfer -> {
+                    val job = outbox.firstOrNull {
+                        it.targetFingerprint == device.info.fingerprint &&
+                            it.files.any { f ->
+                                f.status == TransferStatus.ACTIVE ||
+                                    f.status == TransferStatus.WAITING
+                            }
+                    }
+                    when {
+                        job != null -> {
+                            val total = job.files.sumOf { it.size }
+                            if (total > 0) {
+                                (job.files.sumOf { it.confirmedBytes }.toFloat() / total)
+                                    .coerceIn(0f, 1f)
+                            } else {
+                                null
+                            }
+                        }
+                        incomingPeer == device.info.fingerprint -> {
+                            val total = incomingProgress.sumOf { it.total }
+                            if (total > 0) {
+                                (incomingProgress.sumOf { it.done }.toFloat() / total)
+                                    .coerceIn(0f, 1f)
+                            } else {
+                                null
+                            }
+                        }
+                        else -> null
+                    }
+                }
+                else -> null
             }
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 DeviceCard(
                     device = device,
                     isSelected = isSelected,
                     isFavorite = device.info.fingerprint in settings.favorites,
+                    transferFraction = transferFraction,
                     onClick = {
                         when {
                             hasActiveTransfer -> {
@@ -4140,11 +5414,12 @@ private fun ShareScreen(
                         if (selectionExpanded) {
                             Column(
                                 Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(3.dp),
                             ) {
                                 staged.forEachIndexed { index, item ->
                                     StagedItemCard(
                                         item = item,
+                                        shape = historyTileShape(index, staged.size),
                                         onEdit = { editIndex = index },
                                         onDiscard = {
                                             onStagedChange(
@@ -4766,6 +6041,35 @@ private fun fileTypeIcon(fileName: String): ImageVector {
  * the transfer sheet.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
+/**
+ * Visibility + state for the global transfer pill, isolated from the
+ * scaffold so progress updates recompose only the pill (perf pass).
+ */
+@Composable
+private fun GlobalTransferPillHost(
+    controller: LocalSendController,
+    modifier: Modifier = Modifier,
+    onClick: () -> Unit,
+) {
+    val outbox by controller.outbox.collectAsState()
+    val sendState by controller.sendState.collectAsState()
+    val incomingProgress by controller.incomingProgress.collectAsState()
+    val sending = outbox.any { job ->
+        !job.paused && job.files.any { it.status == TransferStatus.ACTIVE }
+    } || (sendState?.active == true)
+    val receiving = incomingProgress.any { it.status == TransferStatus.ACTIVE }
+    if (sending || receiving) {
+        GlobalTransferPill(
+            controller = controller,
+            sending = sending,
+            receiving = receiving,
+            modifier = modifier,
+            onClick = onClick,
+        )
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun GlobalTransferPill(
     controller: LocalSendController,
@@ -4812,7 +6116,7 @@ private fun GlobalTransferPill(
                 contentDescription = null,
                 modifier = Modifier.size(20.dp),
             )
-            Column {
+            Column(Modifier.weight(1f)) {
                 Text(
                     "$label · ${doneCount + activeReceiveCount + sendFiles.count { it.status == TransferStatus.ACTIVE }}/${activeSendCount + activeReceiveCount + doneCount} files",
                     style = MaterialTheme.typography.labelLarge,
@@ -4825,7 +6129,7 @@ private fun GlobalTransferPill(
                             0f
                         }
                     },
-                    modifier = Modifier.width(110.dp),
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }

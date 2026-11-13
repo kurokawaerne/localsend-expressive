@@ -8,6 +8,10 @@ import kotlinx.serialization.Serializable
 data class AppSettings(
     /** Empty = auto-generated alias. */
     val alias: String = "",
+    /** Device model override (empty = the platform's own model). */
+    val deviceModel: String = "",
+    /** Device type override: a DeviceType name, empty = platform default. */
+    val deviceType: String = "",
     val port: Int = ProtocolConstants.DEFAULT_PORT,
     /** HTTPS with a self-signed certificate (fingerprint = cert SHA-256). */
     val https: Boolean = true,
@@ -27,13 +31,15 @@ data class AppSettings(
     val themeMode: String = "system",
     /** Color source: "dynamic" (wallpaper/system on Android, seed on desktop) or "brand". */
     val colorMode: String = "dynamic",
+    /** Material You: wallpaper colors for the brand scheme (Minus). */
+    val dynamicColor: Boolean = false,
     /** Fingerprints of favorite devices. */
     val favorites: Set<String> = emptySet(),
     /** Stable random fingerprint used in HTTP mode (persisted so favorites keep matching). */
     val httpFingerprint: String = "",
     // ── v0.4.0: full parity with the official app's settings ──
     /** Route received images/videos into the gallery (Pictures/Movies) instead of Downloads. */
-    val saveToGallery: Boolean = true,
+    val saveToGallery: Boolean = false,
     /** Record finished transfers in the history list. */
     val saveToHistory: Boolean = true,
     /** After receiving, verify the SHA-256 the sender announced; reject mismatches. */

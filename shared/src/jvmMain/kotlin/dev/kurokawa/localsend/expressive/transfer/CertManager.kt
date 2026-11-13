@@ -4,6 +4,8 @@ import dev.kurokawa.localsend.expressive.platform.platformDataDir
 import org.bouncycastle.asn1.x500.X500Name
 import org.bouncycastle.asn1.x509.BasicConstraints
 import org.bouncycastle.asn1.x509.ExtendedKeyUsage
+import org.bouncycastle.asn1.x509.GeneralName
+import org.bouncycastle.asn1.x509.GeneralNames
 import org.bouncycastle.asn1.x509.Extension
 import org.bouncycastle.asn1.x509.KeyPurposeId
 import org.bouncycastle.asn1.x509.KeyUsage
@@ -14,6 +16,8 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
 import java.io.File
 import java.math.BigInteger
+import java.net.InetAddress
+import java.net.NetworkInterface
 import java.net.Socket
 import java.security.KeyFactory
 import java.security.KeyPairGenerator
@@ -88,6 +92,47 @@ class CertManager {
             if (ku != null && !ku[0]) return true // digitalSignature not set
             return false
         }
+
+        /**
+         * True when a web browser would abort the TLS handshake on this
+         * certificate: no SubjectAltName at all (Chrome has ignored the
+         * CN for host matching since 2017 and sends
+         * SSLV3_ALERT_CERTIFICATE_UNKNOWN — the v0.8.0 blank via-link
+         * page), or the leaf claims to be a CA.
+         */
+        fun browserUnusable(cert: X509Certificate): Boolean {
+            val sans = runCatching { cert.subjectAlternativeNames }.getOrNull()
+            if (sans.isNullOrEmpty()) return true
+            if (cert.basicConstraints != -1) return true // leaf must not be a CA
+            return false
+        }
+
+        /**
+         * SAN entries for generated certificates: the names/IPs a browser
+         * on the local network can plausibly use to reach the via-link
+         * page — loopback, the well-known hotspot / Wi-Fi Direct gateway
+         * addresses (192.168.49.1 is Android's P2P group-owner address,
+         * the exact URL that failed in v0.8.0), and every address this
+         * machine currently owns.
+         */
+        fun subjectAltNames(): GeneralNames {
+            val names = mutableListOf<GeneralName>()
+            names += GeneralName(GeneralName.dNSName, "localhost")
+            names += GeneralName(GeneralName.dNSName, "localsend")
+            names += GeneralName(GeneralName.iPAddress, "127.0.0.1")
+            names += GeneralName(GeneralName.iPAddress, "::1")
+            names += GeneralName(GeneralName.iPAddress, "192.168.49.1")
+            names += GeneralName(GeneralName.iPAddress, "192.168.43.1")
+            names += GeneralName(GeneralName.iPAddress, "192.168.137.1")
+            runCatching {
+                NetworkInterface.getNetworkInterfaces().toList().forEach { iface ->
+                    iface.inetAddresses.toList().forEach { addr: InetAddress ->
+                        addr.hostAddress?.let { names += GeneralName(GeneralName.iPAddress, it) }
+                    }
+                }
+            }
+            return GeneralNames(names.toTypedArray())
+        }
     }
 
     private val provider = BouncyCastleProvider()
@@ -112,7 +157,9 @@ class CertManager {
             // authentication can never be presented to official peers
             // (their servers require mutual TLS) — replace it once.
             val existing = store.getCertificate(ALIAS) as? X509Certificate
-            if (existing == null || blocksClientAuth(existing)) regenerate = true
+            if (existing == null || blocksClientAuth(existing) || browserUnusable(existing)) {
+                regenerate = true
+            }
         }
         if (regenerate) {
             store.load(null, PASSWORD.toCharArray())
@@ -133,7 +180,8 @@ class CertManager {
                 Extension.extendedKeyUsage, false,
                 ExtendedKeyUsage(arrayOf(KeyPurposeId.id_kp_serverAuth, KeyPurposeId.id_kp_clientAuth)),
             )
-            builder.addExtension(Extension.basicConstraints, true, BasicConstraints(true))
+            builder.addExtension(Extension.basicConstraints, true, BasicConstraints(false))
+            builder.addExtension(Extension.subjectAlternativeName, false, subjectAltNames())
             builder.addExtension(
                 Extension.subjectKeyIdentifier, false,
                 JcaX509ExtensionUtils().createSubjectKeyIdentifier(keyPair.public),

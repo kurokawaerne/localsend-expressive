@@ -102,6 +102,9 @@ actual class ConnectivityController {
         _state.value = _state.value.copy(message = null)
     }
 
+    /** Desktop keeps its nmcli flows; the network-list state stays empty. */
+    actual fun scanWifiNetworks() = Unit
+
     actual fun toggleWifi() {
         scope.launch {
             val turningOn = _state.value.wifiEnabled != true
