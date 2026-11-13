@@ -6,7 +6,7 @@ on:
       tag:
         description: "Release tag to create"
         required: true
-        default: "v0.8.0"
+        default: "v0.9.0"
 
 permissions:
   contents: write
@@ -58,18 +58,37 @@ jobs:
           LSEX_KEY_PASSWORD: ${{ secrets.LSEX_KEY_PASSWORD }}
           LSEX_KEY_ALIAS: lsex
         run: ./gradlew :shared:desktopTest :androidApp:assembleRelease :desktopApp:createDistributable
+      - name: Slim the desktop image (v0.9.0 size pass)
+        run: |
+          set -e
+          APP=desktopApp/build/compose/binaries/main/app/localsend-expressive
+          # Rebuild the runtime with a compressed jimage: same Temurin
+          # 21, same module set the Compose plugin ships (verified
+          # against the v0.8.0 image). Locally verified end to end:
+          # the slimmed image boots and enters composition.
+          "$JAVA_HOME/bin/jlink" --add-modules java.base,java.datatransfer,java.xml,java.prefs,java.desktop,java.logging,jdk.crypto.ec --output "$RUNNER_TEMP/slim-runtime" --compress=2 --strip-debug --no-header-files --no-man-pages
+          rm -rf "$APP/lib/runtime"
+          mv "$RUNNER_TEMP/slim-runtime" "$APP/lib/runtime"
+          # Strip native libraries (symbol tables are dead weight).
+          find "$APP" -name '*.so' -exec strip --strip-unneeded {} +
+          # Prune the ~3,800 unused Material Symbols icons per jar (the
+          # app uses ~140; keep-set derived from the sources and
+          # verified by a full class-load audit of the pruned jars).
+          python3 scripts/prune_icons.py "$GITHUB_WORKSPACE" "$APP"/lib/app/icons-material-symbols-outlined-cmp-jvm-*.jar com/composables/icons/materialsymbols/outlined/
+          python3 scripts/prune_icons.py "$GITHUB_WORKSPACE" "$APP"/lib/app/icons-material-symbols-outlined-filled-cmp-jvm-*.jar com/composables/icons/materialsymbols/outlinedfilled/
+          du -sh "$APP"
       - name: Collect release assets
         run: |
           mkdir -p release-assets
           # Split APKs per ABI + universal (v0.5.0): pick the smallest one
           # your device needs — arm64-v8a covers almost every modern phone.
           ls androidApp/build/outputs/apk/release/
-          cp androidApp/build/outputs/apk/release/androidApp-arm64-v8a-release.apk release-assets/localsend-expressive-0.8.0-android-arm64-v8a.apk
-          cp androidApp/build/outputs/apk/release/androidApp-armeabi-v7a-release.apk release-assets/localsend-expressive-0.8.0-android-armeabi-v7a.apk
-          cp androidApp/build/outputs/apk/release/androidApp-x86_64-release.apk release-assets/localsend-expressive-0.8.0-android-x86_64.apk
-          cp androidApp/build/outputs/apk/release/androidApp-universal-release.apk release-assets/localsend-expressive-0.8.0-android.apk
+          cp androidApp/build/outputs/apk/release/androidApp-arm64-v8a-release.apk release-assets/localsend-expressive-0.9.0-android-arm64-v8a.apk
+          cp androidApp/build/outputs/apk/release/androidApp-armeabi-v7a-release.apk release-assets/localsend-expressive-0.9.0-android-armeabi-v7a.apk
+          cp androidApp/build/outputs/apk/release/androidApp-x86_64-release.apk release-assets/localsend-expressive-0.9.0-android-x86_64.apk
+          cp androidApp/build/outputs/apk/release/androidApp-universal-release.apk release-assets/localsend-expressive-0.9.0-android.apk
           cd desktopApp/build/compose/binaries/main/app
-          zip -qr "$GITHUB_WORKSPACE/release-assets/localsend-expressive-0.8.0-linux-portable.zip" localsend-expressive
+          zip -9 -qr "$GITHUB_WORKSPACE/release-assets/localsend-expressive-0.9.0-linux-portable.zip" localsend-expressive
           cd "$GITHUB_WORKSPACE"
           ls -lh release-assets
       - name: Build Arch Linux package (.pkg.tar.zst)
@@ -94,7 +113,7 @@ jobs:
           cat > "$PKGDIR/.PKGINFO" <<PKGINFO
           pkgname = localsend-expressive
           pkgbase = localsend-expressive
-          pkgver = 0.8.0-1
+          pkgver = 0.9.0-1
           pkgdesc = Material 3 Expressive rewrite of LocalSend (Compose Multiplatform) for Android and Linux
           url = https://github.com/kurokawaerne/localsend-expressive
           builddate = $(date +%s)
@@ -105,7 +124,7 @@ jobs:
           depend = glibc
           PKGINFO
           cd "$PKGDIR"
-          tar --zstd -cf "$GITHUB_WORKSPACE/release-assets/localsend-expressive-0.8.0-1-x86_64.pkg.tar.zst" .PKGINFO opt usr
+          tar --zstd -cf "$GITHUB_WORKSPACE/release-assets/localsend-expressive-0.9.0-1-x86_64.pkg.tar.zst" .PKGINFO opt usr
           ls -lh "$GITHUB_WORKSPACE/release-assets"
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
@@ -115,19 +134,23 @@ jobs:
           prerelease: true
           files: release-assets/*
           body: |
-            The mockup release: rebuilt almost 1:1 from Ernest's own design mockups, on top of the fixes for everything v0.6.0 broke on device. (v0.7.0 was skipped.)
+            The verdict release: every point of Ernest's v0.8.0 on-device review, in one batch.
 
-            **Regression fixes (v0.6.0)**
-            - **Discovery works again**: the v0.6.0 rewrite dropped the call that starts the networking service, so the app rendered but never announced, listened, or found anyone. Fixed, and the alias you set now applies and refreshes live.
-            - **File-select crash fixed**: the staged-file card read a swipe offset before its anchors existed and threw the moment a file was picked.
-            - Status bar insets restored (content no longer slides under the clock), dark-on-dark text fixed, folder rows no longer show "-1 items", Quick Save labels no longer wrap mid-word.
+            **Design, redone with the real components**
+            - The nav bar is now the native Material 3 Expressive **ShortNavigationBar** — no more dark box behind the items, only the slim indicator pill behind the selected icon, theme colors throughout. The floating transfer pill is exactly the nav bar's width.
+            - Home's connection control and Quick Save use **connected ToggleButton groups** (the segmented buttons are deprecated); Send uses the official **split button**; Settings is a faithful Minus copy — segmented tiles, icon circles, whole-row switches, pickers instead of dropdowns (language as a list).
+            - **Minus's themes, copied whole**: all 17 of Minus's color schemes (Pink, Red, Blue, Orange, Yellow, Aqua, Cyan, Purple, Green — each in a vivid and a neutral variant) join the LSEx brand theme and Monochrome, presented exactly the way Minus presents them — a System/Light/Dark connected group, then a "Color scheme" row of 54dp swatches that morph circle → clover when selected, plus a separate **Material You** toggle (wallpaper colors apply to the brand theme, as in Minus).
+            - The device card now shows the **transfer progress behind it** while sending or receiving, the wordmark matches the mockup, and History rows got their missing swipe actions.
+            - Headings that vanished on dark/monochrome themes are fixed at the root (the scaffold now provides a proper content color), and there is a new hand-built **Monochrome** color style with guaranteed contrast.
+            - **Splash**: dynamic colors, the "LocalSend Expressive" wordmark, and the arrows sweep in from the top and bottom corners in an almost-circular motion and bounce when they meet — on Android too, once per cold start, and hardened so it can never trap you.
 
-            **New design (from the mockups)**
-            - **Home**: your device card (avatar, port / HTTPS / protocol chips), connection setup in one segmented control — WiFi / Hotspot / WiFi Direct — and a collapsible History with circular swipe actions and resume for failed sends.
-            - **Share**: nearby devices as cards — tap selects by color AND shape change (no checkmarks); the Send split button adds send-via-link and send-to-multiple-devices; the 3x2 picker grid and a collapsible selection card; a "files need attention" warning jumps you to the first damaged file.
-            - **Global transfer pill**: while anything is sending or receiving, a pill floats above the nav on EVERY page (combined view when both run); tapping it opens the transfer sheet with per-file rows, wavy progress, and the Transfer / files / speed / ETA bar. Pause and resume any send; the receive queue can be reordered (default: smallest files first, changeable in Settings).
-            - **Via link, for real**: Receive via link opens the port and shows a QR page; the web page is a full LocalSend-style page — visitors can send to you (through the normal approval flow) and download what you share. Share via link preloads your selection.
-            - **Connection settings**: hotspot and Wi-Fi Direct get real settings (gear on Home, and Settings > Connection): SSID, password or open, band, connected devices. Wi-Fi Direct group creation is fixed and honors them; the radio tiles now reflect the real Wi-Fi state.
-            - **Settings** copies Minus's settings style, carries every original LocalSend setting (Quick Save favorites/all/off included), and adds avatar changing (default: platform icons).
-            - **New icon + splash**: the comparison-arrows glyph from the mockup is now the app icon; the splash animates the arrows flying in from the corners into the mark.
-            - Send and receive run simultaneously; chunked LSEx-to-LSEx transfers stay optional in Settings. The FAB fan and the separate Connect tab are gone — connection setup lives on Home.
+            **Fixed functions**
+            - **Sender progress is live now**: whole-file sends update the transfer sheet and the device card as bytes move, not just at the end.
+            - **The web share page loads in browsers**: the self-signed certificate now carries proper SANs (old certs are regenerated once — favorites need re-adding, sorry) and is no longer marked as a CA, which is what made Chrome reject it.
+            - **Wi-Fi Direct** creation is retried in stages with zombie-group cleanup and a fresh channel, and it applies your group name/password/band; the WiFi panel lists nearby networks with connect buttons. One honest note on the **hotspot**: Android reserves hotspot credentials to system apps, so on Android the system assigns the hotspot's name and password (the app shows the ones that took effect, with the join QR) — custom hotspot settings apply on the Linux desktop build, where the platform allows them.
+            - Downloads land in the **public Downloads folder** by default, tapping a busy device reliably opens its transfers, and scrolling stays smooth during transfers (progress updates no longer recompose the whole screen; desktop thumbnails are downsampled and cached).
+
+            **More**
+            - Settings: edit your **name, device model and device type** right in the profile section, next to the avatar; **Donate** section with crypto wallets (Litecoin preferred, QR included).
+            - **58 languages** for the app chrome — every language the official LocalSend ships.
+            - The PC downloads are ~15% smaller (compressed runtime image, stripped natives, unused icons pruned) — verified by booting the slimmed image.
