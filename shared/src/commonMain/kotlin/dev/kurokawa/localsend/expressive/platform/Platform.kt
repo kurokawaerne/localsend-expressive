@@ -6,6 +6,15 @@ import dev.kurokawa.localsend.expressive.protocol.DeviceType
 /** The DeviceType this platform reports to peers. */
 expect fun platformDeviceType(): DeviceType
 
+/**
+ * Whether this platform lets the app choose the hotspot's name,
+ * password and band. Android: false — the configured LocalOnlyHotspot
+ * API is a system API outside the public SDK, so the system assigns
+ * the credentials (shown live once the hotspot is on). Desktop: true
+ * (nmcli takes the full configuration).
+ */
+expect fun hotspotConfigEditable(): Boolean
+
 /** Human-readable device model sent in announcements, e.g. "Xiaomi 2201117TG". */
 expect fun platformDeviceModel(): String
 

@@ -9,6 +9,8 @@ import dev.kurokawa.localsend.expressive.protocol.DeviceType
 
 actual fun platformDeviceType(): DeviceType = DeviceType.desktop
 
+actual fun hotspotConfigEditable(): Boolean = true
+
 actual fun platformDeviceModel(): String =
     System.getProperty("os.name")?.takeIf { it.isNotBlank() } ?: "Desktop"
 

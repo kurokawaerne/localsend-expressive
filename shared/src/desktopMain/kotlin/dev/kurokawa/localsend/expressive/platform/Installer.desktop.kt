@@ -4,6 +4,9 @@ import java.io.File
 
 actual fun installerSupported(): Boolean = false
 
+actual fun deleteReceivedFile(uri: String): Boolean =
+    runCatching { File(uri).delete() }.getOrDefault(false)
+
 actual fun openReceivedFile(uri: String, fileName: String) {
     runCatching {
         val file = File(uri)

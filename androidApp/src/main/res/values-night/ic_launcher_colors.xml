@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Dark splash (v0.9.0): the splash follows the system light/dark
+         setting instead of staying white at night. The pale circle and
+         purple arrows in the icon read on both. True wallpaper-dynamic
+         color is not available to the system splash window; the in-app
+         animated splash that follows uses the full dynamic scheme. -->
+    <color name="splash_background">#141218</color>
+</resources>

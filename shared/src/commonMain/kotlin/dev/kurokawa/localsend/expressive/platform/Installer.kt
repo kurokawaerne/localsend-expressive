@@ -20,6 +20,12 @@ fun isInstallablePackage(fileName: String): Boolean {
 expect fun openReceivedFile(uri: String, fileName: String)
 
 /**
+ * Delete a received file from storage (History's red trash action).
+ * Returns true when something was actually deleted.
+ */
+expect fun deleteReceivedFile(uri: String): Boolean
+
+/**
  * Install the package at [uri] (a content:// URI or file path recorded in
  * History). Returns null when the system install prompt was launched, or
  * a human-readable explanation when it couldn't be.

@@ -51,6 +51,8 @@ interface LocalSendController {
     val devices: StateFlow<List<DiscoveredDevice>>
     val incomingOffer: StateFlow<IncomingOffer?>
     val incomingProgress: StateFlow<List<FileProgress>>
+    /** Fingerprint of the peer an active incoming transfer belongs to. */
+    val incomingPeer: StateFlow<String?>
     val sendState: StateFlow<SendState?>
     val history: StateFlow<List<HistoryEntry>>
 

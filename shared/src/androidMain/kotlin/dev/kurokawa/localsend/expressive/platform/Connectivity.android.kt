@@ -6,6 +6,7 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.net.wifi.WifiConfiguration
+import android.net.wifi.SoftApConfiguration
 import android.net.wifi.WifiManager
 import android.net.wifi.WifiNetworkSuggestion
 import android.net.wifi.p2p.WifiP2pGroup
@@ -141,6 +142,85 @@ actual class ConnectivityController {
         _state.value = _state.value.copy(message = null)
     }
 
+    // ── Wi-Fi network list (WiFi section) ─────────────────────────────
+
+    actual fun scanWifiNetworks() {
+        val ctx = context ?: return
+        if (wifiManager == null) return
+        val permissions = nearbyWifiPermissions()
+        if (!hasPermissions(ctx, permissions)) {
+            PermissionGate.request(permissions) { granted ->
+                if (granted) {
+                    scanWifiNetworks()
+                } else {
+                    _state.value = _state.value.copy(
+                        message = "The network list needs the nearby-devices / location permission.",
+                    )
+                }
+            }
+            return
+        }
+        // Cached results show instantly; a fresh scan refreshes them.
+        publishScanResults()
+        _state.value = _state.value.copy(scanningNetworks = true)
+        val receiver = object : android.content.BroadcastReceiver() {
+            override fun onReceive(c: Context, intent: android.content.Intent) {
+                runCatching { ctx.unregisterReceiver(this) }
+                publishScanResults()
+                _state.value = _state.value.copy(scanningNetworks = false)
+            }
+        }
+        val registered = runCatching {
+            val filter = android.content.IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                ctx.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+            } else {
+                @Suppress("UnspecifiedRegisterReceiverFlag")
+                ctx.registerReceiver(receiver, filter)
+            }
+            true
+        }.getOrDefault(false)
+        @Suppress("DEPRECATION")
+        val started = runCatching { wifiManager?.startScan() }.getOrNull() == true
+        if (!registered || !started) {
+            // Android throttles scans (about 4 per 2 minutes per app):
+            // keep the cached list and stop pretending we are scanning.
+            if (registered) runCatching { ctx.unregisterReceiver(receiver) }
+            _state.value = _state.value.copy(scanningNetworks = false)
+        }
+    }
+
+    private fun publishScanResults() {
+        val wifi = wifiManager ?: return
+        val connectedSsid = runCatching {
+            @Suppress("DEPRECATION")
+            wifi.connectionInfo?.ssid?.trim('"')
+        }.getOrNull()
+        val results = runCatching {
+            @Suppress("DEPRECATION")
+            wifi.scanResults
+        }.getOrDefault(emptyList())
+        val networks = results
+            .filter { !it.SSID.isNullOrEmpty() }
+            .groupBy { it.SSID }
+            .map { (ssid, group) ->
+                val best = group.maxByOrNull { it.level } ?: group.first()
+                val caps = best.capabilities.orEmpty()
+                WifiNetwork(
+                    ssid = ssid,
+                    secured = caps.contains("WPA") || caps.contains("WEP") ||
+                        caps.contains("SAE"),
+                    level = best.level,
+                    connected = ssid == connectedSsid,
+                )
+            }
+            .sortedWith(
+                compareByDescending<WifiNetwork> { it.connected }
+                    .thenByDescending { it.level },
+            )
+        _state.value = _state.value.copy(wifiNetworks = networks)
+    }
+
     actual fun toggleWifi() {
         val ctx = context ?: return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -182,7 +262,6 @@ actual class ConnectivityController {
     }
 
     private fun startHotspot() {
-        val wifi = wifiManager ?: return
         if (p2pGroupActive) {
             stopWifiDirect()
             _state.value = _state.value.copy(
@@ -190,39 +269,54 @@ actual class ConnectivityController {
             )
         }
         _state.value = _state.value.copy(busy = true, message = null)
-        try {
-            wifi.startLocalOnlyHotspot(
-                object : WifiManager.LocalOnlyHotspotCallback() {
-                    override fun onStarted(reservation: WifiManager.LocalOnlyHotspotReservation) {
-                        hotspotReservation = reservation
-                        val info = readHotspotInfo(reservation)
-                        _state.value = _state.value.copy(
-                            busy = false,
-                            hotspot = info,
-                            message = if (info == null) {
-                                "Hotspot is on (couldn't read its password)."
-                            } else {
-                                null
-                            },
-                        )
-                    }
-
-                    override fun onStopped() {
-                        hotspotReservation = null
-                        _state.value = _state.value.copy(busy = false, hotspot = null)
-                    }
-
-                    override fun onFailed(reason: Int) {
-                        hotspotReservation = null
-                        _state.value = _state.value.copy(
-                            busy = false,
-                            message = "Hotspot failed to start (reason $reason). " +
-                                "Another hotspot may already be running.",
-                        )
-                    }
-                },
-                Handler(Looper.getMainLooper()),
+        val wifi = wifiManager ?: run {
+            _state.value = _state.value.copy(
+                busy = false,
+                message = "Wi-Fi is unavailable.",
             )
+            return
+        }
+        // Android gives regular apps NO way to choose the hotspot's
+        // name, password or band: the configured
+        // startLocalOnlyHotspot overload is a system API (not in the
+        // public SDK), so the system assigns the credentials and
+        // readHotspotInfo() reads back what actually took effect —
+        // the running hotspot card shows those. (Ernest's v0.8.0
+        // report: he set Ernest_LSEx / 5 GHz and got AndroidShare_1571;
+        // that is platform behaviour, not an app choice.)
+        val callback = object : WifiManager.LocalOnlyHotspotCallback() {
+            override fun onStarted(
+                reservation: WifiManager.LocalOnlyHotspotReservation,
+            ) {
+                hotspotReservation = reservation
+                val info = readHotspotInfo(reservation)
+                _state.value = _state.value.copy(
+                    busy = false,
+                    hotspot = info,
+                    message = if (info == null) {
+                        "Hotspot is on (couldn't read its password)."
+                    } else {
+                        null
+                    },
+                )
+            }
+
+            override fun onStopped() {
+                hotspotReservation = null
+                _state.value = _state.value.copy(busy = false, hotspot = null)
+            }
+
+            override fun onFailed(reason: Int) {
+                hotspotReservation = null
+                _state.value = _state.value.copy(
+                    busy = false,
+                    message = "Hotspot failed to start (reason $reason). " +
+                        "Another hotspot may already be running.",
+                )
+            }
+        }
+        try {
+            wifi.startLocalOnlyHotspot(callback, Handler(Looper.getMainLooper()))
         } catch (e: SecurityException) {
             _state.value = _state.value.copy(
                 busy = false,
@@ -283,7 +377,14 @@ actual class ConnectivityController {
         val manager = p2pManager ?: return null
         val ctx = context ?: return null
         if (p2pChannel == null) {
-            p2pChannel = manager.initialize(ctx, Looper.getMainLooper(), null)
+            p2pChannel = manager.initialize(ctx, Looper.getMainLooper()) {
+                // The framework dropped the channel (P2P service
+                // restarted): forget it so the next call re-initializes.
+                // Reusing a dead channel makes EVERY P2P operation fail
+                // with a generic ERROR until the app restarts — a prime
+                // suspect for the persistent "internal error" reports.
+                p2pChannel = null
+            }
         }
         return p2pChannel
     }
@@ -310,20 +411,61 @@ actual class ConnectivityController {
             )
         }
         _state.value = _state.value.copy(busy = true, message = null)
-        createGroupWithRetry(manager, channel, retried = false)
+        createGroupAttempt(manager, channel, attempt = 0)
+    }
+
+    /** The user's Wi-Fi Direct group config, or null for system defaults. */
+    private fun p2pConfigOrNull(): android.net.wifi.p2p.WifiP2pConfig? {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return null
+        val prefs = ConnectivityPrefsHolder.current
+        if (prefs.p2pName.isBlank() && prefs.p2pPassword.isBlank() && prefs.p2pBand == "auto") {
+            return null
+        }
+        // A passphrase outside 8..63 chars makes the whole config invalid.
+        if (prefs.p2pPassword.isNotEmpty() && prefs.p2pPassword.length !in 8..63) return null
+        return runCatching {
+            android.net.wifi.p2p.WifiP2pConfig.Builder()
+                .apply {
+                    if (prefs.p2pName.isNotBlank()) setNetworkName(prefs.p2pName)
+                    if (prefs.p2pPassword.isNotBlank()) setPassphrase(prefs.p2pPassword)
+                    setGroupOperatingBand(
+                        when (prefs.p2pBand) {
+                            "2.4" -> android.net.wifi.p2p.WifiP2pConfig.GROUP_OWNER_BAND_2GHZ
+                            "5" -> android.net.wifi.p2p.WifiP2pConfig.GROUP_OWNER_BAND_5GHZ
+                            else -> android.net.wifi.p2p.WifiP2pConfig.GROUP_OWNER_BAND_AUTO
+                        },
+                    )
+                }
+                .build()
+        }.getOrNull()
+    }
+
+    private fun noopP2pListener() = object : WifiP2pManager.ActionListener {
+        override fun onSuccess() = Unit
+        override fun onFailure(reason: Int) = Unit
     }
 
     /**
-     * Create the P2P group, honoring the user's group name / passphrase /
-     * band (Settings → Connection, Android 10+ config API). On a generic
-     * ERROR, clear any zombie group and retry once with defaults — the
-     * v0.6.0 build surfaced that first ERROR as the final answer.
+     * Create the P2P group in staged attempts (v0.9.0 hardening — v0.8.0
+     * still died with a generic internal ERROR on Ernest's LineageOS):
+     *
+     * - Peer discovery running on the channel makes createGroup fail
+     *   with ERROR on many devices, so discovery is stopped first.
+     * - Attempt 0 uses the user's config (name / passphrase / band);
+     *   later attempts use system defaults.
+     * - On ERROR, any zombie group is removed and the retry WAITS for
+     *   the removal to settle (the old code retried 600 ms after a
+     *   fire-and-forget removal, straight into the same ERROR).
+     * - BUSY means a group is already up: adopt it via requestGroupInfo.
+     * - After the last attempt the cached channel is dropped, so the
+     *   user's next tap re-initializes P2P from scratch.
      */
-    private fun createGroupWithRetry(
+    private fun createGroupAttempt(
         manager: WifiP2pManager,
         channel: WifiP2pManager.Channel,
-        retried: Boolean,
+        attempt: Int,
     ) {
+        runCatching { manager.stopPeerDiscovery(channel, noopP2pListener()) }
         val listener = object : WifiP2pManager.ActionListener {
             override fun onSuccess() {
                 p2pGroupActive = true
@@ -337,50 +479,20 @@ actual class ConnectivityController {
                         p2pGroupActive = true
                         requestGroupInfo()
                     }
-                    reason == WifiP2pManager.ERROR && !retried -> {
-                        runCatching {
-                            manager.removeGroup(
-                                channel,
-                                object : WifiP2pManager.ActionListener {
-                                    override fun onSuccess() = Unit
-                                    override fun onFailure(reason: Int) = Unit
-                                },
-                            )
-                        }
-                        Handler(Looper.getMainLooper()).postDelayed({
-                            createGroupWithRetry(manager, channel, retried = true)
-                        }, 600)
+                    reason == WifiP2pManager.ERROR && attempt < 2 ->
+                        cleanupThenRetry(manager, channel, attempt)
+                    else -> {
+                        p2pChannel = null
+                        _state.value = _state.value.copy(
+                            busy = false,
+                            message = "Wi-Fi Direct couldn't start: ${p2pReasonText(reason)}",
+                        )
                     }
-                    else -> _state.value = _state.value.copy(
-                        busy = false,
-                        message = "Wi-Fi Direct couldn't start: ${p2pReasonText(reason)}",
-                    )
                 }
             }
         }
         try {
-            val prefs = ConnectivityPrefsHolder.current
-            val config = if (
-                Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && !retried &&
-                (prefs.p2pName.isNotBlank() || prefs.p2pPassword.isNotBlank() ||
-                    prefs.p2pBand != "auto")
-            ) {
-                android.net.wifi.p2p.WifiP2pConfig.Builder()
-                    .apply {
-                        if (prefs.p2pName.isNotBlank()) setNetworkName(prefs.p2pName)
-                        if (prefs.p2pPassword.isNotBlank()) setPassphrase(prefs.p2pPassword)
-                        setGroupOperatingBand(
-                            when (prefs.p2pBand) {
-                                "2.4" -> android.net.wifi.p2p.WifiP2pConfig.GROUP_OWNER_BAND_2GHZ
-                                "5" -> android.net.wifi.p2p.WifiP2pConfig.GROUP_OWNER_BAND_5GHZ
-                                else -> android.net.wifi.p2p.WifiP2pConfig.GROUP_OWNER_BAND_AUTO
-                            },
-                        )
-                    }
-                    .build()
-            } else {
-                null
-            }
+            val config = if (attempt == 0) p2pConfigOrNull() else null
             if (config != null) {
                 manager.createGroup(channel, config, listener)
             } else {
@@ -392,16 +504,50 @@ actual class ConnectivityController {
                 message = "Wi-Fi Direct permission was denied.",
             )
         } catch (e: Exception) {
-            // A malformed config (e.g. a too-short passphrase) must not be
-            // the end: fall back to a system-configured group once.
-            if (!retried) {
-                createGroupWithRetry(manager, channel, retried = true)
+            if (attempt < 2) {
+                cleanupThenRetry(manager, channel, attempt)
             } else {
+                p2pChannel = null
                 _state.value = _state.value.copy(
                     busy = false,
                     message = "Wi-Fi Direct couldn't start: ${e.message}",
                 )
             }
+        }
+    }
+
+    /** Remove any zombie group, WAIT for the removal, then retry. */
+    private fun cleanupThenRetry(
+        manager: WifiP2pManager,
+        channel: WifiP2pManager.Channel,
+        attempt: Int,
+    ) {
+        val proceed = {
+            Handler(Looper.getMainLooper()).postDelayed({
+                // The channel may have been dropped by a disconnect in
+                // the meantime — re-fetch rather than reuse a dead one.
+                val fresh = channel()
+                if (fresh != null) {
+                    createGroupAttempt(manager, fresh, attempt + 1)
+                } else {
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        message = "Wi-Fi Direct couldn't start: an internal error occurred.",
+                    )
+                }
+            }, 900L * (attempt + 1))
+        }
+        try {
+            manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
+                override fun onSuccess() {
+                    proceed()
+                }
+                override fun onFailure(reason: Int) {
+                    proceed()
+                }
+            })
+        } catch (e: Exception) {
+            proceed()
         }
     }
 

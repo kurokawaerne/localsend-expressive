@@ -12,6 +12,18 @@ import java.util.zip.ZipInputStream
 
 actual fun installerSupported(): Boolean = true
 
+actual fun deleteReceivedFile(uri: String): Boolean {
+    val context = AppContextHolder.appContext ?: return false
+    return runCatching {
+        val parsed = Uri.parse(uri)
+        if (parsed.scheme == "content") {
+            context.contentResolver.delete(parsed, null, null) > 0
+        } else {
+            File(uri).delete()
+        }
+    }.getOrDefault(false)
+}
+
 actual fun openReceivedFile(uri: String, fileName: String) {
     val context = AppContextHolder.appContext ?: return
     runCatching {

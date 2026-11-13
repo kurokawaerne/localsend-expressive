@@ -12,6 +12,8 @@ import dev.kurokawa.localsend.expressive.protocol.DeviceType
 
 actual fun platformDeviceType(): DeviceType = DeviceType.mobile
 
+actual fun hotspotConfigEditable(): Boolean = false
+
 actual fun platformDeviceModel(): String =
     listOfNotNull(android.os.Build.MANUFACTURER, android.os.Build.MODEL)
         .filter { it.isNotBlank() }

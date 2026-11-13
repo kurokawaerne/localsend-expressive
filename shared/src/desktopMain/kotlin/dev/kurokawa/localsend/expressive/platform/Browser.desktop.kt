@@ -132,21 +132,61 @@ actual fun rememberStorageAccess(): StorageAccess = StorageAccess(
     recheck = {},
 )
 
+/** Decoded desktop thumbnails (bounded, shared across grid cells). */
+private val desktopThumbCache =
+    java.util.concurrent.ConcurrentHashMap<String, ImageBitmap>()
+
 @Composable
 actual fun BrowserThumbnail(item: BrowserItem, modifier: Modifier) {
     val isImage = item.name.substringAfterLast('.', "").lowercase() in IMAGE_EXT
     val bitmap by produceState<ImageBitmap?>(null, item.id) {
-        value = if (isImage && !item.isFolder) {
+        value = desktopThumbCache[item.id] ?: if (isImage && !item.isFolder) {
             withContext(Dispatchers.IO) {
                 runCatching {
                     val file = File(item.handle)
                     // Skip decoding huge photos for a grid cell.
-                    if (file.length() in 1..12_000_000) {
-                        SkiaImage.makeFromEncoded(file.readBytes()).toComposeImageBitmap()
+                    if (file.length() in 1L..12_000_000L) {
+                        // v0.9.0 perf: decode DOWN to the grid-cell size.
+                        // The old code Skia-decoded full-resolution photos
+                        // on every scroll (the desktop picker jank).
+                        // ImageIO (JDK built-in) reads + scales; formats
+                        // it cannot read (e.g. WebP) fall back to Skia.
+                        val src = javax.imageio.ImageIO.read(file)
+                        if (src != null) {
+                            val longest = maxOf(src.width, src.height)
+                            if (longest > 256) {
+                                val scale = 256f / longest
+                                val w = (src.width * scale).toInt()
+                                    .coerceAtLeast(1)
+                                val h = (src.height * scale).toInt()
+                                    .coerceAtLeast(1)
+                                val scaled = java.awt.image.BufferedImage(
+                                    w, h, java.awt.image.BufferedImage.TYPE_INT_ARGB,
+                                )
+                                scaled.createGraphics().apply {
+                                    setRenderingHint(
+                                        java.awt.RenderingHints.KEY_INTERPOLATION,
+                                        java.awt.RenderingHints
+                                            .VALUE_INTERPOLATION_BILINEAR,
+                                    )
+                                    drawImage(src, 0, 0, w, h, null)
+                                    dispose()
+                                }
+                                scaled.toComposeImageBitmap()
+                            } else {
+                                src.toComposeImageBitmap()
+                            }
+                        } else {
+                            SkiaImage.makeFromEncoded(file.readBytes())
+                                .toComposeImageBitmap()
+                        }
                     } else {
                         null
                     }
-                }.getOrNull()
+                }.getOrNull()?.also { decoded ->
+                    if (desktopThumbCache.size > 240) desktopThumbCache.clear()
+                    desktopThumbCache[item.id] = decoded
+                }
             }
         } else {
             null
