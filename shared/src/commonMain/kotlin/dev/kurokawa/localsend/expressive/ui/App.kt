@@ -163,6 +163,7 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.graphics.shapes.Morph
+import dev.kurokawa.localsend.expressive.platform.hotspotConfigEditable
 import dev.kurokawa.localsend.expressive.theme.DarkScheme
 import dev.kurokawa.localsend.expressive.theme.LightScheme
 import dev.kurokawa.localsend.expressive.theme.MinusColorSchemeIds
@@ -1453,6 +1454,19 @@ private fun ConnectionSettingsDialog(
         title = { Text(if (isHotspot) "Hotspot settings" else "Wi-Fi Direct settings") },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                if (isHotspot && !hotspotConfigEditable()) {
+                    // Android reserves hotspot credentials to system
+                    // apps: the system assigns them, and the running
+                    // hotspot card shows what took effect.
+                    Text(
+                        "Android assigns the hotspot's name and password " +
+                            "itself — regular apps can't choose them. " +
+                            "Start the hotspot and the connection card " +
+                            "shows the name and password that actually " +
+                            "took effect, with a QR code to join.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                } else {
                 OutlinedTextField(
                     value = name,
                     onValueChange = { name = it },
@@ -1468,43 +1482,49 @@ private fun ConnectionSettingsDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Text("Band", style = MaterialTheme.typography.titleSmall)
-                SingleChoiceSegmentedButtonRow(Modifier.fillMaxWidth()) {
-                    val bands = listOf("auto" to "Auto", "2.4" to "2.4 GHz", "5" to "5 GHz")
-                    bands.forEachIndexed { index, (value, label) ->
-                        SegmentedButton(
-                            selected = band == value,
-                            onClick = { band = value },
-                            shape = SegmentedButtonDefaults.itemShape(index, bands.size),
-                            label = { Text(label, maxLines = 1, softWrap = false) },
-                        )
-                    }
-                }
+                ConnectedChoiceGroup(
+                    options = listOf(
+                        MaterialSymbols.Outlined.Wifi to "Auto",
+                        MaterialSymbols.Outlined.Wifi_1_bar to "2.4 GHz",
+                        MaterialSymbols.Outlined.Signal_wifi_4_bar to "5 GHz",
+                    ),
+                    selectedIndex = when (band) {
+                        "2.4" -> 1
+                        "5" -> 2
+                        else -> 0
+                    },
+                    onSelect = { index ->
+                        band = listOf("auto", "2.4", "5")[index]
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                )
                 Text(
                     if (isHotspot) {
-                        "Applied when the hotspot starts (Android 11+). " +
-                            "If a device refuses custom settings, the hotspot starts " +
-                            "with system defaults instead — the running hotspot card " +
-                            "always shows the name and password that actually took effect."
-                            
+                        "Applied when the hotspot starts."
                     } else {
                         "Wi-Fi Direct uses your name, password and band when the group is created (Android 10+)."
                     },
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+                }
             }
         },
         confirmButton = {
-            TextButton(onClick = {
-                controller.updateSettings(
-                    if (isHotspot) {
-                        settings.copy(hotspotSsid = name, hotspotPassword = password, hotspotBand = band)
-                    } else {
-                        settings.copy(p2pName = name, p2pPassword = password, p2pBand = band)
-                    },
-                )
-                onDismiss()
-            }) { Text("Save") }
+            if (isHotspot && !hotspotConfigEditable()) {
+                TextButton(onClick = onDismiss) { Text("OK") }
+            } else {
+                TextButton(onClick = {
+                    controller.updateSettings(
+                        if (isHotspot) {
+                            settings.copy(hotspotSsid = name, hotspotPassword = password, hotspotBand = band)
+                        } else {
+                            settings.copy(p2pName = name, p2pPassword = password, p2pBand = band)
+                        },
+                    )
+                    onDismiss()
+                }) { Text("Save") }
+            }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text("Cancel") }

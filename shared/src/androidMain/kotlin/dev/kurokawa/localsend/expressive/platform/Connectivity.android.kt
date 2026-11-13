@@ -45,7 +45,6 @@ import com.google.zxing.PlanarYUVLuminanceSource
 import com.google.zxing.common.HybridBinarizer
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import java.util.concurrent.Executor
 import java.util.concurrent.Executors
 
 /**
@@ -270,50 +269,25 @@ actual class ConnectivityController {
             )
         }
         _state.value = _state.value.copy(busy = true, message = null)
-        startHotspotAttempt(withConfig = true)
-    }
-
-    /**
-     * The user's hotspot configuration as a [SoftApConfiguration]
-     * (Android 11+): the settings are APPLIED through the configured
-     * startLocalOnlyHotspot overload instead of being silently replaced
-     * by a system-assigned name/password (Ernest's v0.8.0 report:
-     * he set Ernest_LSEx / 5 GHz and got AndroidShare_1571).
-     */
-    private fun softApConfigOrNull(): SoftApConfiguration? {
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return null
-        val prefs = ConnectivityPrefsHolder.current
-        if (prefs.hotspotSsid.isBlank() && prefs.hotspotPassword.isBlank() &&
-            prefs.hotspotBand == "auto"
-        ) {
-            return null
-        }
-        return runCatching {
-            val builder = SoftApConfiguration.Builder()
-            if (prefs.hotspotSsid.isNotBlank()) builder.setSsid(prefs.hotspotSsid)
-            // A WPA2 passphrase must be 8..63 chars; an invalid one is
-            // left out (the read-back shows what actually took effect).
-            if (prefs.hotspotPassword.length in 8..63) {
-                builder.setPassphrase(
-                    prefs.hotspotPassword,
-                    SoftApConfiguration.SECURITY_TYPE_WPA2_PSK,
-                )
-            }
-            builder.setBand(
-                when (prefs.hotspotBand) {
-                    "2.4" -> SoftApConfiguration.BAND_2GHZ
-                    "5" -> SoftApConfiguration.BAND_5GHZ
-                    else -> SoftApConfiguration.BAND_ANY
-                },
+        val wifi = wifiManager ?: run {
+            _state.value = _state.value.copy(
+                busy = false,
+                message = "Wi-Fi is unavailable.",
             )
-            builder.build()
-        }.getOrNull()
-    }
-
-    private fun startHotspotAttempt(withConfig: Boolean) {
-        val wifi = wifiManager ?: return
+            return
+        }
+        // Android gives regular apps NO way to choose the hotspot's
+        // name, password or band: the configured
+        // startLocalOnlyHotspot overload is a system API (not in the
+        // public SDK), so the system assigns the credentials and
+        // readHotspotInfo() reads back what actually took effect —
+        // the running hotspot card shows those. (Ernest's v0.8.0
+        // report: he set Ernest_LSEx / 5 GHz and got AndroidShare_1571;
+        // that is platform behaviour, not an app choice.)
         val callback = object : WifiManager.LocalOnlyHotspotCallback() {
-            override fun onStarted(reservation: WifiManager.LocalOnlyHotspotReservation) {
+            override fun onStarted(
+                reservation: WifiManager.LocalOnlyHotspotReservation,
+            ) {
                 hotspotReservation = reservation
                 val info = readHotspotInfo(reservation)
                 _state.value = _state.value.copy(
@@ -334,48 +308,25 @@ actual class ConnectivityController {
 
             override fun onFailed(reason: Int) {
                 hotspotReservation = null
-                if (withConfig && softApConfigOrNull() != null) {
-                    // The device refused our configuration: still give
-                    // the user a hotspot (system-assigned credentials)
-                    // rather than nothing, and say so.
-                    _state.value = _state.value.copy(
-                        message = "This device refused the custom hotspot " +
-                            "settings — starting with system defaults.",
-                    )
-                    startHotspotAttempt(withConfig = false)
-                } else {
-                    _state.value = _state.value.copy(
-                        busy = false,
-                        message = "Hotspot failed to start (reason $reason). " +
-                            "Another hotspot may already be running.",
-                    )
-                }
+                _state.value = _state.value.copy(
+                    busy = false,
+                    message = "Hotspot failed to start (reason $reason). " +
+                        "Another hotspot may already be running.",
+                )
             }
         }
         try {
-            val config = if (withConfig) softApConfigOrNull() else null
-            if (config != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
-                val executor = Executor { runnable ->
-                    Handler(Looper.getMainLooper()).post(runnable)
-                }
-                wifi.startLocalOnlyHotspot(config, executor, callback)
-            } else {
-                wifi.startLocalOnlyHotspot(callback, Handler(Looper.getMainLooper()))
-            }
+            wifi.startLocalOnlyHotspot(callback, Handler(Looper.getMainLooper()))
         } catch (e: SecurityException) {
             _state.value = _state.value.copy(
                 busy = false,
                 message = "Hotspot permission was denied.",
             )
         } catch (e: Exception) {
-            if (withConfig) {
-                startHotspotAttempt(withConfig = false)
-            } else {
-                _state.value = _state.value.copy(
-                    busy = false,
-                    message = "Hotspot failed: ${e.message}",
-                )
-            }
+            _state.value = _state.value.copy(
+                busy = false,
+                message = "Hotspot failed: ${e.message}",
+            )
         }
     }
 
