@@ -69,6 +69,7 @@ actual fun loadInstalledApps(): List<InstalledApp> {
                 packageName = app.packageName,
                 apkHandle = app.sourceDir,
                 apkSize = file.length(),
+                splitHandles = app.splitSourceDirs?.toList() ?: emptyList(),
                 isSystem = (app.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0 ||
                     (app.flags and android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0,
             )
@@ -128,4 +129,37 @@ actual fun quickShareRequests(): kotlinx.coroutines.flow.StateFlow<Int> = QuickS
 
 actual fun clearQuickShareRequest() {
     QuickShareSignal.requests.value = 0
+}
+
+
+actual fun stageAppBundle(app: InstalledApp): PickedFile? {
+    val context = AppContextHolder.appContext ?: return null
+    if (app.splitHandles.isEmpty()) return null
+    return runCatching {
+        val base = java.io.File(app.apkHandle)
+        val dir = java.io.File(context.cacheDir, "appbundles").apply { mkdirs() }
+        // Cache key: package + base APK mtime (an app update re-bundles).
+        val out = java.io.File(dir, "${app.packageName}-${base.lastModified()}.apks")
+        if (!out.exists() || out.length() == 0L) {
+            val tmp = java.io.File(dir, out.name + ".tmp")
+            java.util.zip.ZipOutputStream(tmp.outputStream().buffered()).use { zip ->
+                fun add(file: java.io.File, entryName: String) {
+                    zip.putNextEntry(java.util.zip.ZipEntry(entryName))
+                    file.inputStream().buffered().use { it.copyTo(zip) }
+                    zip.closeEntry()
+                }
+                add(base, "base.apk")
+                app.splitHandles.forEach { path ->
+                    val split = java.io.File(path)
+                    if (split.exists()) add(split, split.name)
+                }
+            }
+            tmp.renameTo(out)
+        }
+        PickedFile(
+            handle = out.absolutePath,
+            name = "${app.label}.apks",
+            size = out.length(),
+        )
+    }.getOrNull()
 }

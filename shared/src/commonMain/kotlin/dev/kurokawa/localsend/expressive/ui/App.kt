@@ -22,6 +22,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
@@ -30,6 +31,7 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -38,6 +40,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
@@ -56,8 +59,12 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LinearWavyProgressIndicator
+import androidx.compose.material3.ListItemColors
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.LoadingIndicator
+import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.NavigationRail
 import androidx.compose.material3.NavigationRailItem
@@ -85,6 +92,7 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -93,6 +101,8 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material3.MaterialShapes
 import androidx.compose.material3.toShape
 import androidx.compose.ui.semantics.Role
@@ -125,6 +135,7 @@ import dev.kurokawa.localsend.expressive.platform.InstalledApp
 import dev.kurokawa.localsend.expressive.platform.PickedFile
 import dev.kurokawa.localsend.expressive.platform.QrScannerView
 import dev.kurokawa.localsend.expressive.platform.installPackage
+import dev.kurokawa.localsend.expressive.platform.stageAppBundle
 import dev.kurokawa.localsend.expressive.platform.installerSupported
 import dev.kurokawa.localsend.expressive.platform.isInstallablePackage
 import dev.kurokawa.localsend.expressive.platform.joinWifiNetwork
@@ -165,6 +176,8 @@ import androidx.compose.ui.unit.LayoutDirection
 import androidx.graphics.shapes.Morph
 import dev.kurokawa.localsend.expressive.platform.hotspotConfigEditable
 import dev.kurokawa.localsend.expressive.theme.DarkScheme
+import dev.kurokawa.localsend.expressive.theme.wordmarkFamily
+import dev.kurokawa.localsend.expressive.theme.wordmarkItalicFamily
 import dev.kurokawa.localsend.expressive.theme.LightScheme
 import dev.kurokawa.localsend.expressive.theme.MinusColorSchemeIds
 import dev.kurokawa.localsend.expressive.theme.MonoDarkScheme
@@ -194,6 +207,9 @@ import dev.kurokawa.localsend.expressive.platform.MediaKind
 import dev.kurokawa.localsend.expressive.platform.expandBrowserFolder
 import dev.kurokawa.localsend.expressive.platform.listBrowserFolder
 import dev.kurokawa.localsend.expressive.platform.loadMediaItems
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.backhandler.PredictiveBackHandler
+import androidx.compose.ui.draw.scale
 import dev.kurokawa.localsend.expressive.platform.platformHasSystemSplash
 import dev.kurokawa.localsend.expressive.platform.prefersSwipeActions
 import dev.kurokawa.localsend.expressive.platform.rememberStorageAccess
@@ -235,7 +251,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.geometry.center
 import androidx.compose.ui.unit.IntOffset
 
-private enum class MainTab { Home, Share, Settings }
+internal enum class MainTab { Home, Share, Settings }
 
 // ── UI strings (language setting: system / English / Español) ──────────────
 
@@ -254,12 +270,13 @@ fun AppRoot(controller: LocalSendController, onReady: () -> Unit = {}) {
         CompositionLocalProvider(LocalStrings provides stringsFor(settings.language)) {
             var showSplash by rememberSaveable { mutableStateOf(true) }
             AppScaffold(controller, settings)
-            // The animated splash runs on Android too (v0.9.0): the
-            // system splash is only a static frame — no text, no corner
-            // animation, no dynamic color — and Ernest's splash spec is
-            // the animated one. It shows once per cold start;
-            // rememberSaveable keeps rotation from replaying it.
-            if (showSplash && settings.enableAnimations) {
+            // ONE splash per platform (v0.10.0, Ernest's verdict on
+            // the v0.9.0 double splash): Android shows ONLY its system
+            // splash (animated icon, dynamic-colored since v0.10.0) —
+            // the Compose overlay is desktop-only, where there is no
+            // system splash. v0.8.0 behaved exactly like this and he
+            // liked that splash.
+            if (showSplash && settings.enableAnimations && !platformHasSystemSplash()) {
                 SplashOverlay { showSplash = false }
             }
             LaunchedEffect(Unit) { onReady() }
@@ -300,7 +317,7 @@ private fun ArrowsMark(size: androidx.compose.ui.unit.Dp, modifier: Modifier = M
 
 /** The wordmark from Ernest's mockups: "LocalSend" + italic "Ex", in primary. */
 @Composable
-private fun LsexWordmark(modifier: Modifier = Modifier) {
+internal fun LsexWordmark(modifier: Modifier = Modifier) {
     val scheme = MaterialTheme.colorScheme
     Text(
         buildAnnotatedString {
@@ -309,17 +326,20 @@ private fun LsexWordmark(modifier: Modifier = Modifier) {
             }
             withStyle(
                 SpanStyle(
-                    // The mockup's "Ex" is a serif italic flourish set
-                    // against the rounded sans — Serif italic is the
-                    // closest platform match.
-                    fontFamily = FontFamily.Serif,
-                    fontWeight = FontWeight.Bold,
-                    fontStyle = FontStyle.Italic,
+                    // Ernest's mockup: the wordmark is ALL Google
+                    // Sans Flex CONDENSED (wdth 80) — "Ex" is the
+                    // same condensed cut slanted (slnt axis), with a
+                    // lowercase x. (v0.9.0 shipped a serif here; he
+                    // circled it in red, and he was right.)
+                    fontFamily = wordmarkItalicFamily(),
+                    fontWeight = FontWeight.SemiBold,
                     color = scheme.primary,
                 ),
             ) { append("Ex") }
         },
-        style = MaterialTheme.typography.headlineMedium,
+        style = MaterialTheme.typography.headlineMedium.copy(
+            fontFamily = wordmarkFamily(),
+        ),
         modifier = modifier,
     )
 }
@@ -336,7 +356,7 @@ private fun LsexWordmark(modifier: Modifier = Modifier) {
  * so no animation failure can trap the user on the splash.
  */
 @Composable
-private fun SplashOverlay(onDone: () -> Unit) {
+internal fun SplashOverlay(onDone: () -> Unit) {
     val progress = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
         try {
@@ -431,9 +451,13 @@ private fun SplashOverlay(onDone: () -> Unit) {
 
 @Composable
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
-private fun AppScaffold(controller: LocalSendController, settings: AppSettings) {
+internal fun AppScaffold(
+    controller: LocalSendController,
+    settings: AppSettings,
+    initialTab: MainTab = MainTab.Home,
+) {
     val strings = LocalStrings.current
-    var tab by rememberSaveable { mutableStateOf(MainTab.Home) }
+    var tab by rememberSaveable { mutableStateOf(initialTab) }
     val local by controller.localDevice.collectAsState()
     val localIp by controller.localIpAddress.collectAsState()
     val offer by controller.incomingOffer.collectAsState()
@@ -602,8 +626,10 @@ private fun AppScaffold(controller: LocalSendController, settings: AppSettings) 
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    // Same width as the nav bar (Ernest: the floating
-                    // transfer pill matches his mockup's bar width).
+                    // Same width as the nav bar — always. (Ernest
+                    // corrected Luna's misreading on 2026-11-13: his
+                    // "the pill is still narrow" meant its HEIGHT,
+                    // not its width.)
                     GlobalTransferPillHost(
                         controller = controller,
                         modifier = Modifier.fillMaxWidth(0.827f),
@@ -614,13 +640,22 @@ private fun AppScaffold(controller: LocalSendController, settings: AppSettings) 
                     // secondary active label — floated with margins and
                     // full rounding exactly like his mockup. The custom
                     // pill and its dark backdrop box are gone.
+                    //
+                    // WIDTH (v0.10.0 fix): the 82.7% chrome width lives
+                    // on this wrapper Box, NEVER on the bar itself.
+                    // material3 alpha05's bar measures every item
+                    // through constraints.constrain(fixedSize), which
+                    // coerces each item's width UP to the bar's
+                    // incoming minWidth — a fillMaxWidth on the bar set
+                    // minWidth = 82.7% of the screen, inflated every
+                    // item to full bar width and pushed items 2-3 off
+                    // the bar (v0.9.0 showed only Home; root cause
+                    // convicted from the library bytecode in the UDYAT
+                    // investigation, cure proven there + in ETK). The
+                    // wrapper passes the bar a max width with min 0.
+                    Box(Modifier.fillMaxWidth(0.827f)) {
                     ShortNavigationBar(
                         modifier = Modifier
-                            // Ernest: nav width EXACTLY as mocked —
-                            // measured on his mockups (home + share):
-                            // the bar spans x 86..913 of 1000, i.e.
-                            // 82.7% of the screen width, ~8.65% margins.
-                            .fillMaxWidth(0.827f)
                             .shadow(8.dp, RoundedCornerShape(36.dp))
                             .clip(RoundedCornerShape(36.dp)),
                         containerColor = MaterialTheme.colorScheme.surfaceContainer,
@@ -672,6 +707,7 @@ private fun AppScaffold(controller: LocalSendController, settings: AppSettings) 
                             },
                             label = { Text(strings.settings) },
                         )
+                    }
                     }
                 }
             }
@@ -841,13 +877,13 @@ private fun RailNavItem(
     }
 }
 
-private sealed interface StagedItem {
+internal sealed interface StagedItem {
     data class FileItem(val file: PickedFile) : StagedItem
     data class FolderItem(val folder: BrowserItem) : StagedItem
     data class TextItem(val text: String) : StagedItem
 }
 
-private enum class ContentTab { Apps, Photos, Videos, Audio, Files, Text, Web }
+internal enum class ContentTab { Apps, Photos, Videos, Audio, Files, Text, Web }
 
 /**
  * The expressive connected button group (the segmented button's official
@@ -861,6 +897,10 @@ private fun ConnectedChoiceGroup(
     options: List<Pair<ImageVector, String>>,
     selectedIndex: Int,
     modifier: Modifier = Modifier,
+    // With many options (the 5 browse sections), unchecked buttons
+    // show only their icon — icon+label in every segment overflows a
+    // phone's width and the labels clip (v0.10.0 render catch).
+    compactLabels: Boolean = false,
     onSelect: (Int) -> Unit,
 ) {
     ButtonGroup(
@@ -882,11 +922,17 @@ private fun ConnectedChoiceGroup(
                     containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
                     contentColor = MaterialTheme.colorScheme.onSurface,
                 ),
-                modifier = Modifier.weight(1f),
+                modifier = Modifier.weight(
+                    if (compactLabels && index != selectedIndex) 1f
+                    else if (compactLabels) 2.2f
+                    else 1f,
+                ),
             ) {
                 Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(6.dp))
-                Text(label, maxLines = 1, softWrap = false)
+                if (!compactLabels || index == selectedIndex) {
+                    Spacer(Modifier.width(6.dp))
+                    Text(label, maxLines = 1, softWrap = false)
+                }
             }
         }
     }
@@ -894,7 +940,7 @@ private fun ConnectedChoiceGroup(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun HomeScreen(
+internal fun HomeScreen(
     controller: LocalSendController,
     settings: AppSettings,
     local: LocalDevice,
@@ -903,6 +949,7 @@ private fun HomeScreen(
     onGoToShare: () -> Unit,
 ) {
     val connState by connectivity.state.collectAsState()
+    val localIp by controller.localIpAddress.collectAsState()
     val history by controller.history.collectAsState()
     val devices by controller.devices.collectAsState()
     val outbox by controller.outbox.collectAsState()
@@ -984,9 +1031,12 @@ private fun HomeScreen(
                             overflow = TextOverflow.Ellipsis,
                         )
                     }
+                    // Ernest (2026-11-13): the chips read (IP) (Port)
+                    // (Protocol) — the current IP replaces the HTTPS
+                    // chip in this view.
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        InfoChip(localIp ?: "No IP")
                         InfoChip("Port ${local.port}")
-                        if (settings.https) InfoChip("HTTPS")
                         InfoChip("Protocol 2.2")
                     }
                 }
@@ -1022,6 +1072,29 @@ private fun HomeScreen(
                     when (mode) {
                         0 -> {
                             Text("Networks", style = MaterialTheme.typography.titleSmall)
+    // Ernest's point 21 (v0.10.0): with Location off, Android
+    // returns an empty scan list — say so, with the way out.
+    if (connState.locationOff) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                MaterialSymbols.Outlined.Location_off,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "Location is off — Android hides nearby networks and can block Wi-Fi Direct while it's off.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { connectivity.openLocationSettings() }) {
+                Text("Turn on")
+            }
+        }
+    }
+
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 Surface(
                                     shape = CircleShape,
@@ -1192,6 +1265,28 @@ private fun HomeScreen(
                         else -> {
                             val direct = connState.wifiDirect
                             if (direct == null) {
+    // Ernest's point 21 (v0.10.0): with Location off, Android
+    // returns an empty scan list — say so, with the way out.
+    if (connState.locationOff) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Icon(
+                MaterialSymbols.Outlined.Location_off,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.error,
+                modifier = Modifier.size(20.dp),
+            )
+            Spacer(Modifier.width(8.dp))
+            Text(
+                "Location is off — Android hides nearby networks and can block Wi-Fi Direct while it's off.",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.weight(1f),
+            )
+            TextButton(onClick = { connectivity.openLocationSettings() }) {
+                Text("Turn on")
+            }
+        }
+    }
                                 Text(
                                     "Wi-Fi Direct connects two devices without any network. Start a group here, or join from the other device.",
                                     style = MaterialTheme.typography.bodyMedium,
@@ -1239,66 +1334,82 @@ private fun HomeScreen(
                         )
                     }
                     if (connState.busy) {
-                        LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+                        LinearProgressIndicator(Modifier.fillMaxWidth())
                     }
                 }
             }
         }
 
         // ── History ──
+        // The list pattern UDYAT nailed and Ernest pointed at
+        // (v0.10.0): ONE segmented Minus-style group directly on the
+        // page background — header is the group's first tile, the
+        // expand chevron rides in the vertical pill, rows are the
+        // remaining tiles with 3dp seams. (Earlier sin: the whole
+        // group nested inside an extra card, which flattened it.)
         item {
-            Surface(
-                shape = MaterialTheme.shapes.extraLarge,
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                modifier = Modifier.fillMaxWidth(),
+            Column(
+                verticalArrangement =
+                    Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
             ) {
-                Column {
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clickable { historyExpanded = !historyExpanded }
-                            .padding(16.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Icon(MaterialSymbols.Outlined.History, contentDescription = null)
-                        Spacer(Modifier.width(12.dp))
-                        Text(
-                            "History",
-                            style = MaterialTheme.typography.titleMedium,
-                            modifier = Modifier.weight(1f),
-                        )
-                        if (history.isNotEmpty()) {
-                            TextButton(onClick = { controller.clearHistory() }) {
-                                Text("Clear")
-                            }
-                        }
+                LsexSegmentedItem(
+                    index = 0,
+                    count = if (historyExpanded && history.isNotEmpty()) {
+                        minOf(history.size, 30) + 1
+                    } else {
+                        1
+                    },
+                    onClick = { historyExpanded = !historyExpanded },
+                    leading = {
                         Icon(
-                            if (historyExpanded) {
-                                MaterialSymbols.Outlined.Expand_less
-                            } else {
-                                MaterialSymbols.Outlined.Expand_more
-                            },
+                            MaterialSymbols.Outlined.History,
                             contentDescription = null,
                         )
-                    }
-                    if (historyExpanded) {
-                        if (history.isEmpty()) {
-                            Text(
-                                "Nothing yet — finished transfers land here.",
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp),
+                    },
+                    trailing = {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            if (history.isNotEmpty()) {
+                                TextButton(
+                                    onClick = { controller.clearHistory() },
+                                ) {
+                                    Text("Clear")
+                                }
+                            }
+                            PillChevron(
+                                icon = if (historyExpanded) {
+                                    MaterialSymbols.Outlined.Expand_less
+                                } else {
+                                    MaterialSymbols.Outlined.Expand_more
+                                },
                             )
-                        } else {
-                            val shown = history.take(30)
-                            Column(
-                                Modifier.padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
-                                verticalArrangement = Arrangement.spacedBy(3.dp),
-                            ) {
+                        }
+                    },
+                ) {
+                    Text("History")
+                }
+                if (historyExpanded) {
+                    if (history.isEmpty()) {
+                        Text(
+                            "Nothing yet — finished transfers land here.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp),
+                        )
+                    } else {
+                        val shown = history.take(30)
+                        Column(
+                            verticalArrangement =
+                                Arrangement.spacedBy(
+                                    ListItemDefaults.SegmentedGap,
+                                ),
+                        ) {
                             shown.forEachIndexed { index, entry ->
                                 HistoryRow(
                                     entry = entry,
-                                    shape = historyTileShape(index, shown.size),
+                                    index = index + 1,
+                                    count = shown.size + 1,
                                     onOpen = entry.uri.takeIf { it.isNotEmpty() }
                                         ?.let { uri -> { openReceivedFile(uri, entry.fileName) } },
                                     onInstall = if (
@@ -1345,7 +1456,6 @@ private fun HomeScreen(
                                         null
                                     },
                                 )
-                            }
                             }
                         }
                     }
@@ -1560,6 +1670,38 @@ private fun AppsBrowser(
         value = withContext(Dispatchers.IO) { loadInstalledApps() }
     }
     var query by remember { mutableStateOf("") }
+    // Split apps (v0.10.0): tapping one first zips base + splits into
+    // a .apks (IO), then stages THAT — sending the base alone shipped
+    // a broken app. Prepared bundles are remembered per package so
+    // un-staging uses the same handle.
+    val scope = rememberCoroutineScope()
+    var bundles by remember { mutableStateOf<Map<String, PickedFile>>(emptyMap()) }
+    var preparing by remember { mutableStateOf<String?>(null) }
+    fun toggleApp(app: InstalledApp) {
+        if (app.splitHandles.isEmpty()) {
+            onToggleApp(app)
+            return
+        }
+        val prepared = bundles[app.packageName]
+        if (prepared != null) {
+            onToggleApp(
+                app.copy(apkHandle = prepared.handle, apkSize = prepared.size),
+            )
+            return
+        }
+        if (preparing != null) return
+        preparing = app.packageName
+        scope.launch {
+            val bundle = withContext(Dispatchers.IO) { stageAppBundle(app) }
+            preparing = null
+            if (bundle != null) {
+                bundles = bundles + (app.packageName to bundle)
+                onToggleApp(
+                    app.copy(apkHandle = bundle.handle, apkSize = bundle.size),
+                )
+            }
+        }
+    }
     val visible = apps.filter { app ->
         (!settings.hideSystemApps || !app.isSystem) &&
             (query.isBlank() || app.label.contains(query, ignoreCase = true) ||
@@ -1609,29 +1751,163 @@ private fun AppsBrowser(
                 LoadingIndicator(Modifier.size(40.dp))
             }
         } else {
-            LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                items(visible, key = { it.packageName }) { app ->
-                    val checked = "file:${app.apkHandle}" in stagedIds
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .clickable { onToggleApp(app) }
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        AppIcon(app.packageName, Modifier.size(42.dp))
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(app.label, style = MaterialTheme.typography.bodyLarge)
-                            Text(
-                                formatSize(app.apkSize),
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            LazyColumn(
+                verticalArrangement =
+                    Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+            ) {
+                itemsIndexed(
+                    visible,
+                    key = { _, app -> app.packageName },
+                ) { index, app ->
+                    val effectiveHandle =
+                        bundles[app.packageName]?.handle ?: app.apkHandle
+                    val checked = "file:$effectiveHandle" in stagedIds ||
+                        "file:${app.apkHandle}" in stagedIds
+                    LsexSegmentedItem(
+                        index = index,
+                        count = visible.size,
+                        selected = checked,
+                        onClick = { toggleApp(app) },
+                        leading = {
+                            AppIcon(app.packageName, Modifier.size(42.dp))
+                        },
+                        supporting = { Text(formatSize(app.apkSize)) },
+                        trailing = {
+                            Checkbox(
+                                checked = checked,
+                                onCheckedChange = { toggleApp(app) },
                             )
-                        }
-                        Checkbox(checked = checked, onCheckedChange = { onToggleApp(app) })
+                        },
+                    ) {
+                        Text(app.label)
                     }
+                }
+            }
+        }
+    }
+}
+
+private enum class BrowseSort { Name, Size, Date }
+
+/** Sort control shared by the Files and Music browsers (v0.10.0). */
+@Composable
+private fun SortMenuButton(
+    sort: BrowseSort,
+    onSort: (BrowseSort) -> Unit,
+) {
+    var open by remember { mutableStateOf(false) }
+    Box {
+        IconButton(onClick = { open = true }) {
+            Icon(MaterialSymbols.Outlined.Sort, contentDescription = "Sort")
+        }
+        DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
+            BrowseSort.entries.forEach { mode ->
+                DropdownMenuItem(
+                    text = { Text(mode.name) },
+                    onClick = { onSort(mode); open = false },
+                    trailingIcon = {
+                        if (sort == mode) {
+                            Icon(MaterialSymbols.Outlined.Check, contentDescription = null)
+                        }
+                    },
+                )
+            }
+        }
+    }
+}
+
+private fun List<BrowserItem>.sortedForBrowse(sort: BrowseSort): List<BrowserItem> =
+    when (sort) {
+        BrowseSort.Name -> sortedBy { it.name.lowercase() }
+        BrowseSort.Size -> sortedByDescending { it.size }
+        BrowseSort.Date -> sortedByDescending { it.dateMillis }
+    }
+
+/**
+ * Music browser (v0.10.0): Ernest asked for search + filter + sort in
+ * the explorer and the music view. Rows are the rounded
+ * surfaceContainer tiles used across the redesigned browse.
+ */
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun AudioList(
+    items: List<BrowserItem>,
+    stagedIds: Set<String>,
+    onToggleItem: (BrowserItem) -> Unit,
+) {
+    var query by remember { mutableStateOf("") }
+    var sort by remember { mutableStateOf(BrowseSort.Name) }
+    val visible = items
+        .filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }
+        .sortedForBrowse(sort)
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        SearchBar(
+            inputField = {
+                SearchBarDefaults.InputField(
+                    query = query,
+                    onQueryChange = { query = it },
+                    onSearch = {},
+                    expanded = false,
+                    onExpandedChange = {},
+                    placeholder = { Text("Search music") },
+                    leadingIcon = {
+                        Icon(MaterialSymbols.Outlined.Search, contentDescription = null)
+                    },
+                    trailingIcon = {
+                        if (query.isNotEmpty()) {
+                            IconButton(onClick = { query = "" }) {
+                                Icon(
+                                    MaterialSymbols.Outlined.Close,
+                                    contentDescription = "Clear",
+                                )
+                            }
+                        }
+                    },
+                )
+            },
+            expanded = false,
+            onExpandedChange = {},
+            modifier = Modifier.fillMaxWidth(),
+        ) {}
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                "Music (${visible.size})",
+                style = MaterialTheme.typography.titleSmall,
+                modifier = Modifier.weight(1f),
+            )
+            SortMenuButton(sort) { sort = it }
+        }
+        LazyColumn(
+            verticalArrangement =
+                Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+        ) {
+            itemsIndexed(visible, key = { _, item -> item.id }) { index, item ->
+                val checked = "file:${item.handle}" in stagedIds
+                LsexSegmentedItem(
+                    index = index,
+                    count = visible.size,
+                    selected = checked,
+                    onClick = { onToggleItem(item) },
+                    leading = {
+                        BrowserThumbnail(
+                            item,
+                            Modifier.size(42.dp)
+                                .clip(RoundedCornerShape(12.dp)),
+                        )
+                    },
+                    supporting = { Text(formatSize(item.size)) },
+                    trailing = {
+                        Checkbox(
+                            checked = checked,
+                            onCheckedChange = { onToggleItem(item) },
+                        )
+                    },
+                ) {
+                    Text(
+                        item.name,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
             }
         }
@@ -1660,6 +1936,9 @@ private fun MediaBrowser(
     }
     var items by remember(kind) { mutableStateOf<List<BrowserItem>?>(null) }
     LaunchedEffect(kind) { items = loadMediaItems(kind) }
+    // Ernest (v0.10.0): Photos/Videos get a long-press preview
+    // (desktop shows an expand icon on every tile instead).
+    var preview by remember { mutableStateOf<BrowserItem?>(null) }
     val loaded = items
     when {
         loaded == null -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -1671,39 +1950,11 @@ private fun MediaBrowser(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        kind == MediaKind.AUDIO -> LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            items(loaded, key = { it.id }) { item ->
-                val checked = "file:${item.handle}" in stagedIds
-                Row(
-                    Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(14.dp))
-                        .clickable { onToggleItem(item) }
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    BrowserThumbnail(
-                        item,
-                        Modifier.size(42.dp).clip(RoundedCornerShape(10.dp)),
-                    )
-                    Spacer(Modifier.width(12.dp))
-                    Column(Modifier.weight(1f)) {
-                        Text(
-                            item.name,
-                            style = MaterialTheme.typography.bodyLarge,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                        Text(
-                            formatSize(item.size),
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        )
-                    }
-                    Checkbox(checked = checked, onCheckedChange = { onToggleItem(item) })
-                }
-            }
-        }
+        kind == MediaKind.AUDIO -> AudioList(
+            items = loaded,
+            stagedIds = stagedIds,
+            onToggleItem = onToggleItem,
+        )
         else -> LazyVerticalGrid(
             columns = GridCells.Adaptive(minSize = 100.dp),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1714,10 +1965,33 @@ private fun MediaBrowser(
                 Box(
                     Modifier
                         .aspectRatio(1f)
-                        .clip(RoundedCornerShape(12.dp))
-                        .clickable { onToggleItem(item) },
+                        .clip(RoundedCornerShape(20.dp))
+                        .combinedClickable(
+                            onClick = { onToggleItem(item) },
+                            onLongClick = { preview = item },
+                        ),
                 ) {
                     BrowserThumbnail(item, Modifier.fillMaxSize())
+                    if (!platformHasSystemSplash()) {
+                        // Desktop has no long-press: an expand icon in
+                        // the corner opens the same preview.
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                            modifier = Modifier
+                                .align(Alignment.TopStart)
+                                .padding(6.dp)
+                                .size(26.dp),
+                        ) {
+                            IconButton(onClick = { preview = item }) {
+                                Icon(
+                                    MaterialSymbols.Outlined.Open_in_full,
+                                    contentDescription = "Preview",
+                                    modifier = Modifier.size(15.dp),
+                                )
+                            }
+                        }
+                    }
                     if (checked) {
                         Box(
                             Modifier
@@ -1746,9 +2020,95 @@ private fun MediaBrowser(
             }
         }
     }
+    preview?.let { item ->
+        MediaPreviewDialog(
+            item = item,
+            checked = "file:${item.handle}" in stagedIds,
+            onToggle = { onToggleItem(item) },
+            onDismiss = { preview = null },
+        )
+    }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+/**
+ * Long-press preview for Photos/Videos (Ernest, v0.10.0): the media,
+ * its name/size/date, and Select/Open actions. Back is PREDICTIVE:
+ * the card shrinks with the gesture and springs back if cancelled.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalComposeUiApi::class)
+@Composable
+private fun MediaPreviewDialog(
+    item: BrowserItem,
+    checked: Boolean,
+    onToggle: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var scale by remember { mutableFloatStateOf(1f) }
+    PredictiveBackHandler { progress ->
+        try {
+            progress.collect { event ->
+                scale = 1f - event.progress * 0.12f
+            }
+            onDismiss()
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            scale = 1f
+            throw e
+        }
+    }
+    androidx.compose.ui.window.Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(
+            usePlatformDefaultWidth = false,
+        ),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(24.dp),
+            color = MaterialTheme.colorScheme.surfaceContainer,
+            modifier = Modifier
+                .padding(20.dp)
+                .fillMaxWidth()
+                .scale(scale),
+        ) {
+            Column(
+                Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                BrowserThumbnail(
+                    item,
+                    Modifier
+                        .fillMaxWidth()
+                        .aspectRatio(4f / 3f)
+                        .clip(RoundedCornerShape(20.dp)),
+                )
+                Text(
+                    item.name,
+                    style = MaterialTheme.typography.titleMedium,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    listOf(formatSize(item.size), formatDate(item.dateMillis))
+                        .filter { it.isNotEmpty() }
+                        .joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Row(
+                    Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                ) {
+                    TextButton(onClick = onDismiss) { Text("Close") }
+                    Spacer(Modifier.width(8.dp))
+                    Button(onClick = { onToggle(); onDismiss() }) {
+                        Text(if (checked) "Remove" else "Select")
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun FileBrowser(
     stagedIds: Set<String>,
@@ -1786,7 +2146,11 @@ private fun FileBrowser(
     var pathStack by rememberSaveable { mutableStateOf<List<String>>(emptyList()) }
     val currentPath = pathStack.lastOrNull()
     var entries by remember { mutableStateOf<List<BrowserItem>?>(null) }
+    // Ernest (v0.10.0): the explorer gets search + sort, like Music.
+    var query by remember { mutableStateOf("") }
+    var sort by remember { mutableStateOf(BrowseSort.Name) }
     LaunchedEffect(currentPath) {
+        query = ""
         entries = if (currentPath == null) {
             storageRoots()
         } else {
@@ -1811,6 +2175,40 @@ private fun FileBrowser(
                 }
             }
         }
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            SearchBar(
+                inputField = {
+                    SearchBarDefaults.InputField(
+                        query = query,
+                        onQueryChange = { query = it },
+                        onSearch = {},
+                        expanded = false,
+                        onExpandedChange = {},
+                        placeholder = { Text("Search this folder") },
+                        leadingIcon = {
+                            Icon(
+                                MaterialSymbols.Outlined.Search,
+                                contentDescription = null,
+                            )
+                        },
+                        trailingIcon = {
+                            if (query.isNotEmpty()) {
+                                IconButton(onClick = { query = "" }) {
+                                    Icon(
+                                        MaterialSymbols.Outlined.Close,
+                                        contentDescription = "Clear",
+                                    )
+                                }
+                            }
+                        },
+                    )
+                },
+                expanded = false,
+                onExpandedChange = {},
+                modifier = Modifier.weight(1f),
+            ) {}
+            SortMenuButton(sort) { sort = it }
+        }
         val loaded = entries
         when {
             loaded == null -> Box(
@@ -1828,15 +2226,102 @@ private fun FileBrowser(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            else -> LazyColumn(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                items(loaded, key = { it.id }) { item ->
-                    val fileChecked = "file:${item.handle}" in stagedIds
-                    val folderChecked = item.id in stagedIds
-                    Row(
-                        Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(14.dp))
-                            .clickable {
+            else -> {
+                val visible = loaded
+                    .filter {
+                        query.isBlank() ||
+                            it.name.contains(query, ignoreCase = true)
+                    }
+                    .let { filtered ->
+                        filtered.filter { it.isFolder }.sortedForBrowse(sort) +
+                            filtered.filter { !it.isFolder }.sortedForBrowse(sort)
+                    }
+                LazyColumn(
+                    verticalArrangement =
+                        Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+                ) {
+                    itemsIndexed(
+                        visible,
+                        key = { _, item -> item.id },
+                    ) { index, item ->
+                        val fileChecked = "file:${item.handle}" in stagedIds
+                        val folderChecked = item.id in stagedIds
+                        val supporting = if (item.isFolder) {
+                            // itemCount is -1 when unknown (storage
+                            // roots) — v0.6.0 printed it literally.
+                            if (item.itemCount >= 0) {
+                                "${item.itemCount} items"
+                            } else {
+                                "Folder"
+                            }
+                        } else {
+                            listOf(
+                                formatSize(item.size),
+                                formatDate(item.dateMillis),
+                            ).filter { it.isNotEmpty() }.joinToString(" · ")
+                        }
+                        LsexListTile(
+                            headline = item.name,
+                            supporting = supporting,
+                            index = index,
+                            count = visible.size,
+                            leading = {
+                                if (item.isFolder) {
+                                    Icon(
+                                        MaterialSymbols.Outlined.Folder,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(40.dp).padding(6.dp),
+                                    )
+                                } else if (
+                                    item.name.endsWith(".apk", ignoreCase = true)
+                                ) {
+                                    // Ernest (point 12): APK files carry
+                                    // the apk_document glyph.
+                                    Icon(
+                                        MaterialSymbols.Outlined.Apk_document,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(40.dp).padding(6.dp),
+                                    )
+                                } else {
+                                    BrowserThumbnail(
+                                        item,
+                                        Modifier.size(40.dp)
+                                            .clip(RoundedCornerShape(12.dp)),
+                                    )
+                                }
+                            },
+                            trailing = {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    if (currentPath != null || !item.isFolder) {
+                                        Checkbox(
+                                            checked = if (item.isFolder) {
+                                                folderChecked
+                                            } else {
+                                                fileChecked
+                                            },
+                                            onCheckedChange = {
+                                                if (item.isFolder) {
+                                                    onToggleFolder(item)
+                                                } else {
+                                                    onToggleFile(item)
+                                                }
+                                            },
+                                        )
+                                    }
+                                    if (item.isFolder) {
+                                        Icon(
+                                            MaterialSymbols.Outlined.Chevron_right,
+                                            contentDescription = null,
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                            },
+                            onClick = {
                                 if (item.isFolder && currentPath == null) {
                                     pathStack = listOf(item.handle)
                                 } else if (item.isFolder) {
@@ -1844,62 +2329,8 @@ private fun FileBrowser(
                                 } else {
                                     onToggleFile(item)
                                 }
-                            }
-                            .padding(horizontal = 8.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        if (item.isFolder) {
-                            Icon(
-                                MaterialSymbols.Outlined.Folder,
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(40.dp).padding(6.dp),
-                            )
-                        } else {
-                            BrowserThumbnail(
-                                item,
-                                Modifier.size(40.dp).clip(RoundedCornerShape(10.dp)),
-                            )
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                item.name,
-                                style = MaterialTheme.typography.bodyLarge,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                if (item.isFolder) {
-                                    // itemCount is -1 when unknown (storage
-                                    // roots) — v0.6.0 printed it literally.
-                                    if (item.itemCount >= 0) {
-                                        "${item.itemCount} items"
-                                    } else {
-                                        "Folder"
-                                    }
-                                } else {
-                                    listOf(
-                                        formatSize(item.size),
-                                        formatDate(item.dateMillis),
-                                    ).filter { it.isNotEmpty() }.joinToString(" · ")
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        if (currentPath != null || !item.isFolder) {
-                            Checkbox(
-                                checked = if (item.isFolder) folderChecked else fileChecked,
-                                onCheckedChange = {
-                                    if (item.isFolder) {
-                                        onToggleFolder(item)
-                                    } else {
-                                        onToggleFile(item)
-                                    }
-                                },
-                            )
-                        }
+                            },
+                        )
                     }
                 }
             }
@@ -1986,19 +2417,28 @@ private fun TextComposer(onStageText: (String) -> Unit) {
 
 // ── Staged item cards: swipe-to-reveal actions (official list guidance) ────
 
-@OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
+@OptIn(
+    androidx.compose.foundation.ExperimentalFoundationApi::class,
+    ExperimentalMaterial3ExpressiveApi::class,
+)
 @Composable
 private fun StagedItemCard(
     item: StagedItem,
+    index: Int,
+    count: Int,
     onEdit: () -> Unit,
     onDiscard: () -> Unit,
-    shape: RoundedCornerShape = RoundedCornerShape(18.dp),
 ) {
     if (!prefersSwipeActions()) {
         // Desktop (pointer): actions stay visible.
-        Surface(shape = shape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-            StagedItemCardContent(item, onEdit, onDiscard, showActions = true)
-        }
+        StagedItemRow(
+            item = item,
+            index = index,
+            count = count,
+            onEdit = onEdit,
+            onDiscard = onDiscard,
+            showActions = true,
+        )
         return
     }
     // Touch: Edit / Discard hide behind a left swipe and stay revealed
@@ -2011,7 +2451,7 @@ private fun StagedItemCard(
     // app crashed the moment the first file was selected. Anchors are
     // now supplied in the constructor and the offset read is NaN-safe.
     val density = LocalDensity.current
-    val revealPx = with(density) { 124.dp.toPx() }
+    val revealPx = with(density) { 116.dp.toPx() }
     val state = remember {
         AnchoredDraggableState(
             initialValue = 0,
@@ -2031,7 +2471,7 @@ private fun StagedItemCard(
     Box(
         Modifier
             .fillMaxWidth()
-            .clip(shape)
+            .clip(ListItemDefaults.segmentedShapes(index, count).shape)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest),
     ) {
         Row(
@@ -2042,19 +2482,19 @@ private fun StagedItemCard(
             if (item !is StagedItem.FolderItem) {
                 Surface(
                     shape = CircleShape,
-                    color = MaterialTheme.colorScheme.primaryContainer,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
                 ) {
                     IconButton(
                         onClick = {
                             scope.launch { state.snapTo(0) }
                             onEdit()
                         },
-                        modifier = Modifier.size(44.dp),
+                        modifier = Modifier.size(48.dp),
                     ) {
                         Icon(
-                            MaterialSymbols.Outlined.Edit,
+                            MaterialSymbols.Outlined.Logout,
                             contentDescription = "Rename / edit",
-                            tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
                         )
                     }
                 }
@@ -2066,7 +2506,7 @@ private fun StagedItemCard(
             ) {
                 IconButton(
                     onClick = onDiscard,
-                    modifier = Modifier.size(44.dp),
+                    modifier = Modifier.size(48.dp),
                 ) {
                     Icon(
                         MaterialSymbols.Outlined.Close,
@@ -2076,73 +2516,72 @@ private fun StagedItemCard(
                 }
             }
         }
-        Surface(
-            shape = shape,
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
+        StagedItemRow(
+            item = item,
+            index = index,
+            count = count,
+            onEdit = onEdit,
+            onDiscard = onDiscard,
+            showActions = false,
             modifier = Modifier
                 .fillMaxWidth()
                 .offset {
                     val off = state.offset
                     IntOffset(if (off.isNaN()) 0 else off.roundToInt(), 0)
                 }
-                .anchoredDraggable(state, Orientation.Horizontal)
-                .combinedClickable(
-                    onClick = {
-                        if (state.currentValue == 1) {
-                            scope.launch { state.snapTo(0) }
-                        }
-                    },
-                    onLongClick = {
-                        if (item !is StagedItem.FolderItem) onEdit()
-                    },
-                ),
-        ) {
-            StagedItemCardContent(item, onEdit, onDiscard, showActions = false)
-        }
+                .anchoredDraggable(state, Orientation.Horizontal),
+            onClick = {
+                if (state.currentValue == 1) {
+                    scope.launch { state.snapTo(0) }
+                }
+            },
+        )
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun StagedItemCardContent(
+private fun StagedItemRow(
     item: StagedItem,
+    index: Int,
+    count: Int,
     onEdit: () -> Unit,
     onDiscard: () -> Unit,
     showActions: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
 ) {
-    Row(
-        Modifier.padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Surface(
-            shape = CircleShape,
-            color = MaterialTheme.colorScheme.secondaryContainer,
-            modifier = Modifier.size(40.dp),
-        ) {
-            Box(contentAlignment = Alignment.Center) {
-                Icon(
-                    when (item) {
-                        is StagedItem.FileItem -> MaterialSymbols.Outlined.Attach_file
-                        is StagedItem.FolderItem -> MaterialSymbols.Outlined.Folder
-                        is StagedItem.TextItem -> MaterialSymbols.Outlined.Chat
-                    },
-                    contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.size(20.dp),
-                )
+    LsexSegmentedItem(
+        index = index,
+        count = count,
+        modifier = modifier,
+        onClick = onClick,
+        leading = {
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.secondaryContainer,
+                modifier = Modifier.size(40.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        when (item) {
+                            is StagedItem.FileItem ->
+                                if (item.file.name.endsWith(".apk", ignoreCase = true)) {
+                                    MaterialSymbols.Outlined.Apk_document
+                                } else {
+                                    MaterialSymbols.Outlined.Attach_file
+                                }
+                            is StagedItem.FolderItem -> MaterialSymbols.Outlined.Folder
+                            is StagedItem.TextItem -> MaterialSymbols.Outlined.Chat
+                        },
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
             }
-        }
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                when (item) {
-                    is StagedItem.FileItem -> item.file.displayPath ?: item.file.name
-                    is StagedItem.FolderItem -> item.folder.name
-                    is StagedItem.TextItem -> item.text
-                },
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
+        },
+        supporting = {
             Text(
                 when (item) {
                     is StagedItem.FileItem -> formatSize(item.file.size)
@@ -2155,41 +2594,62 @@ private fun StagedItemCardContent(
                     is StagedItem.TextItem ->
                         "Text · ${formatSize(item.text.encodeToByteArray().size.toLong())}"
                 },
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-        }
-        if (showActions) {
-            if (item !is StagedItem.FolderItem) {
-                Surface(
-                    shape = CircleShape,
-                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                ) {
-                    IconButton(onClick = onEdit, modifier = Modifier.size(38.dp)) {
-                        Icon(
-                            MaterialSymbols.Outlined.Edit,
-                            contentDescription = "Rename / edit",
-                            modifier = Modifier.size(18.dp),
-                        )
+        },
+        trailing = if (showActions) {
+            {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (item !is StagedItem.FolderItem) {
+                        Surface(
+                            shape = CircleShape,
+                            color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                        ) {
+                            IconButton(
+                                onClick = onEdit,
+                                modifier = Modifier.size(38.dp),
+                            ) {
+                                Icon(
+                                    MaterialSymbols.Outlined.Edit,
+                                    contentDescription = "Rename / edit",
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Surface(
+                        shape = CircleShape,
+                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    ) {
+                        IconButton(
+                            onClick = onDiscard,
+                            modifier = Modifier.size(38.dp),
+                        ) {
+                            Icon(
+                                MaterialSymbols.Outlined.Close,
+                                contentDescription = "Discard",
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
                     }
                 }
-                Spacer(Modifier.width(6.dp))
             }
-            Surface(
-                shape = CircleShape,
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-            ) {
-                IconButton(onClick = onDiscard, modifier = Modifier.size(38.dp)) {
-                    Icon(
-                        MaterialSymbols.Outlined.Close,
-                        contentDescription = "Discard",
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
-        }
+        } else {
+            null
+        },
+    ) {
+        Text(
+            when (item) {
+                is StagedItem.FileItem -> item.file.displayPath ?: item.file.name
+                is StagedItem.FolderItem -> item.folder.name
+                is StagedItem.TextItem -> item.text
+            },
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
+
 @Composable
 private fun StagedEditDialog(
     title: String,
@@ -2258,36 +2718,20 @@ private fun DeviceCard(
     } else {
         scheme.onSurfaceVariant
     }
-    Card(
-        onClick = onClick,
-        colors = CardDefaults.cardColors(containerColor = container, contentColor = content),
-        shape = RoundedCornerShape(shape),
-        modifier = Modifier.fillMaxWidth(),
-    ) {
-        Box {
-            // Ernest's mockup: the transfer progress runs BEHIND the
-            // device card — a soft fill to the current fraction plus the
-            // wavy line along the card's bottom edge.
-            if (transferFraction != null) {
-                Box(
-                    Modifier
-                        .matchParentSize()
-                        .background(
-                            (if (isSelected) scheme.onPrimary else scheme.primary)
-                                .copy(alpha = 0.13f),
-                        ),
-                ) {
-                    Box(
-                        Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(transferFraction.coerceIn(0f, 1f))
-                            .background(
-                                (if (isSelected) scheme.onPrimary else scheme.primary)
-                                    .copy(alpha = 0.16f),
-                            ),
-                    )
-                }
-            }
+    // Ernest's mockup, measured from his Share design (2026-11-13):
+    // NO progress fill inside the card. The solid bar floats a few
+    // px BEHIND/BELOW the card — not stuck to it (a real gap) — and
+    // its ends line up with the END OF THE CARD'S BOTTOM CURVE on
+    // each side: inset = the card's corner radius. Selected cards
+    // are near-pills (wide inset), unselected cards use their
+    // normal-state radius (narrower inset) — his addition.
+    Column(Modifier.fillMaxWidth()) {
+        Card(
+            onClick = onClick,
+            colors = CardDefaults.cardColors(containerColor = container, contentColor = content),
+            shape = RoundedCornerShape(shape),
+            modifier = Modifier.fillMaxWidth(),
+        ) {
             Column {
         Row(
             Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
@@ -2364,13 +2808,18 @@ private fun DeviceCard(
                 )
             }
         }
-            if (transferFraction != null) {
-                LinearWavyProgressIndicator(
-                    progress = { transferFraction.coerceIn(0f, 1f) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
             }
-            }
+        }
+        if (transferFraction != null) {
+            Spacer(Modifier.height(6.dp))
+            LinearProgressIndicator(
+                progress = { transferFraction.coerceIn(0f, 1f) },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = shape.coerceAtMost(36.dp)),
+                color = scheme.primary,
+                trackColor = scheme.surfaceContainerHighest,
+            )
         }
     }
 }
@@ -2656,6 +3105,122 @@ private fun MinusSwitchRow(
     }
 }
 
+/**
+ * The vertical-pill chevron (v0.10.0, Ernest's point 9 — demanded in
+ * both projects). Where it belongs was settled by UDYAT's v1.3.3
+ * list, which Ernest approved: the pill is the trailing of an
+ * EXPANDABLE SECTION HEADER (expand_less / expand_more glyph), on a
+ * segmented surfaceContainer tile group. Data rows carry a plain
+ * chevron or their action icon — no pill. Researched honestly:
+ * material3's only list composable is ListItem and it has no
+ * pill-trailing variant — this component lives in the Material 3
+ * Figma design kit, not the code library — so it is built here to
+ * the kit's geometry: 24x40dp pill, fully rounded,
+ * surfaceContainerHighest, 20dp glyph in onSurfaceVariant.
+ */
+@Composable
+internal fun PillChevron(
+    icon: androidx.compose.ui.graphics.vector.ImageVector =
+        MaterialSymbols.Outlined.Chevron_right,
+    modifier: Modifier = Modifier,
+) {
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        shape = RoundedCornerShape(28.dp),
+        color = scheme.secondaryContainer,
+        modifier = modifier.size(width = 30.dp, height = 42.dp),
+    ) {
+        Box(contentAlignment = Alignment.Center) {
+            Icon(
+                icon,
+                contentDescription = null,
+                tint = scheme.onSecondaryContainer,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+    }
+}
+
+/**
+ * The segmented-list colours for every app list (material3 1.11's
+ * segmentedColors() defaults the container to a near-transparent
+ * tone, so it is pinned to the M3 segmented-list tokens:
+ * surfaceContainer, secondaryContainer when selected).
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun lsexSegmentedColors(): ListItemColors =
+    ListItemDefaults.segmentedColors(
+        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        selectedContainerColor = MaterialTheme.colorScheme.secondaryContainer,
+    )
+
+/**
+ * THE list row of this app: the official Material 3 Expressive
+ * [SegmentedListItem] — the component behind the Android Settings
+ * expressive lists and the Figma kit's segmented list (it was
+ * internal-only in material3 1.10.0-alpha05, which is why earlier
+ * passes missed it; it is public since material3 1.11.0-alpha07).
+ * Position in the group comes from [index]/[count] via
+ * [ListItemDefaults.segmentedShapes]; groups space their rows by
+ * [ListItemDefaults.SegmentedGap]. The vertical pill belongs in the
+ * trailing slot of expandable section headers (PillChevron).
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun LsexSegmentedItem(
+    index: Int,
+    count: Int,
+    modifier: Modifier = Modifier,
+    selected: Boolean = false,
+    onClick: (() -> Unit)? = null,
+    leading: @Composable (() -> Unit)? = null,
+    supporting: @Composable (() -> Unit)? = null,
+    trailing: @Composable (() -> Unit)? = null,
+    content: @Composable () -> Unit,
+) {
+    SegmentedListItem(
+        selected = selected,
+        onClick = onClick ?: {},
+        modifier = modifier.fillMaxWidth(),
+        shapes = ListItemDefaults.segmentedShapes(index, count),
+        colors = lsexSegmentedColors(),
+        leadingContent = leading,
+        supportingContent = supporting,
+        trailingContent = trailing,
+        content = content,
+    )
+}
+
+/**
+ * Text-slot convenience over [LsexSegmentedItem] for the browse
+ * lists: headline + optional supporting text.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun LsexListTile(
+    headline: String,
+    modifier: Modifier = Modifier,
+    supporting: String? = null,
+    index: Int = 0,
+    count: Int = 1,
+    leading: @Composable (() -> Unit)? = null,
+    trailing: @Composable (() -> Unit)? = null,
+    onClick: (() -> Unit)? = null,
+) {
+    LsexSegmentedItem(
+        index = index,
+        count = count,
+        modifier = modifier,
+        onClick = onClick,
+        leading = leading,
+        supporting = supporting?.let { text -> { Text(text) } },
+        trailing = trailing,
+    ) {
+        Text(headline, maxLines = 2, overflow = TextOverflow.Ellipsis)
+    }
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun MinusNavRow(
@@ -2934,9 +3499,180 @@ private fun MinusThemeModeGroup(
         }
     }
 }
+/** Copy-to-clipboard button with a brief check-mark confirmation. */
+@Composable
+private fun CopyButton(text: String) {
+    val scheme = MaterialTheme.colorScheme
+    val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    LaunchedEffect(copied) {
+        if (copied) {
+            delay(1200)
+            copied = false
+        }
+    }
+    IconButton(
+        onClick = {
+            clipboard.setText(AnnotatedString(text))
+            copied = true
+        },
+    ) {
+        Icon(
+            if (copied) {
+                MaterialSymbols.Outlined.Check
+            } else {
+                MaterialSymbols.Outlined.Content_copy
+            },
+            contentDescription = "Copy address",
+            tint = if (copied) scheme.primary else scheme.onSurfaceVariant,
+        )
+    }
+}
+
+/**
+ * The Donate page (Ernest, 2026-11-13): ONE section reached from a
+ * single Settings entry — his words and wallets, every address with
+ * a copy button.
+ */
+@Composable
+private fun DonatePage(onDismiss: () -> Unit) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        DonateContent(onDismiss)
+    }
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun SettingsScreen(controller: LocalSendController, settings: AppSettings) {
+internal fun DonateContent(onDismiss: () -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    val ltcAddress = "ltc1q2t7pg8xyyqvu2cm2jxpxtqcxr5layxztf32q5g"
+    val wallets = listOf(
+        "Bitcoin (BTC)" to "bc1qvfr0kk56lhjn72fklaeg83flq3tjapls6gtpmy",
+        "Bitcoin Cash (BCH)" to
+            "qpg572zm69ln9tskesg4lptqjdde29260uqqvg4zpk",
+        "TON" to "UQAOQmzcUNKFfyvKMr8z5dTK1rBdj1D4uopw0G9Lxnpp6lw3",
+        "USDT (TRC20 · Tron)" to "TVfwxMMa4dsAsRmd6VNkV1sUcGFK8TKwSA",
+        "USDT (ERC20 · Ethereum)" to
+            "0x796759d5c38fF7CF1b452b8AB92a5ec23f16CC66",
+        "Tron (TRX)" to "TVfwxMMa4dsAsRmd6VNkV1sUcGFK8TKwSA",
+        "Ethereum (ETH)" to
+            "0x796759d5c38fF7CF1b452b8AB92a5ec23f16CC66",
+    )
+    Surface(Modifier.fillMaxSize(), color = scheme.background) {
+        Column(
+            Modifier
+                .statusBarsPadding()
+                .padding(horizontal = 16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        MaterialSymbols.Outlined.Arrow_back,
+                        contentDescription = "Back",
+                    )
+                }
+                Text(
+                    "Donate",
+                    style = MaterialTheme.typography.titleLarge,
+                )
+            }
+            Column(
+                Modifier
+                    .verticalScroll(rememberScrollState())
+                    .padding(top = 8.dp, bottom = 24.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = scheme.surfaceContainer,
+                ) {
+                    Column(
+                        Modifier.padding(16.dp),
+                        horizontalAlignment =
+                            Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        Text(
+                            "😺 The QR code is my 🪙Litecoin wallet, " +
+                                "which is the preferred coin.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            textAlign = TextAlign.Center,
+                        )
+                        QrCode(ltcAddress)
+                        Text(
+                            "Litecoin (LTC)",
+                            style = MaterialTheme.typography
+                                .bodyMediumEmphasized,
+                        )
+                        Row(
+                            verticalAlignment =
+                                Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                ltcAddress,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = scheme.onSurfaceVariant,
+                                fontFamily = FontFamily.Monospace,
+                                textAlign = TextAlign.Center,
+                                modifier = Modifier.weight(1f),
+                            )
+                            CopyButton(ltcAddress)
+                        }
+                    }
+                }
+                Column(
+                    verticalArrangement =
+                        Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+                ) {
+                    wallets.forEachIndexed { index, (label, address) ->
+                        LsexSegmentedItem(
+                            index = index,
+                            count = wallets.size,
+                            supporting = {
+                                Text(
+                                    address,
+                                    fontFamily = FontFamily.Monospace,
+                                )
+                            },
+                            trailing = { CopyButton(address) },
+                        ) {
+                            Text(label)
+                        }
+                    }
+                }
+                Surface(
+                    shape = RoundedCornerShape(16.dp),
+                    color = scheme.surfaceContainer,
+                ) {
+                    Column(
+                        Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        Text(
+                            "Huge thanks for the support 🙂! ✨",
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        Text(
+                            "print(\"You're helping me get done " +
+                                "with my studies, pay internet and " +
+                                "get some snacks\")",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = scheme.onSurfaceVariant,
+                            fontFamily = FontFamily.Monospace,
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun SettingsScreen(controller: LocalSendController, settings: AppSettings) {
     val strings = LocalStrings.current
     val local by controller.localDevice.collectAsState()
     var advanced by rememberSaveable { mutableStateOf(false) }
@@ -2969,6 +3705,7 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
         mutableStateOf(settings.destinationFolder)
     }
     var showAvatarPicker by remember { mutableStateOf(false) }
+    var showDonate by remember { mutableStateOf(false) }
     var connDialog by remember { mutableStateOf<String?>(null) }
     // Which inline picker/editor is expanded (accordion pattern, Minus).
     var expandedPicker by rememberSaveable { mutableStateOf<String?>(null) }
@@ -4055,6 +4792,25 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
         }
 
         // ── Donate ──
+        // Ernest (2026-11-13): ONE section inside Settings that
+        // opens its own page — not nine tiles spread down the
+        // settings list.
+        item {
+            MinusGroup(
+                title = null,
+                rows = listOf { _, _, shape ->
+                    MinusNavRow(
+                        shape = shape,
+                        icon = MaterialSymbols.OutlinedFilled
+                            .Volunteer_activism,
+                        title = "Donate",
+                        subtitle = "Support the project",
+                        onClick = { showDonate = true },
+                    )
+                },
+            )
+        }
+
         item {
             val ltcAddress = "ltc1q2t7pg8xyyqvu2cm2jxpxtqcxr5layxztf32q5g"
             val wallets = listOf(
@@ -4180,6 +4936,9 @@ private fun SettingsScreen(controller: LocalSendController, settings: AppSetting
             },
         )
     }
+    if (showDonate) {
+        DonatePage(onDismiss = { showDonate = false })
+    }
     connDialog?.let { kind ->
         ConnectionSettingsDialog(
             controller = controller,
@@ -4205,12 +4964,12 @@ private fun InfoChip(text: String) {
 }
 /** Position corners for a segmented list (Minus anatomy): 16dp outer, 4dp inner. */
 private fun historyTileShape(index: Int, count: Int): RoundedCornerShape = when {
-    count == 1 -> RoundedCornerShape(16.dp)
+    count == 1 -> RoundedCornerShape(20.dp)
     index == 0 -> RoundedCornerShape(
-        topStart = 16.dp, topEnd = 16.dp, bottomStart = 4.dp, bottomEnd = 4.dp,
+        topStart = 20.dp, topEnd = 20.dp, bottomStart = 4.dp, bottomEnd = 4.dp,
     )
     index == count - 1 -> RoundedCornerShape(
-        topStart = 4.dp, topEnd = 4.dp, bottomStart = 16.dp, bottomEnd = 16.dp,
+        topStart = 4.dp, topEnd = 4.dp, bottomStart = 20.dp, bottomEnd = 20.dp,
     )
     else -> RoundedCornerShape(4.dp)
 }
@@ -4225,16 +4984,18 @@ private fun SwipeCircleButton(
     onClick: () -> Unit,
 ) {
     Surface(shape = CircleShape, color = container) {
-        IconButton(onClick = onClick, modifier = Modifier.size(44.dp)) {
+        IconButton(onClick = onClick, modifier = Modifier.size(48.dp)) {
             Icon(icon, contentDescription = description, tint = content)
         }
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun HistoryRow(
     entry: HistoryEntry,
-    shape: RoundedCornerShape,
+    index: Int,
+    count: Int,
     onOpen: (() -> Unit)? = null,
     onInstall: (() -> Unit)? = null,
     onResend: (() -> Unit)? = null,
@@ -4242,10 +5003,19 @@ private fun HistoryRow(
     onDeleteFile: (() -> Unit)? = null,
 ) {
     if (!prefersSwipeActions()) {
-        // Pointer platforms: actions stay visible on the tile.
-        Surface(shape = shape, color = MaterialTheme.colorScheme.surfaceContainerLow) {
-            HistoryRowContent(entry, onOpen, onInstall, onResend, onRemove, showActions = true)
-        }
+        // Pointer platforms: actions stay visible on the tile, and
+        // the row's click runs its primary action.
+        HistoryRowItem(
+            entry = entry,
+            index = index,
+            count = count,
+            onOpen = onOpen,
+            onInstall = onInstall,
+            onResend = onResend,
+            onRemove = onRemove,
+            showActions = true,
+            onClick = onOpen ?: onInstall ?: onResend,
+        )
         return
     }
     // Touch: a left swipe reveals the mockup's circular action buttons —
@@ -4255,7 +5025,7 @@ private fun HistoryRow(
     val hasPrimary = onOpen != null || onInstall != null || onResend != null
     val actionCount = 1 + (if (hasPrimary) 1 else 0) + (if (onDeleteFile != null) 1 else 0)
     val density = LocalDensity.current
-    val revealPx = with(density) { (actionCount * 52).dp.toPx() }
+    val revealPx = with(density) { (actionCount * 56).dp.toPx() }
     val state = remember {
         AnchoredDraggableState(
             initialValue = 0,
@@ -4275,7 +5045,7 @@ private fun HistoryRow(
     Box(
         Modifier
             .fillMaxWidth()
-            .clip(shape)
+            .clip(ListItemDefaults.segmentedShapes(index, count).shape)
             .background(MaterialTheme.colorScheme.surfaceContainerHighest),
     ) {
         Row(
@@ -4284,8 +5054,8 @@ private fun HistoryRow(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             SwipeCircleButton(
-                container = MaterialTheme.colorScheme.surfaceContainerLow,
-                content = MaterialTheme.colorScheme.onSurface,
+                container = MaterialTheme.colorScheme.secondaryContainer,
+                content = MaterialTheme.colorScheme.onSecondaryContainer,
                 icon = MaterialSymbols.Outlined.Close,
                 description = "Remove from history",
             ) {
@@ -4298,9 +5068,8 @@ private fun HistoryRow(
                     container = MaterialTheme.colorScheme.secondaryContainer,
                     content = MaterialTheme.colorScheme.onSecondaryContainer,
                     icon = when {
-                        onOpen != null -> MaterialSymbols.Outlined.Open_in_new
                         onInstall != null -> MaterialSymbols.Outlined.System_update
-                        else -> MaterialSymbols.Outlined.Send
+                        else -> MaterialSymbols.Outlined.Logout
                     },
                     description = when {
                         onOpen != null -> "Open file"
@@ -4325,110 +5094,130 @@ private fun HistoryRow(
                 }
             }
         }
-        Surface(
-            shape = shape,
-            color = MaterialTheme.colorScheme.surfaceContainerLow,
+        HistoryRowItem(
+            entry = entry,
+            index = index,
+            count = count,
+            onOpen = onOpen,
+            onInstall = onInstall,
+            onResend = onResend,
+            onRemove = onRemove,
+            showActions = false,
             modifier = Modifier
                 .fillMaxWidth()
                 .offset {
                     val off = state.offset
                     IntOffset(if (off.isNaN()) 0 else off.roundToInt(), 0)
                 }
-                .anchoredDraggable(state, Orientation.Horizontal)
-                .combinedClickable(
-                    onClick = {
-                        if (state.currentValue == 1) {
-                            scope.launch { state.snapTo(0) }
-                        }
-                    },
-                    onLongClick = { (onOpen ?: onInstall ?: onResend)?.invoke() },
-                ),
-        ) {
-            HistoryRowContent(entry, onOpen, onInstall, onResend, onRemove, showActions = false)
-        }
+                .anchoredDraggable(state, Orientation.Horizontal),
+            onClick = {
+                if (state.currentValue == 1) {
+                    scope.launch { state.snapTo(0) }
+                }
+            },
+        )
     }
 }
 
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun HistoryRowContent(
+private fun HistoryRowItem(
     entry: HistoryEntry,
+    index: Int,
+    count: Int,
     onOpen: (() -> Unit)?,
     onInstall: (() -> Unit)?,
     onResend: (() -> Unit)?,
     onRemove: () -> Unit,
     showActions: Boolean,
+    modifier: Modifier = Modifier,
+    onClick: (() -> Unit)? = null,
 ) {
-    Row(
-        Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            if (entry.incoming) MaterialSymbols.Outlined.Download else MaterialSymbols.Outlined.Send,
-            contentDescription = null,
-        )
-        Spacer(Modifier.width(12.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                entry.fileName,
-                style = MaterialTheme.typography.bodyMedium,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
+    LsexSegmentedItem(
+        index = index,
+        count = count,
+        modifier = modifier,
+        onClick = onClick,
+        leading = {
+            Icon(
+                if (entry.incoming) {
+                    MaterialSymbols.Outlined.Download
+                } else {
+                    MaterialSymbols.Outlined.Send
+                },
+                contentDescription = null,
             )
+        },
+        supporting = {
             Text(
                 "${entry.peerAlias} · ${formatSize(entry.size)}",
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-        }
-        if (showActions) {
-            if (onInstall != null) {
-                IconButton(onClick = onInstall) {
-                    Icon(
-                        MaterialSymbols.Outlined.System_update,
-                        contentDescription = "Install this package",
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
+        },
+        trailing = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                if (showActions) {
+                    if (onInstall != null) {
+                        IconButton(onClick = onInstall) {
+                            Icon(
+                                MaterialSymbols.Outlined.System_update,
+                                contentDescription = "Install this package",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                    if (onOpen != null) {
+                        IconButton(onClick = onOpen) {
+                            Icon(
+                                MaterialSymbols.Outlined.Open_in_new,
+                                contentDescription = "Open file",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                    if (onResend != null) {
+                        IconButton(onClick = onResend) {
+                            Icon(
+                                MaterialSymbols.Outlined.Send,
+                                contentDescription = "Stage for resending",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                    IconButton(onClick = onRemove) {
+                        Icon(
+                            MaterialSymbols.Outlined.Close,
+                            contentDescription = "Remove from history",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
-            }
-            if (onOpen != null) {
-                IconButton(onClick = onOpen) {
-                    Icon(
-                        MaterialSymbols.Outlined.Open_in_new,
-                        contentDescription = "Open file",
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-            if (onResend != null) {
-                IconButton(onClick = onResend) {
-                    Icon(
-                        MaterialSymbols.Outlined.Send,
-                        contentDescription = "Stage for resending",
-                        tint = MaterialTheme.colorScheme.primary,
-                    )
-                }
-            }
-            IconButton(onClick = onRemove) {
                 Icon(
-                    MaterialSymbols.Outlined.Close,
-                    contentDescription = "Remove from history",
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    if (entry.success) {
+                        MaterialSymbols.Outlined.Check_circle
+                    } else {
+                        MaterialSymbols.Outlined.Error
+                    },
+                    contentDescription = null,
+                    tint = if (entry.success) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.error
+                    },
                 )
             }
-        }
-        Icon(
-            if (entry.success) MaterialSymbols.Outlined.Check_circle else MaterialSymbols.Outlined.Error,
-            contentDescription = null,
-            tint = if (entry.success) {
-                MaterialTheme.colorScheme.primary
-            } else {
-                MaterialTheme.colorScheme.error
-            },
+        },
+    ) {
+        Text(
+            entry.fileName,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
+
+
 
 private fun deviceTypeOf(name: String?): DeviceType? =
     name?.let { runCatching { DeviceType.valueOf(it) }.getOrNull() }
@@ -4598,7 +5387,7 @@ private fun OutboxFileRow(
             if (file.status == TransferStatus.ACTIVE ||
                 (file.confirmedBytes > 0 && file.status != TransferStatus.DONE)
             ) {
-                LinearWavyProgressIndicator(
+                LinearProgressIndicator(
                     progress = {
                         if (file.size > 0) {
                             (file.confirmedBytes.toFloat() / file.size).coerceIn(0f, 1f)
@@ -4894,6 +5683,28 @@ private fun TroubleshootDialog(onDismiss: () -> Unit) {
         },
     )
 }
+/**
+ * Ernest's progress rule (v0.10.0): every bar is the SOLID MD3E
+ * LinearProgressIndicator — except while a received file is being
+ * checked (VERIFYING), which keeps the wavy one, like UDYAT's
+ * completed-file check.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+internal fun TransferProgressBar(progress: FileProgress, modifier: Modifier = Modifier) {
+    if (progress.status == TransferStatus.VERIFYING) {
+        LinearWavyProgressIndicator(
+            progress = { progress.fraction },
+            modifier = modifier,
+        )
+    } else {
+        LinearProgressIndicator(
+            progress = { progress.fraction },
+            modifier = modifier,
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun FileProgressRow(progress: FileProgress) {
@@ -4924,11 +5735,11 @@ private fun FileProgressRow(progress: FileProgress) {
                 )
             }
         }
-        if (progress.status == TransferStatus.ACTIVE || progress.status == TransferStatus.WAITING) {
-            LinearWavyProgressIndicator(
-                progress = { progress.fraction },
-                modifier = Modifier.fillMaxWidth(),
-            )
+        if (progress.status == TransferStatus.ACTIVE ||
+            progress.status == TransferStatus.WAITING ||
+            progress.status == TransferStatus.VERIFYING
+        ) {
+            TransferProgressBar(progress, Modifier.fillMaxWidth())
         }
     }
 }
@@ -5021,7 +5832,7 @@ private val AvatarOptions: List<Pair<String, String>> = listOf(
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ShareScreen(
+internal fun ShareScreen(
     controller: LocalSendController,
     settings: AppSettings,
     staged: List<StagedItem>,
@@ -5397,49 +6208,58 @@ private fun ShareScreen(
         }
 
         // ── Selection of files ──
+        // Same list pattern as History: one segmented group on the
+        // background, header tile first, pill chevron, 3dp seams.
         if (staged.isNotEmpty()) {
             item {
-                Surface(
-                    shape = MaterialTheme.shapes.extraLarge,
-                    color = MaterialTheme.colorScheme.surfaceContainer,
-                    modifier = Modifier.fillMaxWidth(),
+                Column(
+                    verticalArrangement =
+                        Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
                 ) {
-                    Column {
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .clickable { selectionExpanded = !selectionExpanded }
-                                .padding(16.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Icon(MaterialSymbols.Outlined.Attach_file, contentDescription = null)
-                            Spacer(Modifier.width(12.dp))
-                            Text(
-                                "${strings.selection} · ${staged.size}",
-                                style = MaterialTheme.typography.titleMedium,
-                                modifier = Modifier.weight(1f),
-                            )
-                            TextButton(onClick = { onStagedChange(emptyList()) }) {
-                                Text("Clear")
-                            }
+                    LsexSegmentedItem(
+                        index = 0,
+                        count = if (selectionExpanded) staged.size + 1 else 1,
+                        onClick = { selectionExpanded = !selectionExpanded },
+                        leading = {
                             Icon(
-                                if (selectionExpanded) {
-                                    MaterialSymbols.Outlined.Expand_less
-                                } else {
-                                    MaterialSymbols.Outlined.Expand_more
-                                },
+                                MaterialSymbols.Outlined.Attach_file,
                                 contentDescription = null,
                             )
-                        }
-                        if (selectionExpanded) {
-                            Column(
-                                Modifier.padding(start = 12.dp, end = 12.dp, bottom = 12.dp),
-                                verticalArrangement = Arrangement.spacedBy(3.dp),
+                        },
+                        trailing = {
+                            Row(
+                                verticalAlignment =
+                                    Alignment.CenterVertically,
                             ) {
-                                staged.forEachIndexed { index, item ->
-                                    StagedItemCard(
-                                        item = item,
-                                        shape = historyTileShape(index, staged.size),
+                                TextButton(
+                                    onClick = { onStagedChange(emptyList()) },
+                                ) {
+                                    Text("Clear")
+                                }
+                                PillChevron(
+                                    icon = if (selectionExpanded) {
+                                        MaterialSymbols.Outlined.Expand_less
+                                    } else {
+                                        MaterialSymbols.Outlined.Expand_more
+                                    },
+                                )
+                            }
+                        },
+                    ) {
+                        Text("${strings.selection} · ${staged.size}")
+                    }
+                    if (selectionExpanded) {
+                        Column(
+                            verticalArrangement =
+                                Arrangement.spacedBy(
+                                    ListItemDefaults.SegmentedGap,
+                                ),
+                        ) {
+                            staged.forEachIndexed { index, item ->
+                                StagedItemCard(
+                                    item = item,
+                                    index = index + 1,
+                                    count = staged.size + 1,
                                         onEdit = { editIndex = index },
                                         onDiscard = {
                                             onStagedChange(
@@ -5447,7 +6267,6 @@ private fun ShareScreen(
                                             )
                                         },
                                     )
-                                }
                             }
                         }
                     }
@@ -5536,7 +6355,7 @@ private fun ShareScreen(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun PickerScreen(
+internal fun PickerScreen(
     initialTab: ContentTab,
     controller: LocalSendController,
     settings: AppSettings,
@@ -5580,44 +6399,30 @@ private fun PickerScreen(
                     )
                     Button(onClick = onDismiss) { Text("Done · $stagedCount") }
                 }
-                ScrollableTabRow(
-                    selectedTabIndex = tabs.indexOf(tab),
-                    edgePadding = 0.dp,
-                ) {
-                    tabs.forEach { entry ->
-                        Tab(
-                            selected = tab == entry,
-                            onClick = { tab = entry },
-                            text = {
-                                Text(
-                                    when (entry) {
-                                        ContentTab.Apps -> "Apps"
-                                        ContentTab.Photos -> "Photos"
-                                        ContentTab.Videos -> "Videos"
-                                        ContentTab.Audio -> "Audio"
-                                        ContentTab.Files -> "Files"
-                                        else -> entry.name
-                                    },
-                                    maxLines = 1,
-                                    softWrap = false,
-                                )
-                            },
-                            icon = {
-                                Icon(
-                                    when (entry) {
-                                        ContentTab.Apps -> MaterialSymbols.Outlined.Apps
-                                        ContentTab.Photos -> MaterialSymbols.Outlined.Image
-                                        ContentTab.Videos -> MaterialSymbols.Outlined.Movie
-                                        ContentTab.Audio -> MaterialSymbols.Outlined.Music_note
-                                        ContentTab.Files -> MaterialSymbols.Outlined.Folder
-                                        else -> MaterialSymbols.Outlined.Description
-                                    },
-                                    contentDescription = null,
-                                )
-                            },
-                        )
-                    }
-                }
+                // Ernest (v0.10.0): NO tabs — the content sections
+                // switch through the same connected ToggleButton
+                // group as "Off / Favorites / Everyone", icons included.
+                ConnectedChoiceGroup(
+                    options = tabs.map { entry ->
+                        when (entry) {
+                            ContentTab.Apps ->
+                                MaterialSymbols.Outlined.Apps to "Apps"
+                            ContentTab.Photos ->
+                                MaterialSymbols.Outlined.Image to "Photos"
+                            ContentTab.Videos ->
+                                MaterialSymbols.Outlined.Movie to "Videos"
+                            ContentTab.Audio ->
+                                MaterialSymbols.Outlined.Music_note to "Music"
+                            ContentTab.Files ->
+                                MaterialSymbols.Outlined.Folder to "Files"
+                            else -> MaterialSymbols.Outlined.Description to entry.name
+                        }
+                    },
+                    selectedIndex = tabs.indexOf(tab),
+                    modifier = Modifier.fillMaxWidth(),
+                    compactLabels = true,
+                    onSelect = { tab = tabs[it] },
+                )
                 Box(Modifier.weight(1f).padding(top = 10.dp)) {
                     when (tab) {
                         ContentTab.Apps -> AppsBrowser(
@@ -5632,7 +6437,13 @@ private fun PickerScreen(
                                 onToggleFile(
                                     PickedFile(
                                         handle = app.apkHandle,
-                                        name = "${app.label}.apk",
+                                        name = if (
+                                            app.apkHandle.endsWith(".apks")
+                                        ) {
+                                            "${app.label}.apks"
+                                        } else {
+                                            "${app.label}.apk"
+                                        },
                                         size = app.apkSize,
                                     ),
                                 )
@@ -5679,7 +6490,7 @@ private fun PickerScreen(
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun TransferSheet(
+fun TransferSheet(
     controller: LocalSendController,
     settings: AppSettings,
     onDismiss: () -> Unit,
@@ -5762,7 +6573,7 @@ private fun TransferSheet(
                                 style = MaterialTheme.typography.titleMedium,
                             )
                             if (textSend.active) {
-                                LinearWavyProgressIndicator(Modifier.fillMaxWidth())
+                                LinearProgressIndicator(Modifier.fillMaxWidth())
                             }
                             textSend.error?.let { error ->
                                 Text(
@@ -5878,7 +6689,7 @@ private fun TransferSheet(
                                     }
                                 }
                             }
-                            LinearWavyProgressIndicator(
+                            LinearProgressIndicator(
                                 progress = {
                                     if (totalBytes > 0) {
                                         (doneBytes.toFloat() / totalBytes).coerceIn(0f, 1f)
@@ -6027,12 +6838,11 @@ private fun ReceiveQueueList(files: List<FileProgress>, defaultOrder: String) {
                             }
                         }
                     }
-                    if (file.status == TransferStatus.ACTIVE) {
+                    if (file.status == TransferStatus.ACTIVE ||
+                        file.status == TransferStatus.VERIFYING
+                    ) {
                         Spacer(Modifier.height(6.dp))
-                        LinearWavyProgressIndicator(
-                            progress = { file.fraction },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+                        TransferProgressBar(file, Modifier.fillMaxWidth())
                     }
                 }
             }
@@ -6077,7 +6887,9 @@ private fun GlobalTransferPillHost(
     val sending = outbox.any { job ->
         !job.paused && job.files.any { it.status == TransferStatus.ACTIVE }
     } || (sendState?.active == true)
-    val receiving = incomingProgress.any { it.status == TransferStatus.ACTIVE }
+    val receiving = incomingProgress.any {
+        it.status == TransferStatus.ACTIVE || it.status == TransferStatus.VERIFYING
+    }
     if (sending || receiving) {
         GlobalTransferPill(
             controller = controller,
@@ -6104,7 +6916,9 @@ private fun GlobalTransferPill(
     val activeSendCount = sendFiles.count {
         it.status == TransferStatus.ACTIVE || it.status == TransferStatus.WAITING
     }
-    val activeReceiveCount = incoming.count { it.status == TransferStatus.ACTIVE }
+    val activeReceiveCount = incoming.count {
+        it.status == TransferStatus.ACTIVE || it.status == TransferStatus.VERIFYING
+    }
     val doneCount = sendFiles.count { it.status == TransferStatus.DONE } +
         incoming.count { it.status == TransferStatus.DONE }
     val totalBytes = sendFiles.sumOf { it.size } + incoming.sumOf { it.total }
@@ -6123,9 +6937,9 @@ private fun GlobalTransferPill(
         modifier = modifier,
     ) {
         Row(
-            Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            Modifier.padding(horizontal = 18.dp, vertical = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(10.dp),
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             Icon(
                 when {
@@ -6134,14 +6948,17 @@ private fun GlobalTransferPill(
                     else -> MaterialSymbols.Outlined.Send
                 },
                 contentDescription = null,
-                modifier = Modifier.size(20.dp),
+                modifier = Modifier.size(24.dp),
             )
-            Column(Modifier.weight(1f)) {
+            Column(
+                Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 Text(
                     "$label · ${doneCount + activeReceiveCount + sendFiles.count { it.status == TransferStatus.ACTIVE }}/${activeSendCount + activeReceiveCount + doneCount} files",
-                    style = MaterialTheme.typography.labelLarge,
+                    style = MaterialTheme.typography.titleSmall,
                 )
-                LinearWavyProgressIndicator(
+                LinearProgressIndicator(
                     progress = {
                         if (totalBytes > 0) {
                             (doneBytes.toFloat() / totalBytes).coerceIn(0f, 1f)

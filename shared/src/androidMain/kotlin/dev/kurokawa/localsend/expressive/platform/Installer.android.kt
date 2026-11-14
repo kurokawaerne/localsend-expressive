@@ -102,9 +102,11 @@ actual fun installPackage(uri: String, fileName: String): String? {
                     if (!entry.isDirectory && entry.name.lowercase().endsWith(".apk")) {
                         val safeName = entry.name.substringAfterLast('/')
                             .ifBlank { "split_$found.apk" }
-                        val out = File(stagingDir, safeName)
-                        out.outputStream().use { zip.copyTo(it) }
-                        staged += safeName to out
+                        if (staged.none { it.first == safeName }) {
+                            val out = File(stagingDir, safeName)
+                            out.outputStream().use { zip.copyTo(it) }
+                            staged += safeName to out
+                        }
                         found++
                     }
                     zip.closeEntry()
@@ -112,6 +114,11 @@ actual fun installPackage(uri: String, fileName: String): String? {
             }
             if (staged.isEmpty()) return "No APK files inside this package set."
         }
+        // InstallerX's core lesson: a bundle carries splits for
+        // EVERY device — installing all of them fails or bloats.
+        // Only the splits matching THIS device go into the session.
+        val selected = selectDeviceSplits(context, staged)
+        if (selected.isEmpty()) return "No splits in this set match this device."
         val installer = context.packageManager.packageInstaller
         val params = PackageInstaller.SessionParams(
             PackageInstaller.SessionParams.MODE_FULL_INSTALL,
@@ -119,7 +126,7 @@ actual fun installPackage(uri: String, fileName: String): String? {
         val sessionId = installer.createSession(params)
         val session = installer.openSession(sessionId)
         try {
-            for ((name, file) in staged) {
+            for ((name, file) in selected) {
                 session.openWrite(name, 0, file.length()).use { out ->
                     FileInputStream(file).use { it.copyTo(out) }
                     session.fsync(out)
@@ -152,3 +159,73 @@ actual fun installPackage(uri: String, fileName: String): String? {
 
 const val ACTION_INSTALL_RESULT = "dev.kurokawa.localsend.expressive.INSTALL_RESULT"
 const val EXTRA_PACKAGE_LABEL = "package_label"
+
+
+/**
+ * Device-matched split selection, aligned with InstallerX Revived:
+ * bundles (.apks/.xapk/.apkm) ship config splits for every ABI,
+ * density and language. Keep the base + feature splits, only this
+ * device's ABI splits, the single best density split, and this
+ * device's language splits. Classification is by the conventional
+ * split file names (config.<x>.apk / split_config.<x>.apk).
+ */
+private fun selectDeviceSplits(
+    context: android.content.Context,
+    staged: List<Pair<String, File>>,
+): List<Pair<String, File>> {
+    val knownAbis = listOf("arm64_v8a", "armeabi_v7a", "armeabi", "x86_64", "x86")
+    val densityDpis = mapOf(
+        "ldpi" to 120, "mdpi" to 160, "tvdpi" to 213, "hdpi" to 240,
+        "xhdpi" to 320, "xxhdpi" to 480, "xxxhdpi" to 640,
+        "120" to 120, "160" to 160, "213" to 213, "240" to 240,
+        "320" to 320, "480" to 480, "640" to 640,
+    )
+    fun abiOf(name: String): String? = knownAbis.firstOrNull { name.contains(it) }
+    fun dpiOf(name: String): Int? =
+        densityDpis.entries.firstOrNull { name.contains(it.key) }?.value
+    fun langOf(name: String): String? {
+        if (abiOf(name) != null || dpiOf(name) != null) return null
+        val core = name.removeSuffix(".apk")
+            .removePrefix("split_")
+            .removePrefix("config.")
+            .substringAfter("config.")
+        return core.takeIf {
+            it.matches(Regex("[a-z]{2,3}(_[a-zA-Z]{2})?"))
+        }
+    }
+    fun isConfig(name: String): Boolean =
+        name.startsWith("config.") || name.startsWith("split_config.") ||
+            name.contains(".config.")
+
+    val deviceAbis = android.os.Build.SUPPORTED_ABIS.map { it.replace('-', '_') }
+    val deviceDpi = context.resources.displayMetrics.densityDpi
+    val deviceLangs = (0 until context.resources.configuration.locales.size())
+        .map { context.resources.configuration.locales.get(it).language }
+
+    val configs = staged.filter { isConfig(it.first.lowercase()) }
+    val abiSplits = configs.filter { abiOf(it.first.lowercase()) != null }
+    val chosenAbis = abiSplits.filter {
+        abiOf(it.first.lowercase()) in deviceAbis
+    }.ifEmpty { abiSplits }
+    val densitySplits = configs.filter {
+        abiOf(it.first.lowercase()) == null && dpiOf(it.first.lowercase()) != null
+    }
+    val chosenDensity = densitySplits
+        .sortedWith(
+            compareBy(
+                { dpiOf(it.first.lowercase())!! < deviceDpi },
+                { kotlin.math.abs(dpiOf(it.first.lowercase())!! - deviceDpi) },
+            ),
+        )
+        .firstOrNull()
+    val langSplits = configs.filter { langOf(it.first.lowercase()) != null }
+    val chosenLangs = langSplits.filter {
+        langOf(it.first.lowercase())!!.substringBefore('_') in deviceLangs
+    }
+    val chosen = chosenAbis + listOfNotNull(chosenDensity) + chosenLangs
+    return staged.filter { entry ->
+        val name = entry.first.lowercase()
+        !isConfig(name) || entry in chosen ||
+            (abiOf(name) == null && dpiOf(name) == null && langOf(name) == null)
+    }
+}

@@ -1,8 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <!-- Pale lavender, matching Ernest's splash mockup (the circle
-         behind the comparison arrows). -->
-    <color name="ic_launcher_background">#EFE7FB</color>
+    <!-- v0.10.0 gradient-icon style: no container color — the glyph
+         carries the gradient on a clean white field, like Google's
+         current app icons. (The splash keeps its own pale circle.) -->
+    <color name="ic_launcher_background">#FFFFFF</color>
     <!-- The splash itself is white, like his mockup. -->
     <color name="splash_background">#FFFFFF</color>
 </resources>

@@ -12,6 +12,7 @@ import android.net.wifi.WifiManager
 import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
+import kotlinx.coroutines.cancel
 
 /**
  * Keeps LSEx alive and reachable while transfers run — the official app
@@ -24,6 +25,12 @@ import android.os.PowerManager
 class LsexForegroundService : Service() {
     private var wakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
+
+    // Live Updates (v0.10.0): the transfer notifier observes the
+    // shared engine for this service's whole lifetime.
+    private val notifierScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Default,
+    )
 
     override fun onCreate() {
         super.onCreate()
@@ -69,6 +76,8 @@ class LsexForegroundService : Service() {
             setReferenceCounted(false)
             acquire(WAKELOCK_TIMEOUT_MS)
         }
+        TransferNotifier(applicationContext).start(notifierScope)
+
         val wifi = getSystemService(WifiManager::class.java)
         @Suppress("DEPRECATION")
         wifiLock = wifi.createWifiLock(WifiManager.WIFI_MODE_FULL, "lsex:wifi").apply {
@@ -78,6 +87,16 @@ class LsexForegroundService : Service() {
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        // Live Update actions: Pause/Resume apply to every open job
+        // in the matching state (the button is XOR by construction).
+        when (intent?.action) {
+            ACTION_PAUSE_ALL -> Engine.service.outbox.value
+                .filter { !it.finished && !it.paused }
+                .forEach { Engine.service.pauseOutboxJob(it.id) }
+            ACTION_RESUME_ALL -> Engine.service.outbox.value
+                .filter { !it.finished && it.paused }
+                .forEach { Engine.service.resumeOutboxJob(it.id) }
+        }
         if (intent?.action == ACTION_STOP) {
             onStopRequested?.invoke()
             stopForeground(STOP_FOREGROUND_REMOVE)
@@ -88,6 +107,7 @@ class LsexForegroundService : Service() {
     }
 
     override fun onDestroy() {
+        notifierScope.cancel()
         runCatching { wakeLock?.release() }
         runCatching { wifiLock?.release() }
         wakeLock = null
@@ -102,6 +122,8 @@ class LsexForegroundService : Service() {
         private const val NOTIFICATION_ID = 41
         private const val WAKELOCK_TIMEOUT_MS = 4 * 60 * 60 * 1000L
         const val ACTION_STOP = "dev.kurokawa.localsend.expressive.STOP_SERVICE"
+        const val ACTION_PAUSE_ALL = "dev.kurokawa.localsend.expressive.PAUSE_ALL"
+        const val ACTION_RESUME_ALL = "dev.kurokawa.localsend.expressive.RESUME_ALL"
 
         /** Set by MainActivity: stops the receive server (LocalSendService). */
         var onStopRequested: (() -> Unit)? = null

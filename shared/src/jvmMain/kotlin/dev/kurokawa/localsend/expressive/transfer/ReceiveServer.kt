@@ -368,6 +368,19 @@ class ReceiveServer(
                     failed = true
                 }
 
+                // Ernest (v0.10.0): the checking phase is a real,
+                // visible state — the UI shows the wavy indicator only
+                // here, like UDYAT's completed-file check. Checking is
+                // the verifyChecksums TOGGLE: users who leave it off
+                // never see this state.
+                if (settings.verifyChecksums && fileDto.sha256 != null) {
+                    session.progress[fileId] = FileProgress(
+                        fileId, fileDto.fileName, fileDto.size,
+                        receivedBytes, TransferStatus.VERIFYING,
+                    )
+                    callbacks.onReceiveProgress(session.id, session.progress.values.toList())
+                }
+
                 // Checksum verification is a setting in the official app:
                 // when off, a mismatched hash does not reject the file.
                 val expectedSha = fileDto.sha256
@@ -521,6 +534,17 @@ class ReceiveServer(
                     destinationFolder = settings.destinationFolder,
                     destinationTreeUri = settings.destinationTreeUri,
                 )
+                // With the verify toggle on, the publish pass's
+                // re-read + hash of every staged byte IS the check —
+                // mark it VERIFYING first (v0.10.0, Ernest's
+                // wavy-only-here rule). Toggle off: no checking state.
+                if (settings.verifyChecksums && fileDto.sha256 != null) {
+                    session.progress[fileId] = FileProgress(
+                        fileId, fileDto.fileName, fileDto.size, fileDto.size,
+                        TransferStatus.VERIFYING,
+                    )
+                    callbacks.onReceiveProgress(session.id, session.progress.values.toList())
+                }
                 val digest = MessageDigest.getInstance("SHA-256")
                 val copied = runCatching { staging.publishTo(target, digest) }.getOrElse {
                     runCatching { target.abort() }

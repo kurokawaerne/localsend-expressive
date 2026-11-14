@@ -7,7 +7,7 @@ import dev.kurokawa.localsend.expressive.protocol.FileDto
 import dev.kurokawa.localsend.expressive.protocol.RegisterDto
 import kotlinx.coroutines.flow.StateFlow
 
-enum class TransferStatus { WAITING, ACTIVE, DONE, FAILED, CANCELLED }
+enum class TransferStatus { WAITING, ACTIVE, VERIFYING, DONE, FAILED, CANCELLED }
 
 /** Progress of a single file within a transfer session. */
 data class FileProgress(

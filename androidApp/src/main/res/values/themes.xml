@@ -3,14 +3,16 @@
     <!-- App theme the Compose UI runs under (splash hands over to this). -->
     <style name="Theme.LocalSendExpressive" parent="android:Theme.Material.NoActionBar" />
 
-    <!-- System splash via core-splashscreen: the static arrows mark on a
-         light/dark-adaptive background (values / values-night), then the
-         app theme and the in-app animated splash. The animated-vector
-         variant was dropped in v0.9.0 — one less thing that can fail
-         while the splash is up. -->
+    <!-- THE splash (v0.10.0): core-splashscreen with the animated
+         arrows mark — v0.8.0's single splash, restored after v0.9.0
+         layered the Compose splash over it (double splash). Colors:
+         static light/dark below API 31; on API 31+ the background and
+         the icon follow the system dynamic palette (values-v31 /
+         drawable-v31), which is what Ernest asked for: "the previous
+         splash, just using the dynamic theme". -->
     <style name="Theme.LocalSendExpressive.Splash" parent="Theme.SplashScreen">
         <item name="windowSplashScreenBackground">@color/splash_background</item>
-        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_icon</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_animated</item>
         <item name="windowSplashScreenAnimationDuration">650</item>
         <item name="postSplashScreenTheme">@style/Theme.LocalSendExpressive</item>
     </style>

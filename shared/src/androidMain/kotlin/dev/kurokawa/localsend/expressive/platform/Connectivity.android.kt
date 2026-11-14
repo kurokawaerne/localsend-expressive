@@ -91,6 +91,7 @@ private fun hasPermissions(context: Context, permissions: Array<String>): Boolea
     }
 
 actual class ConnectivityController {
+    private var scanReceiver: android.content.BroadcastReceiver? = null
     private val context: Context? = AppContextHolder.appContext
     private val wifiManager: WifiManager? = context?.applicationContext
         ?.getSystemService(Context.WIFI_SERVICE) as? WifiManager
@@ -114,6 +115,7 @@ actual class ConnectivityController {
                 val filter = android.content.IntentFilter().apply {
                     addAction(WifiManager.WIFI_STATE_CHANGED_ACTION)
                     addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION)
+                    addAction(android.location.LocationManager.PROVIDERS_CHANGED_ACTION)
                 }
                 val receiver = object : android.content.BroadcastReceiver() {
                     override fun onReceive(c: Context, intent: android.content.Intent) {
@@ -134,8 +136,40 @@ actual class ConnectivityController {
         val wifi = wifiManager
         _state.value = _state.value.copy(
             wifiEnabled = wifi?.isWifiEnabled,
+            locationOff = !isLocationEnabled(),
         )
         if (p2pGroupActive) requestGroupInfo()
+    }
+
+    /**
+     * Android hides scan results (and hampers P2P) while the system
+     * Location toggle is off. v0.9.0 never checked, so the network
+     * list was silently empty — Ernest's point 21.
+     */
+    private fun isLocationEnabled(): Boolean {
+        val ctx = context ?: return true
+        val lm = ctx.getSystemService(Context.LOCATION_SERVICE)
+            as? android.location.LocationManager ?: return true
+        return runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                lm.isLocationEnabled
+            } else {
+                @Suppress("DEPRECATION")
+                lm.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER) ||
+                    lm.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+            }
+        }.getOrDefault(true)
+    }
+
+    actual fun openLocationSettings() {
+        val ctx = context ?: return
+        runCatching {
+            ctx.startActivity(
+                android.content.Intent(
+                    android.provider.Settings.ACTION_LOCATION_SOURCE_SETTINGS,
+                ).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+            )
+        }
     }
 
     actual fun clearMessage() {
@@ -160,32 +194,40 @@ actual class ConnectivityController {
             }
             return
         }
+        _state.value = _state.value.copy(locationOff = !isLocationEnabled())
         // Cached results show instantly; a fresh scan refreshes them.
         publishScanResults()
-        _state.value = _state.value.copy(scanningNetworks = true)
-        val receiver = object : android.content.BroadcastReceiver() {
-            override fun onReceive(c: Context, intent: android.content.Intent) {
-                runCatching { ctx.unregisterReceiver(this) }
-                publishScanResults()
-                _state.value = _state.value.copy(scanningNetworks = false)
+        // v0.10.0: the results receiver STAYS registered for the
+        // controller's lifetime. v0.9.0 unregistered it inside the
+        // first broadcast (and dropped it entirely when startScan was
+        // throttled), so a late or second scan never landed.
+        if (scanReceiver == null) {
+            val receiver = object : android.content.BroadcastReceiver() {
+                override fun onReceive(c: Context, intent: android.content.Intent) {
+                    publishScanResults()
+                    _state.value = _state.value.copy(scanningNetworks = false)
+                }
             }
+            val registered = runCatching {
+                val filter = android.content.IntentFilter(
+                    WifiManager.SCAN_RESULTS_AVAILABLE_ACTION,
+                )
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                    ctx.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
+                } else {
+                    @Suppress("UnspecifiedRegisterReceiverFlag")
+                    ctx.registerReceiver(receiver, filter)
+                }
+                true
+            }.getOrDefault(false)
+            if (registered) scanReceiver = receiver
         }
-        val registered = runCatching {
-            val filter = android.content.IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-                ctx.registerReceiver(receiver, filter, Context.RECEIVER_NOT_EXPORTED)
-            } else {
-                @Suppress("UnspecifiedRegisterReceiverFlag")
-                ctx.registerReceiver(receiver, filter)
-            }
-            true
-        }.getOrDefault(false)
+        _state.value = _state.value.copy(scanningNetworks = true)
         @Suppress("DEPRECATION")
         val started = runCatching { wifiManager?.startScan() }.getOrNull() == true
-        if (!registered || !started) {
+        if (!started) {
             // Android throttles scans (about 4 per 2 minutes per app):
             // keep the cached list and stop pretending we are scanning.
-            if (registered) runCatching { ctx.unregisterReceiver(receiver) }
             _state.value = _state.value.copy(scanningNetworks = false)
         }
     }
@@ -411,7 +453,51 @@ actual class ConnectivityController {
             )
         }
         _state.value = _state.value.copy(busy = true, message = null)
-        createGroupAttempt(manager, channel, attempt = 0)
+        // VPNHotspot's sequence (v0.10.0 rewrite — Ernest's point 19):
+        // ASK what group already exists before creating anything.
+        // v0.9.0's staged-retry chain (stop discovery, create, remove
+        // zombie, wait, retry x3) fought the stack; RepeaterService
+        // instead adopts an owned group, removes a stale non-owner
+        // group, and only then creates — once, cleanly.
+        try {
+            manager.requestGroupInfo(channel) { group: WifiP2pGroup? ->
+                when {
+                    group == null -> createP2pGroup(manager, channel, useConfig = true)
+                    group.isGroupOwner -> {
+                        p2pGroupActive = true
+                        _state.value = _state.value.copy(
+                            busy = false,
+                            wifiDirect = HotspotInfo(
+                                group.networkName,
+                                group.passphrase.orEmpty(),
+                            ),
+                        )
+                    }
+                    else -> {
+                        // A stale group we don't own holds the P2P
+                        // interface; drop it, then create ours.
+                        try {
+                            manager.removeGroup(
+                                channel,
+                                object : WifiP2pManager.ActionListener {
+                                    override fun onSuccess() =
+                                        createP2pGroup(manager, channel, useConfig = true)
+                                    override fun onFailure(reason: Int) =
+                                        createP2pGroup(manager, channel, useConfig = true)
+                                },
+                            )
+                        } catch (e: Exception) {
+                            createP2pGroup(manager, channel, useConfig = true)
+                        }
+                    }
+                }
+            }
+        } catch (e: SecurityException) {
+            _state.value = _state.value.copy(
+                busy = false,
+                message = "Wi-Fi Direct permission was denied.",
+            )
+        }
     }
 
     /** The user's Wi-Fi Direct group config, or null for system defaults. */
@@ -440,32 +526,17 @@ actual class ConnectivityController {
         }.getOrNull()
     }
 
-    private fun noopP2pListener() = object : WifiP2pManager.ActionListener {
-        override fun onSuccess() = Unit
-        override fun onFailure(reason: Int) = Unit
-    }
-
     /**
-     * Create the P2P group in staged attempts (v0.9.0 hardening — v0.8.0
-     * still died with a generic internal ERROR on Ernest's LineageOS):
-     *
-     * - Peer discovery running on the channel makes createGroup fail
-     *   with ERROR on many devices, so discovery is stopped first.
-     * - Attempt 0 uses the user's config (name / passphrase / band);
-     *   later attempts use system defaults.
-     * - On ERROR, any zombie group is removed and the retry WAITS for
-     *   the removal to settle (the old code retried 600 ms after a
-     *   fire-and-forget removal, straight into the same ERROR).
-     * - BUSY means a group is already up: adopt it via requestGroupInfo.
-     * - After the last attempt the cached channel is dropped, so the
-     *   user's next tap re-initializes P2P from scratch.
+     * One clean createGroup, VPNHotspot-style: the user's config on
+     * the first attempt; if the stack rejects it (ERROR), one retry
+     * with system defaults. Success is confirmed by requestGroupInfo
+     * (the group actually formed), not by the listener alone.
      */
-    private fun createGroupAttempt(
+    private fun createP2pGroup(
         manager: WifiP2pManager,
         channel: WifiP2pManager.Channel,
-        attempt: Int,
+        useConfig: Boolean,
     ) {
-        runCatching { manager.stopPeerDiscovery(channel, noopP2pListener()) }
         val listener = object : WifiP2pManager.ActionListener {
             override fun onSuccess() {
                 p2pGroupActive = true
@@ -473,26 +544,26 @@ actual class ConnectivityController {
             }
 
             override fun onFailure(reason: Int) {
-                when {
-                    reason == WifiP2pManager.BUSY -> {
-                        // A group from an earlier session is still up: adopt it.
-                        p2pGroupActive = true
-                        requestGroupInfo()
-                    }
-                    reason == WifiP2pManager.ERROR && attempt < 2 ->
-                        cleanupThenRetry(manager, channel, attempt)
-                    else -> {
-                        p2pChannel = null
-                        _state.value = _state.value.copy(
-                            busy = false,
-                            message = "Wi-Fi Direct couldn't start: ${p2pReasonText(reason)}",
-                        )
-                    }
+                if (useConfig && reason == WifiP2pManager.ERROR &&
+                    p2pConfigOrNull() != null
+                ) {
+                    createP2pGroup(manager, channel, useConfig = false)
+                    return
                 }
+                val locationHint = if (!isLocationEnabled()) {
+                    " Also: Location is off — Wi-Fi Direct needs it on many devices."
+                } else {
+                    ""
+                }
+                _state.value = _state.value.copy(
+                    busy = false,
+                    message = "Wi-Fi Direct couldn't start: " +
+                        p2pReasonText(reason) + locationHint,
+                )
             }
         }
         try {
-            val config = if (attempt == 0) p2pConfigOrNull() else null
+            val config = if (useConfig) p2pConfigOrNull() else null
             if (config != null) {
                 manager.createGroup(channel, config, listener)
             } else {
@@ -504,50 +575,10 @@ actual class ConnectivityController {
                 message = "Wi-Fi Direct permission was denied.",
             )
         } catch (e: Exception) {
-            if (attempt < 2) {
-                cleanupThenRetry(manager, channel, attempt)
-            } else {
-                p2pChannel = null
-                _state.value = _state.value.copy(
-                    busy = false,
-                    message = "Wi-Fi Direct couldn't start: ${e.message}",
-                )
-            }
-        }
-    }
-
-    /** Remove any zombie group, WAIT for the removal, then retry. */
-    private fun cleanupThenRetry(
-        manager: WifiP2pManager,
-        channel: WifiP2pManager.Channel,
-        attempt: Int,
-    ) {
-        val proceed = {
-            Handler(Looper.getMainLooper()).postDelayed({
-                // The channel may have been dropped by a disconnect in
-                // the meantime — re-fetch rather than reuse a dead one.
-                val fresh = channel()
-                if (fresh != null) {
-                    createGroupAttempt(manager, fresh, attempt + 1)
-                } else {
-                    _state.value = _state.value.copy(
-                        busy = false,
-                        message = "Wi-Fi Direct couldn't start: an internal error occurred.",
-                    )
-                }
-            }, 900L * (attempt + 1))
-        }
-        try {
-            manager.removeGroup(channel, object : WifiP2pManager.ActionListener {
-                override fun onSuccess() {
-                    proceed()
-                }
-                override fun onFailure(reason: Int) {
-                    proceed()
-                }
-            })
-        } catch (e: Exception) {
-            proceed()
+            _state.value = _state.value.copy(
+                busy = false,
+                message = "Wi-Fi Direct couldn't start: ${e.message}",
+            )
         }
     }
 
@@ -564,6 +595,14 @@ actual class ConnectivityController {
                             group.networkName,
                             group.passphrase.orEmpty(),
                         ),
+                    )
+                } else if (group == null && p2pGroupActive) {
+                    // The group died outside the app (system toggle,
+                    // peer reset): clear the stale state.
+                    p2pGroupActive = false
+                    _state.value = _state.value.copy(
+                        busy = false,
+                        wifiDirect = null,
                     )
                 } else if (!p2pGroupActive) {
                     _state.value = _state.value.copy(

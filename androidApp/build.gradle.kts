@@ -16,8 +16,8 @@ android {
         applicationId = "dev.kurokawa.localsend.expressive"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 10
-        versionName = "0.9.0"
+        versionCode = 11
+        versionName = "0.10.0"
     }
     signingConfigs {
         if (lsexKeystoreFile != null) {
@@ -79,4 +79,6 @@ dependencies {
     implementation(libs.androidx.activity.compose)
     implementation(libs.compose.material3)
     implementation(libs.androidx.core.splashscreen)
+    implementation(libs.androidx.core)
+    implementation(libs.kotlinx.coroutines.core)
 }
