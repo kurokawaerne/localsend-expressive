@@ -38,6 +38,8 @@ actual fun rememberClipboardText(): () -> String? {
 
 actual fun loadInstalledApps(): List<InstalledApp> = emptyList()
 
+actual fun stageAppBundle(app: InstalledApp): PickedFile? = null
+
 @Composable
 actual fun AppIcon(packageName: String, modifier: androidx.compose.ui.Modifier) {
     androidx.compose.foundation.layout.Box(

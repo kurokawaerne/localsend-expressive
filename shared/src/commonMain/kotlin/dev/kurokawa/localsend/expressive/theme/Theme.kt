@@ -14,12 +14,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.FontVariation
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.kurokawa.localsend.expressive.app.AppSettings
 import dev.kurokawa.localsend.expressive.resources.Res
-import dev.kurokawa.localsend.expressive.resources.google_sans_flex
+import dev.kurokawa.localsend.expressive.resources.gsf_display_bold
+import dev.kurokawa.localsend.expressive.resources.gsf_display_extrabold
+import dev.kurokawa.localsend.expressive.resources.gsf_display_medium
+import dev.kurokawa.localsend.expressive.resources.gsf_display_semibold
+import dev.kurokawa.localsend.expressive.resources.gsf_wordmark_semibold
+import dev.kurokawa.localsend.expressive.resources.gsf_wordmark_semibold_italic
+import dev.kurokawa.localsend.expressive.resources.gsf_text_bold
+import dev.kurokawa.localsend.expressive.resources.gsf_text_medium
+import dev.kurokawa.localsend.expressive.resources.gsf_text_regular
+import dev.kurokawa.localsend.expressive.resources.gsf_text_semibold
 import org.jetbrains.compose.resources.Font
 
 // Seed schemes: a calm teal close to LocalSend's identity. Used when the
@@ -120,34 +128,62 @@ private val ExpressiveShapes = Shapes(
 expect fun platformDynamicColorScheme(dark: Boolean): ColorScheme?
 
 /**
- * Google Sans Flex (variable font, SIL OFL) with its axes driven per role:
- * display type is wider and fully rounded; text stays narrower with a hint
- * of rounding. Same recipe the Minus app uses for its expressive look.
+ * Google Sans Flex as STATIC instances (v0.10.0). The variable font
+ * rendered only at its default instance on Android — every weight and
+ * the ROND axis were ignored there, which is why headings looked wrong
+ * on Ernest's phone while desktop (Skia honours variationSettings)
+ * looked right. The instances are generated from the variable font
+ * with the exact recipes the variable version used: text = wdth 100 /
+ * ROND 35, display = wdth 118 / ROND 100, opsz pinned at the default
+ * 18. Nine files, 1.23 MB total vs the variable font's 3.91 MB.
  */
 @Composable
-private fun sansFlexFamily(width: Float, roundness: Float): FontFamily {
-    fun settings(weight: Int) = FontVariation.Settings(
-        FontVariation.weight(weight),
-        FontVariation.width(width),
-        FontVariation.Setting("ROND", roundness),
-    )
-    val normal = Font(Res.font.google_sans_flex, FontWeight.Normal, variationSettings = settings(400))
-    val medium = Font(Res.font.google_sans_flex, FontWeight.Medium, variationSettings = settings(500))
-    val semiBold = Font(Res.font.google_sans_flex, FontWeight.SemiBold, variationSettings = settings(620))
-    val bold = Font(Res.font.google_sans_flex, FontWeight.Bold, variationSettings = settings(720))
-    val extraBold = Font(Res.font.google_sans_flex, FontWeight.ExtraBold, variationSettings = settings(800))
+private fun textFamily(): FontFamily {
+    val regular = Font(Res.font.gsf_text_regular, FontWeight.Normal)
+    val medium = Font(Res.font.gsf_text_medium, FontWeight.Medium)
+    val semiBold = Font(Res.font.gsf_text_semibold, FontWeight.SemiBold)
+    val bold = Font(Res.font.gsf_text_bold, FontWeight.Bold)
     // FontFamily identity MUST be stable: rebuilding it on every
     // recomposition re-measures every text in the app — that was the
     // Settings-page stutter Ernest reported.
-    return remember(normal, medium, semiBold, bold, extraBold) {
-        FontFamily(normal, medium, semiBold, bold, extraBold)
+    return remember(regular, medium, semiBold, bold) {
+        FontFamily(regular, medium, semiBold, bold)
     }
 }
 
 @Composable
+private fun displayFamily(): FontFamily {
+    val medium = Font(Res.font.gsf_display_medium, FontWeight.Medium)
+    val semiBold = Font(Res.font.gsf_display_semibold, FontWeight.SemiBold)
+    val bold = Font(Res.font.gsf_display_bold, FontWeight.Bold)
+    val extraBold = Font(Res.font.gsf_display_extrabold, FontWeight.ExtraBold)
+    return remember(medium, semiBold, bold, extraBold) {
+        FontFamily(medium, semiBold, bold, extraBold)
+    }
+}
+
+/**
+ * The wordmark cut from Ernest's mockups: Google Sans Flex CONDENSED
+ * (wdth 80, ROND 100, wght 600) — his branding is the same font,
+ * styled differently (narrow), not the wide display cut.
+ */
+@Composable
+internal fun wordmarkFamily(): FontFamily {
+    val regular = Font(Res.font.gsf_wordmark_semibold, FontWeight.SemiBold)
+    return remember { FontFamily(regular) }
+}
+
+/** The wordmark's slanted twin (same condensed cut, slnt -10) for "Ex". */
+@Composable
+internal fun wordmarkItalicFamily(): FontFamily {
+    val italic = Font(Res.font.gsf_wordmark_semibold_italic, FontWeight.SemiBold)
+    return remember { FontFamily(italic) }
+}
+
+@Composable
 private fun expressiveTypography(): Typography {
-    val display = sansFlexFamily(width = 118f, roundness = 100f)
-    val text = sansFlexFamily(width = 100f, roundness = 35f)
+    val display = displayFamily()
+    val text = textFamily()
     val base = Typography()
     return remember(display, text) {
     Typography(
