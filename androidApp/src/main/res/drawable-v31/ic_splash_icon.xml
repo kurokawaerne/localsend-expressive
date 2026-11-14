@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- API 31+ variant: same geometry as drawable/ic_splash_icon, but
+     the circle and arrows take the system DYNAMIC palette (accent1
+     tones) — the splash follows Material You like the app does. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <group
+        android:name="plane"
+        android:pivotX="54"
+        android:pivotY="54">
+        <path
+            android:fillColor="@android:color/system_accent1_100"
+            android:pathData="M54,10 A44,44 0 1 1 53.9,10 Z" />
+        <path
+            android:fillColor="@android:color/transparent"
+            android:strokeColor="@android:color/system_accent1_700"
+            android:strokeWidth="7"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M78,44 L54,44" />
+        <path
+            android:fillColor="@android:color/transparent"
+            android:strokeColor="@android:color/system_accent1_700"
+            android:strokeWidth="7"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M67,31 L53,44 L67,57" />
+        <path
+            android:fillColor="@android:color/transparent"
+            android:strokeColor="@android:color/system_accent1_700"
+            android:strokeWidth="7"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M30,64 L54,64" />
+        <path
+            android:fillColor="@android:color/transparent"
+            android:strokeColor="@android:color/system_accent1_700"
+            android:strokeWidth="7"
+            android:strokeLineCap="round"
+            android:strokeLineJoin="round"
+            android:pathData="M41,51 L55,64 L41,77" />
+    </group>
+</vector>
