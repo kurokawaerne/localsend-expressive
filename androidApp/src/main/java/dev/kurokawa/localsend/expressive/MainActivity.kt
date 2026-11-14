@@ -1,7 +1,5 @@
 package dev.kurokawa.localsend.expressive
 
-import android.content.Intent
-import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -9,10 +7,8 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
-import dev.kurokawa.localsend.expressive.app.LocalSendService
 import dev.kurokawa.localsend.expressive.platform.AppContextHolder
 import dev.kurokawa.localsend.expressive.platform.PermissionGate
-import dev.kurokawa.localsend.expressive.platform.offerSharedUris
 import dev.kurokawa.localsend.expressive.ui.AppRoot
 
 class MainActivity : ComponentActivity() {
@@ -41,7 +37,7 @@ class MainActivity : ComponentActivity() {
         // androidMain platform code (multicast lock, storage, SAF) needs a Context.
         AppContextHolder.appContext = applicationContext
         PermissionGate.launcher = { permissions -> multiplePermissions.launch(permissions) }
-        handleShareIntent(intent)
+        // Share intents live in ShareActivity since v0.10.0.
         // Persistent receive service + notification + wakelock (the
         // official app runs the same way; v0.3.0 had none of this).
         LsexForegroundService.start(applicationContext)
@@ -51,31 +47,12 @@ class MainActivity : ComponentActivity() {
         ) {
             notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
-        val service = LocalSendService()
+        val service = Engine.service
         // The notification's Stop action lands here: shut the transfer
         // engine down together with the foreground service.
         LsexForegroundService.onStopRequested = { service.stop() }
         setContent {
             AppRoot(service, onReady = { ready = true })
         }
-    }
-
-    override fun onNewIntent(intent: Intent) {
-        super.onNewIntent(intent)
-        handleShareIntent(intent)
-    }
-
-    /** ACTION_SEND / ACTION_SEND_MULTIPLE from other apps → send selection. */
-    @Suppress("DEPRECATION")
-    private fun handleShareIntent(intent: Intent?) {
-        val uris: List<Uri> = when (intent?.action) {
-            Intent.ACTION_SEND ->
-                listOfNotNull(intent.getParcelableExtra(Intent.EXTRA_STREAM))
-            Intent.ACTION_SEND_MULTIPLE ->
-                intent.getParcelableArrayListExtra<Uri>(Intent.EXTRA_STREAM)
-                    ?: emptyList()
-            else -> emptyList()
-        }
-        if (uris.isNotEmpty()) offerSharedUris(applicationContext, uris)
     }
 }
