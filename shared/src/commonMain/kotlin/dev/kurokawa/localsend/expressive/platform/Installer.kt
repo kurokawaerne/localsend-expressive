@@ -13,7 +13,8 @@ expect fun installerSupported(): Boolean
 fun isInstallablePackage(fileName: String): Boolean {
     val lower = fileName.lowercase()
     return lower.endsWith(".apk") || lower.endsWith(".apks") ||
-        lower.endsWith(".xapk") || lower.endsWith(".apkm")
+        lower.endsWith(".xapk") || lower.endsWith(".apkm") ||
+        lower.endsWith(".aab")
 }
 
 /** Open a received file with the platform viewer (from History's URI). */

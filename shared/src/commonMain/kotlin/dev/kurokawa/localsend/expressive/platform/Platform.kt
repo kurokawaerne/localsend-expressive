@@ -41,6 +41,12 @@ data class InstalledApp(
     val apkSize: Long,
     /** System (or updated system) app — the picker can hide these (v0.5.0). */
     val isSystem: Boolean = false,
+    /**
+     * Split APK paths for apps installed as bundles (v0.10.0): sending
+     * only the base APK of a split app ships a broken app — the picker
+     * bundles base + splits into a .apks via [stageAppBundle].
+     */
+    val splitHandles: List<String> = emptyList(),
 )
 
 /** The app's launcher icon, drawn by the platform (v0.5.0: the picker shows real icons). */
@@ -52,6 +58,14 @@ expect fun usesSafDestination(): Boolean
 
 /** Installed apps available for sending; empty on platforms without an app store model. */
 expect fun loadInstalledApps(): List<InstalledApp>
+
+/**
+ * Zip an installed app's base APK + its splits into one `.apks` in the
+ * app cache (Android), so a split app can be sent — and installed on
+ * the other side — as a single package set. Returns the bundle as a
+ * PickedFile, or null where unsupported / on failure.
+ */
+expect fun stageAppBundle(app: InstalledApp): PickedFile?
 
 /** Whether this platform has a QS-style quick tile / quick-share entry (Android). */
 expect fun supportsQuickShareTile(): Boolean

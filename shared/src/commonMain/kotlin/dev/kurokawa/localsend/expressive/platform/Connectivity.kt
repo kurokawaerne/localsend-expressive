@@ -35,6 +35,12 @@ data class ConnectivityState(
     val wifiNetworks: List<WifiNetwork> = emptyList(),
     /** A Wi-Fi network scan is running. */
     val scanningNetworks: Boolean = false,
+    /**
+     * The system Location toggle is off (Android): scans then return
+     * an EMPTY list and Wi-Fi Direct can fail — the UI must say so
+     * instead of silently showing nothing (v0.10.0).
+     */
+    val locationOff: Boolean = false,
 )
 
 /**
@@ -57,6 +63,8 @@ expect class ConnectivityController() {
     fun clearMessage()
     /** Scan for nearby Wi-Fi networks (results land in [ConnectivityState.wifiNetworks]). */
     fun scanWifiNetworks()
+    /** Open the system Location settings (Android; no-op elsewhere). */
+    fun openLocationSettings()
 }
 
 /** Open a URL in the platform browser (e.g. a scanned web-share link). */
