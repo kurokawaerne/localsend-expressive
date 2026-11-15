@@ -20,6 +20,7 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -78,16 +79,15 @@ import androidx.compose.material3.ListItemShapes
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.ShortNavigationBar
+import androidx.compose.material3.FloatingToolbarDefaults
+import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.SplitButtonDefaults
 import androidx.compose.material3.SplitButtonLayout
-import androidx.compose.material3.ShortNavigationBarItem
+import androidx.compose.material3.VerticalFloatingToolbar
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
@@ -106,6 +106,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -562,28 +563,18 @@ internal fun AppScaffold(
                         .windowInsetsPadding(WindowInsets.navigationBars)
                         .padding(vertical = 20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     ArrowsMark(44.dp)
-                    Spacer(Modifier.height(16.dp))
-                    RailNavItem(
-                        icon = MaterialSymbols.Outlined.Home,
-                        selectedIcon = MaterialSymbols.OutlinedFilled.Home,
-                        label = "Home",
-                        selected = tab == MainTab.Home,
-                    ) { tab = MainTab.Home }
-                    RailNavItem(
-                        icon = MaterialSymbols.Outlined.Compare_arrows,
-                        selectedIcon = MaterialSymbols.OutlinedFilled.Compare_arrows,
-                        label = strings.send,
-                        selected = tab == MainTab.Share,
-                    ) { tab = MainTab.Share }
-                    RailNavItem(
-                        icon = MaterialSymbols.Outlined.Settings,
-                        selectedIcon = MaterialSymbols.OutlinedFilled.Settings,
-                        label = strings.settings,
-                        selected = tab == MainTab.Settings,
-                    ) { tab = MainTab.Settings }
+                    // The improvised navbar stood upright (Ernest,
+                    // 2026-11-15, UDYAT's design): the official
+                    // VerticalFloatingToolbar, icons only, the
+                    // selected icon in a circle — centred on the rail.
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        LsexSideNavBar(
+                            tab = tab,
+                            onSelect = { tab = it },
+                        )
+                    }
                 }
                 Box(Modifier.weight(1f).fillMaxHeight().padding(16.dp)) {
                     Surface(
@@ -620,89 +611,38 @@ internal fun AppScaffold(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    // Same width as the nav bar — always. (Ernest
-                    // corrected Luna's misreading on 2026-11-13: his
-                    // "the pill is still narrow" meant its HEIGHT,
-                    // not its width.)
+                    // The transfer pill tracks the improvised
+                    // navbar's measured width — the pill stays
+                    // exactly as wide as the bar under it (Ernest's
+                    // pill rule, carried over to the new bar).
+                    var navWidthPx by remember { mutableIntStateOf(0) }
+                    val pillWidth by animateDpAsState(
+                        targetValue = with(LocalDensity.current) { navWidthPx.toDp() },
+                        animationSpec = bouncyDpSpring(),
+                        label = "pillWidth",
+                    )
                     GlobalTransferPillHost(
                         controller = controller,
-                        modifier = Modifier.fillMaxWidth(0.827f),
+                        modifier = if (navWidthPx > 0) {
+                            Modifier.width(pillWidth)
+                        } else {
+                            Modifier
+                        },
                     ) { showTransfers = true }
-                    // The native expressive short navigation bar
-                    // (Ernest's "XR nav bar"): 64dp, surfaceContainer,
-                    // growing 56x32 indicator, filled selected icon,
-                    // secondary active label — floated with margins and
-                    // full rounding exactly like his mockup. The custom
-                    // pill and its dark backdrop box are gone.
-                    //
-                    // WIDTH (v0.10.0 fix): the 82.7% chrome width lives
-                    // on this wrapper Box, NEVER on the bar itself.
-                    // material3 alpha05's bar measures every item
-                    // through constraints.constrain(fixedSize), which
-                    // coerces each item's width UP to the bar's
-                    // incoming minWidth — a fillMaxWidth on the bar set
-                    // minWidth = 82.7% of the screen, inflated every
-                    // item to full bar width and pushed items 2-3 off
-                    // the bar (v0.9.0 showed only Home; root cause
-                    // convicted from the library bytecode in the UDYAT
-                    // investigation, cure proven there + in ETK). The
-                    // wrapper passes the bar a max width with min 0.
-                    Box(Modifier.fillMaxWidth(0.827f)) {
-                    ShortNavigationBar(
-                        modifier = Modifier
-                            .shadow(8.dp, RoundedCornerShape(36.dp))
-                            .clip(RoundedCornerShape(36.dp)),
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        contentColor = MaterialTheme.colorScheme.onSurface,
-                        windowInsets = WindowInsets(0, 0, 0, 0),
-                    ) {
-                        ShortNavigationBarItem(
-                            selected = tab == MainTab.Home,
-                            onClick = { tab = MainTab.Home },
-                            icon = {
-                                Icon(
-                                    if (tab == MainTab.Home) {
-                                        MaterialSymbols.OutlinedFilled.Home
-                                    } else {
-                                        MaterialSymbols.Outlined.Home
-                                    },
-                                    contentDescription = null,
-                                )
-                            },
-                            label = { Text("Home") },
-                        )
-                        ShortNavigationBarItem(
-                            selected = tab == MainTab.Share,
-                            onClick = { tab = MainTab.Share },
-                            icon = {
-                                Icon(
-                                    if (tab == MainTab.Share) {
-                                        MaterialSymbols.OutlinedFilled.Compare_arrows
-                                    } else {
-                                        MaterialSymbols.Outlined.Compare_arrows
-                                    },
-                                    contentDescription = null,
-                                )
-                            },
-                            label = { Text(strings.send) },
-                        )
-                        ShortNavigationBarItem(
-                            selected = tab == MainTab.Settings,
-                            onClick = { tab = MainTab.Settings },
-                            icon = {
-                                Icon(
-                                    if (tab == MainTab.Settings) {
-                                        MaterialSymbols.OutlinedFilled.Settings
-                                    } else {
-                                        MaterialSymbols.Outlined.Settings
-                                    },
-                                    contentDescription = null,
-                                )
-                            },
-                            label = { Text(strings.settings) },
-                        )
-                    }
-                    }
+                    // The improvised navbar (Ernest, 2026-11-15 —
+                    // UDYAT's design, replacing the
+                    // ShortNavigationBar): the official
+                    // HorizontalFloatingToolbar, Google Photos style —
+                    // the selected destination is a pill carrying its
+                    // filled icon + Medium label; the others are
+                    // plain Regular labels.
+                    LsexFloatingNavBar(
+                        tab = tab,
+                        sendLabel = strings.send,
+                        settingsLabel = strings.settings,
+                        onSelect = { tab = it },
+                        modifier = Modifier.onSizeChanged { navWidthPx = it.width },
+                    )
                 }
             }
         }
@@ -886,61 +826,177 @@ private fun PillNavItem(
     }
 }
 
-/** Rail destination for the wide/desktop shell — same fill animation. */
+/**
+ * One destination inside the improvised navbar (UDYAT's item,
+ * Ernest 2026-11-15): the selected destination is a pill segment
+ * carrying its filled icon + label; the others are plain labels,
+ * exactly like Google Photos. The label is laid out the same in
+ * both states (same padding box) and the selected icon is overlaid
+ * independently — centring icon + label in a Row lets the symbol
+ * font's taller line box push the selected label below the others.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun RailNavItem(
-    icon: ImageVector,
+private fun LsexNavToolbarItem(
+    selected: Boolean,
     selectedIcon: ImageVector,
     label: String,
-    selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val fill by animateFloatAsState(
-        targetValue = if (selected) 1f else 0f,
-        animationSpec = tween(250),
-        label = "railFill",
-    )
-    val indicator by androidx.compose.animation.core.animateValueAsState(
-        targetValue = if (selected) {
-            MaterialTheme.colorScheme.secondaryContainer
-        } else {
-            Color.Transparent
-        },
-        typeConverter = Color.VectorConverter(androidx.compose.ui.graphics.colorspace.ColorSpaces.Srgb),
-        animationSpec = tween(250),
-        label = "railIndicator",
-    )
-    Column(
-        Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .clickable { onClick() }
-            .padding(horizontal = 4.dp, vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Box(
+        Modifier.animateContentSize(bouncySizeSpring())
+            .clip(RoundedCornerShape(50))
+            .clickable(onClick = onClick),
     ) {
-        Surface(shape = CircleShape, color = indicator) {
+        if (selected) {
             Box(
-                Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                Modifier.background(
+                    MaterialTheme.colorScheme.secondaryContainer,
+                    RoundedCornerShape(50),
+                ),
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    maxLines = 1,
+                    modifier = Modifier.padding(
+                        start = 44.dp, end = 16.dp, top = 10.dp, bottom = 10.dp,
+                    ),
+                )
+                Box(
+                    Modifier.align(Alignment.CenterStart).padding(start = 16.dp),
+                ) {
+                    Icon(
+                        selectedIcon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+        } else {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Normal,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            )
+        }
+    }
+}
+
+/**
+ * The improvised navbar, portrait (Ernest, 2026-11-15 — UDYAT's
+ * design): the OFFICIAL MD3 Expressive HorizontalFloatingToolbar,
+ * Google Photos style. The 4dp end spacers keep the selected pill's
+ * breathing room at the bar's ends equal to its y-axis gaps.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun LsexFloatingNavBar(
+    tab: MainTab,
+    sendLabel: String,
+    settingsLabel: String,
+    onSelect: (MainTab) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    HorizontalFloatingToolbar(
+        expanded = true,
+        colors = FloatingToolbarDefaults.standardFloatingToolbarColors(),
+        modifier = modifier,
+    ) {
+        Spacer(Modifier.width(4.dp))
+        LsexNavToolbarItem(
+            selected = tab == MainTab.Home,
+            selectedIcon = MaterialSymbols.OutlinedFilled.Home,
+            label = "Home",
+            onClick = { onSelect(MainTab.Home) },
+        )
+        LsexNavToolbarItem(
+            selected = tab == MainTab.Share,
+            selectedIcon = MaterialSymbols.OutlinedFilled.Compare_arrows,
+            label = sendLabel,
+            onClick = { onSelect(MainTab.Share) },
+        )
+        LsexNavToolbarItem(
+            selected = tab == MainTab.Settings,
+            selectedIcon = MaterialSymbols.OutlinedFilled.Settings,
+            label = settingsLabel,
+            onClick = { onSelect(MainTab.Settings) },
+        )
+        Spacer(Modifier.width(4.dp))
+    }
+}
+
+/**
+ * The improvised navbar, landscape / wide windows (Ernest,
+ * 2026-11-15 — UDYAT's design): the same floating toolbar stood
+ * upright (VerticalFloatingToolbar), but ICONS ONLY — no labels, so
+ * the rail stays slim — and the selected icon sits in a CIRCLE of
+ * secondaryContainer instead of a pill segment.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun LsexSideNavBar(
+    tab: MainTab,
+    onSelect: (MainTab) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    VerticalFloatingToolbar(
+        expanded = true,
+        colors = FloatingToolbarDefaults.standardFloatingToolbarColors(),
+        modifier = modifier,
+    ) {
+        val items = listOf(
+            Triple(
+                MainTab.Home,
+                MaterialSymbols.Outlined.Home,
+                MaterialSymbols.OutlinedFilled.Home,
+            ),
+            Triple(
+                MainTab.Share,
+                MaterialSymbols.Outlined.Compare_arrows,
+                MaterialSymbols.OutlinedFilled.Compare_arrows,
+            ),
+            Triple(
+                MainTab.Settings,
+                MaterialSymbols.Outlined.Settings,
+                MaterialSymbols.OutlinedFilled.Settings,
+            ),
+        )
+        for ((target, icon, selectedIcon) in items) {
+            val selected = tab == target
+            val circle by animateColorAsState(
+                targetValue = if (selected) {
+                    MaterialTheme.colorScheme.secondaryContainer
+                } else {
+                    Color.Transparent
+                },
+                label = "sideNavCircle",
+            )
+            Box(
+                Modifier.size(48.dp)
+                    .background(circle, CircleShape)
+                    .clip(CircleShape)
+                    .clickable { onSelect(target) },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    icon,
-                    contentDescription = label,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp).alpha(1f - fill),
-                )
-                Icon(
-                    selectedIcon,
+                    if (selected) selectedIcon else icon,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.size(24.dp).alpha(fill),
+                    tint = if (selected) {
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    modifier = Modifier.size(22.dp),
                 )
             }
         }
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-        )
     }
 }
 

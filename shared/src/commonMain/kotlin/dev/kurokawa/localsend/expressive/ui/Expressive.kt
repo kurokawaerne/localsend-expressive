@@ -7,6 +7,7 @@ import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.SpringSpec
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -94,4 +95,7 @@ fun bouncySizeSpring(): SpringSpec<IntSize> =
     spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)
 
 fun bouncyOffsetSpring(): SpringSpec<IntOffset> =
+    spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)
+
+fun bouncyDpSpring(): SpringSpec<Dp> =
     spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)
