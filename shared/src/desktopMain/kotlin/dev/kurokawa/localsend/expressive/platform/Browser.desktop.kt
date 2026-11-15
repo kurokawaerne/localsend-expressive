@@ -21,6 +21,8 @@ actual fun platformHasSystemSplash(): Boolean = false
 
 actual fun prefersSwipeActions(): Boolean = false
 
+actual fun supportsWifiNetworkList(): Boolean = true
+
 private val IMAGE_EXT = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp")
 private val VIDEO_EXT = setOf("mp4", "mkv", "webm", "avi", "mov", "3gp")
 private val AUDIO_EXT = setOf("mp3", "flac", "ogg", "opus", "m4a", "wav", "aac")
