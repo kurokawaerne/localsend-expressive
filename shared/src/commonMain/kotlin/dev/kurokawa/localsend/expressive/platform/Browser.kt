@@ -62,3 +62,12 @@ expect fun platformHasSystemSplash(): Boolean
 
 /** True where list actions belong behind a swipe (touch platforms); desktop keeps visible buttons. */
 expect fun prefersSwipeActions(): Boolean
+
+/**
+ * Whether this platform shows the nearby-WiFi network list in the
+ * connection setup. Android's scan results never materialized on
+ * Ernest's device (v0.9.0–v0.11.0 verdicts), so per his v0.12.0
+ * instruction the Android pane drops the listing entirely; desktop
+ * (nmcli) keeps it.
+ */
+expect fun supportsWifiNetworkList(): Boolean
