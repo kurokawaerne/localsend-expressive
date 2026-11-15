@@ -2,6 +2,7 @@ package dev.kurokawa.localsend.expressive.platform
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.window.DialogProperties
 
 /**
  * In-app content browser (v0.6.0, Ernest's Zapya-style layout request):
@@ -71,3 +72,17 @@ expect fun prefersSwipeActions(): Boolean
  * (nmcli) keeps it.
  */
 expect fun supportsWifiNetworkList(): Boolean
+
+/**
+ * Properties for a full-screen Dialog that must draw edge-to-edge.
+ * The edge-to-edge switch has a DIFFERENT name per platform in
+ * Compose Multiplatform 1.11.1 — Android's DialogProperties takes
+ * decorFitsSystemWindows, the desktop one takes usePlatformInsets,
+ * and the common API exposes neither (CI v0.12.1, verbatim:
+ * "No parameter with name 'usePlatformInsets' found" on Android;
+ * the mirror error for decorFitsSystemWindows on desktop) — so the
+ * properties are built per platform here. Without it, a full-screen
+ * dialog's own window paints the status bar and the navigation
+ * hint black (Ernest, 2026-11-15, the Donate page).
+ */
+expect fun fullScreenDialogProperties(): DialogProperties
