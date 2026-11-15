@@ -83,7 +83,13 @@ jobs:
           cat > "$APP/bin/localsend-expressive" <<'LAUNCHER'
           #!/bin/sh
           # LocalSend Expressive — runs on a separately installed Java 21.
-          APPDIR=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+          # Resolve symlinks before locating the app dir (v0.12.0): the
+          # Arch package invokes this script through a /usr/bin symlink,
+          # and taking $0 at face value put APPDIR at /usr — the jars
+          # were never found and the JVM died with
+          # ClassNotFoundException: dev.kurokawa.localsend.expressive.MainKt.
+          SELF=$(readlink -f -- "$0" 2>/dev/null || printf '%s' "$0")
+          APPDIR=$(CDPATH= cd -- "$(dirname -- "$SELF")/.." && pwd)
           if [ -n "$JAVA_HOME" ] && [ -x "$JAVA_HOME/bin/java" ]; then
             JAVA="$JAVA_HOME/bin/java"
           else
@@ -114,21 +120,23 @@ jobs:
           du -sh "$APP"
       - name: Collect release assets
         run: |
+          VERSION="${{ inputs.tag }}"; VERSION="${VERSION#v}"
           mkdir -p release-assets
           # Split APKs per ABI + universal (v0.5.0): pick the smallest one
           # your device needs — arm64-v8a covers almost every modern phone.
           ls androidApp/build/outputs/apk/release/
-          cp androidApp/build/outputs/apk/release/androidApp-arm64-v8a-release.apk release-assets/localsend-expressive-0.10.0-android-arm64-v8a.apk
-          cp androidApp/build/outputs/apk/release/androidApp-armeabi-v7a-release.apk release-assets/localsend-expressive-0.10.0-android-armeabi-v7a.apk
-          cp androidApp/build/outputs/apk/release/androidApp-x86_64-release.apk release-assets/localsend-expressive-0.10.0-android-x86_64.apk
-          cp androidApp/build/outputs/apk/release/androidApp-universal-release.apk release-assets/localsend-expressive-0.10.0-android.apk
+          cp androidApp/build/outputs/apk/release/androidApp-arm64-v8a-release.apk release-assets/localsend-expressive-$VERSION-android-arm64-v8a.apk
+          cp androidApp/build/outputs/apk/release/androidApp-armeabi-v7a-release.apk release-assets/localsend-expressive-$VERSION-android-armeabi-v7a.apk
+          cp androidApp/build/outputs/apk/release/androidApp-x86_64-release.apk release-assets/localsend-expressive-$VERSION-android-x86_64.apk
+          cp androidApp/build/outputs/apk/release/androidApp-universal-release.apk release-assets/localsend-expressive-$VERSION-android.apk
           cd desktopApp/build/compose/binaries/main/app
-          zip -9 -qr "$GITHUB_WORKSPACE/release-assets/localsend-expressive-0.10.0-linux-portable.zip" localsend-expressive
+          zip -9 -qr "$GITHUB_WORKSPACE/release-assets/localsend-expressive-$VERSION-linux-portable.zip" localsend-expressive
           cd "$GITHUB_WORKSPACE"
           ls -lh release-assets
       - name: Build Arch Linux package (.pkg.tar.zst)
         run: |
           set -e
+          VERSION="${{ inputs.tag }}"; VERSION="${VERSION#v}"
           APP_DIR=desktopApp/build/compose/binaries/main/app/localsend-expressive
           PKGDIR="$PWD/pkgdir"
           mkdir -p "$PKGDIR/opt" "$PKGDIR/usr/bin" "$PKGDIR/usr/share/applications"
@@ -148,7 +156,7 @@ jobs:
           cat > "$PKGDIR/.PKGINFO" <<PKGINFO
           pkgname = localsend-expressive
           pkgbase = localsend-expressive
-          pkgver = 0.10.0-1
+          pkgver = $VERSION-1
           pkgdesc = Material 3 Expressive rewrite of LocalSend (Compose Multiplatform) for Android and Linux
           url = https://github.com/kurokawaerne/localsend-expressive
           builddate = $(date +%s)
@@ -159,7 +167,7 @@ jobs:
           depend = java-runtime>=21
           PKGINFO
           cd "$PKGDIR"
-          tar --zstd -cf "$GITHUB_WORKSPACE/release-assets/localsend-expressive-0.10.0-1-x86_64.pkg.tar.zst" .PKGINFO opt usr
+          tar --zstd -cf "$GITHUB_WORKSPACE/release-assets/localsend-expressive-$VERSION-1-x86_64.pkg.tar.zst" .PKGINFO opt usr
           ls -lh "$GITHUB_WORKSPACE/release-assets"
       - name: Publish GitHub release
         uses: softprops/action-gh-release@v2
@@ -169,21 +177,27 @@ jobs:
           prerelease: true
           files: release-assets/*
           body: |
-            The v0.10.0 verdict release: every point of Ernest's on-device review, in one batch.
+            The v0.11.0 verdict release: all five points of Ernest's on-device review, in one batch.
 
-            **The crash is fixed — it was one bug behind three reports**
-            - Sending crashed, receiving from the web share crashed, and after any crash the app crashed on every open until data was cleared. One stack in all three logs: the transfer notification's **bubble** carried an immutable PendingIntent, which Android refuses ("PendingIntents attached to bubbles must be mutable") — the post threw inside the notifier the moment a transfer started, and the persisted outbox re-triggered it on every relaunch. The intent is mutable now, and the notifier can never take the app down again.
+            **PC: the launcher finds its jars again**
+            - The Arch package calls the app through a /usr/bin symlink, and the launcher located its jars relative to the path it was called by — /usr — so the JVM died with `ClassNotFoundException: MainKt`. The launcher now resolves the symlink first (reproduced and verified locally: through the symlink it failed word-for-word, with the fix the app starts).
 
-            **Discovery and certificates heal themselves**
-            - Peers were rejecting this device's TLS certificate (the log shows their CERTIFICATE_UNKNOWN alerts), which read as "not discoverable", a dead web share and an "expired or risky" certificate in the browser. The stored certificate is now replaced automatically when it is expired/near expiry **or when its address list no longer covers the addresses this device actually has** (the list froze the day the certificate was generated — a new network or hotspot subnet silently stranded it).
+            **The Live Update goes away when the transfer ends**
+            - The promoted notification only cancelled when no unfinished job AND no receive data existed — but the receive progress was never cleared after a receive finished, so any earlier receive pinned it at 100% with a Pause button forever. It now tracks actual movement (bytes flowing or a paused job), and the finished receive snapshot clears (completed transfers live in History, as before).
 
-            **The list and swipe details**
-            - Collapsed History/Selection headers keep **fully rounded corners** now: the library's segmented shapes leave a one-item group at the tiny inner corner radius, so a lone header gets the large corner on all sides.
-            - Swipe actions rebuilt with UDYAT Expressive's final list fix: **48dp-wide stadiums exactly as tall as the list item** (the item measures its own height for them — the naive fill-height collapses inside a scrolling list), 2dp gaps between the buttons and between the item and the first button, floating on the page background (**no painted strip behind them**), corner morphing 20→28dp on press/hover. Selection rows have **three** actions again — Open (the door), Edit, Discard.
-            - The **old Donate block is gone** from Settings (the section is the single row + its own page, as designed). The Quick Save group's unchecked segments have a **visible background** now.
+            **Web share is the original implementation now**
+            - The browser pages and the download API were replaced with the official LocalSend implementation's: its download and upload pages served verbatim, sessions keyed by the browser's IP, an accepted browser can reload the list, the PIN gate answers 401 / 429 after three wrong tries, downloads validate the session + IP and send properly encoded filenames, and a fresh download request pends until you accept it — or instantly, when the share-via-link auto-accept setting is on. Uploads from the browser keep flowing through the normal approval rules.
 
-            **Send menu, browsers, icon, PC package**
-            - The split Send button's menu gains **Send to multiple devices** (a persistent toggle — device taps then add targets instead of replacing them) and **Send via link** (stages the selection into the link page and turns the download API on).
-            - Files and Music browsers gain **filters** (type families for files, format for music) and **Type sorting**; Photos/Videos switch between **grid and list** and the preview is a true **fullscreen** viewer (videos get a play button into the system player).
-            - The **app icon** now sits inside the adaptive-icon safe zone instead of being cropped by launcher masks. Split apps show their **real total size** (base + splits). The Wi-Fi section says *why* the network list is empty (permission, location, or still scanning) instead of showing nothing.
-            - The Arch package now depends on **java-runtime>=21**, so a newer JDK (e.g. 26) satisfies it — no more demand for the literal JRE 21 package. Linux downloads stay JVM-free at ~60 MB and need Java 21+ installed.
+            **Copy received texts**
+            - Text messages are stored in full in History now (only the first 120 characters were kept), and text entries carry a **Copy** action in their swipe buttons; tapping a text row copies it too. Desktop shows the copy button inline.
+
+            **Also in this batch (added during review)**
+            - Android: the Wi-Fi network listing is gone from Home — it never populated; the pane is now one full-width Turn on button plus the QR scanner. Desktop keeps its working network list.
+            - A received text now pops up with a Copy button, and still lands in History with its full text.
+            - Bouncy Material 3 Expressive motion: springy tab switches, the transfer pill's entrance, expanding sections and device-list movement.
+            - Navigation is UDYAT's improvised navbar now: the official floating toolbar in portrait (the selected destination is a pill with its filled icon + label; the others are plain labels), stood upright and icon-only in landscape with the selected icon in a circle. The transfer pill matches the bar's width.
+            - The splash is the current logo now — the gradient radar mark spins and bounces in over the dynamic theme colors, on Android and desktop alike; the old arrows artwork is retired.
+
+            **Icon, and release hygiene**
+            - The launcher glyph shrinks again — 58 of 108 units wide — fully inside the adaptive-icon safe circle, so launcher masks no longer crop the arcs.
+            - Release assets are finally named after the actual version (the 0.11.0 assets said 0.10.0); the Arch pkgver follows the tag too.

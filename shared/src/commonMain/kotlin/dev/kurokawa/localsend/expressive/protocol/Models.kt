@@ -93,7 +93,7 @@ data class PrepareUploadResponseDto(
 
 @Serializable
 data class PrepareDownloadResponseDto(
-    val info: RegisterDto,
+    val info: InfoDto,
     val sessionId: String,
     val files: Map<String, FileDto>,
 )

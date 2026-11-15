@@ -16,8 +16,8 @@ android {
         applicationId = "dev.kurokawa.localsend.expressive"
         minSdk = libs.versions.android.minSdk.get().toInt()
         targetSdk = libs.versions.android.targetSdk.get().toInt()
-        versionCode = 12
-        versionName = "0.11.0"
+        versionCode = 13
+        versionName = "0.12.0"
     }
     signingConfigs {
         if (lsexKeystoreFile != null) {

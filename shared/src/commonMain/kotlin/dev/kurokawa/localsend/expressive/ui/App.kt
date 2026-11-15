@@ -18,6 +18,16 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.border
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.Canvas
@@ -25,6 +35,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -68,16 +79,15 @@ import androidx.compose.material3.ListItemShapes
 import androidx.compose.material3.LoadingIndicator
 import androidx.compose.material3.SegmentedListItem
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.NavigationRail
-import androidx.compose.material3.NavigationRailItem
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SegmentedButton
-import androidx.compose.material3.ShortNavigationBar
+import androidx.compose.material3.FloatingToolbarDefaults
+import androidx.compose.material3.HorizontalFloatingToolbar
 import androidx.compose.material3.SplitButtonDefaults
 import androidx.compose.material3.SplitButtonLayout
-import androidx.compose.material3.ShortNavigationBarItem
+import androidx.compose.material3.VerticalFloatingToolbar
 import androidx.compose.material3.SegmentedButtonDefaults
 import androidx.compose.material3.SingleChoiceSegmentedButtonRow
 import androidx.compose.material3.Surface
@@ -96,6 +106,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -142,6 +153,7 @@ import dev.kurokawa.localsend.expressive.platform.stageAppBundle
 import dev.kurokawa.localsend.expressive.platform.installerSupported
 import dev.kurokawa.localsend.expressive.platform.isInstallablePackage
 import dev.kurokawa.localsend.expressive.platform.joinWifiNetwork
+import dev.kurokawa.localsend.expressive.platform.supportsWifiNetworkList
 import dev.kurokawa.localsend.expressive.platform.WifiNetwork
 import dev.kurokawa.localsend.expressive.platform.loadInstalledApps
 import dev.kurokawa.localsend.expressive.platform.deleteReceivedFile
@@ -191,6 +203,7 @@ import dev.kurokawa.localsend.expressive.theme.minusColorScheme
 import dev.kurokawa.localsend.expressive.theme.LocalSendExpressiveTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.gestures.AnchoredDraggableState
@@ -350,103 +363,66 @@ internal fun LsexWordmark(modifier: Modifier = Modifier) {
 }
 
 /**
- * Animated splash (Ernest's exact spec): the two comparison arrows start
- * at the TOP and BOTTOM corners of the screen, sweep quickly to the
- * center along an almost-circular arc, BOUNCE when they meet, and settle
- * into the static mark (pale circle + arrows) with the wordmark at the
- * bottom. Colors come from the live color scheme, so the splash follows
- * dynamic color like the rest of the app. Runs on every platform —
- * Android's system splash (same artwork, light/dark adaptive) hands off
- * to it. Hardened: the completion callback fires from a finally block,
- * so no animation failure can trap the user on the splash.
+ * The in-app splash (desktop; Android's ONE splash is the system one
+ * with the same artwork and motion). v0.12.0 rework (Ernest): the old
+ * flying-arrows artwork is gone — the splash is the CURRENT app logo,
+ * the gradient radar mark, spinning one full turn while it bounces
+ * in on springs, over the theme's surface color so the dynamic /
+ * chosen theme colors carry the whole splash. The wordmark fades in
+ * at the bottom. Hardened: the completion callback fires from a
+ * finally block, so no animation failure can trap the user here.
  */
 @Composable
 internal fun SplashOverlay(onDone: () -> Unit) {
-    val progress = remember { Animatable(0f) }
+    val rotation = remember { Animatable(0f) }
+    val scale = remember { Animatable(0.45f) }
+    val fade = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
         try {
-            progress.animateTo(1f, tween(durationMillis = 1150, easing = LinearEasing))
-            delay(320)
+            coroutineScope {
+                launch {
+                    rotation.animateTo(
+                        360f,
+                        spring(
+                            dampingRatio = 0.55f,
+                            stiffness = Spring.StiffnessMediumLow,
+                        ),
+                    )
+                }
+                launch {
+                    scale.animateTo(
+                        1f,
+                        spring(
+                            dampingRatio = 0.42f,
+                            stiffness = Spring.StiffnessMediumLow,
+                        ),
+                    )
+                }
+                launch { fade.animateTo(1f, tween(350)) }
+            }
+            delay(300)
         } finally {
             onDone()
         }
     }
-    val primary = MaterialTheme.colorScheme.primary
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val wPx = constraints.maxWidth.toFloat()
-            val hPx = constraints.maxHeight.toFloat()
-            val t = progress.value
-            // Ease-out for the flight itself (fast start, gentle arrival).
-            val te = 1f - (1f - t).let { it * it * it }
-            // Bounce: once the arrows meet (~82% in), they rebound a
-            // little way back along their paths and settle again.
-            val bouncePhase = ((te - 0.82f) / 0.18f).coerceIn(0f, 1f)
-            val rebound = if (te > 0.82f) {
-                sin(bouncePhase * PI.toFloat()) * min(wPx, hPx) * 0.028f
-            } else {
-                0f
-            }
-            // Position of one arrow: corner -> center along a quadratic
-            // arc (the perpendicular bulge peaks mid-flight and curves
-            // BOTH arrows in the same rotational sense — the "almost
-            // circular" sweep), plus the rebound along the travel axis.
-            fun arrowOffset(startX: Float, startY: Float): Offset {
-                val vx = -startX
-                val vy = -startY
-                val len = sqrt(vx * vx + vy * vy).coerceAtLeast(1f)
-                val bulge = sin(te * PI.toFloat()) * min(wPx, hPx) * 0.10f
-                val along = te + rebound / len
-                return Offset(
-                    startX + vx * along + (-vy / len) * bulge * (1f - te),
-                    startY + vy * along + (vx / len) * bulge * (1f - te),
-                )
-            }
-            val fade = 0.3f + 0.7f * te
-            // Arrow 1 (points up-right) starts at the BOTTOM-left corner.
-            val o1 = arrowOffset(-wPx * 0.44f, hPx * 0.32f)
-            Canvas(
-                Modifier.fillMaxSize().graphicsLayer {
-                    translationX = o1.x
-                    translationY = o1.y
-                    alpha = fade
-                },
-            ) {
-                val cx = size.width / 2f
-                val cy = size.height / 2f
-                val s = size.minDimension * 0.16f
-                val stroke = s * 0.26f
-                drawLine(primary, Offset(cx - s, cy + s * 0.45f), Offset(cx + s * 0.05f, cy + s * 0.45f), stroke)
-                drawLine(primary, Offset(cx - s * 0.35f, cy - s * 0.2f), Offset(cx + s * 0.05f, cy + s * 0.45f), stroke)
-                drawLine(primary, Offset(cx - s * 0.35f, cy + s * 1.1f), Offset(cx + s * 0.05f, cy + s * 0.45f), stroke)
-            }
-            // Arrow 2 (points down-left) starts at the TOP-right corner.
-            val o2 = arrowOffset(wPx * 0.44f, -hPx * 0.32f)
-            Canvas(
-                Modifier.fillMaxSize().graphicsLayer {
-                    translationX = o2.x
-                    translationY = o2.y
-                    alpha = fade
-                },
-            ) {
-                val cx = size.width / 2f
-                val cy = size.height / 2f
-                val s = size.minDimension * 0.16f
-                val stroke = s * 0.26f
-                drawLine(primary, Offset(cx + s, cy - s * 0.45f), Offset(cx - s * 0.05f, cy - s * 0.45f), stroke)
-                drawLine(primary, Offset(cx + s * 0.35f, cy + s * 0.2f), Offset(cx - s * 0.05f, cy - s * 0.45f), stroke)
-                drawLine(primary, Offset(cx + s * 0.35f, cy - s * 1.1f), Offset(cx - s * 0.05f, cy - s * 0.45f), stroke)
-            }
-            // The settled mark fades in as the arrows land.
+        Box(Modifier.fillMaxSize()) {
+            AppLogo(
+                Modifier
+                    .align(Alignment.Center)
+                    .size(156.dp)
+                    .graphicsLayer {
+                        rotationZ = rotation.value
+                        scaleX = scale.value
+                        scaleY = scale.value
+                        alpha = fade.value
+                    },
+            )
             Box(
-                Modifier.align(Alignment.Center)
-                    .graphicsLayer { alpha = ((te - 0.6f) / 0.4f).coerceIn(0f, 1f) },
-            ) {
-                ArrowsMark(120.dp)
-            }
-            Box(
-                Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp)
-                    .graphicsLayer { alpha = ((te - 0.6f) / 0.4f).coerceIn(0f, 1f) },
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 64.dp)
+                    .graphicsLayer { alpha = fade.value },
             ) {
                 LsexWordmark()
             }
@@ -531,7 +507,20 @@ internal fun AppScaffold(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 840.dp
         val content: @Composable () -> Unit = {
-            when (tab) {
+            AnimatedContent(
+                targetState = tab,
+                transitionSpec = {
+                    // MD3E bounce (Ernest, v0.12.0): pages scale-settle
+                    // on a spring instead of snapping in.
+                    (fadeIn(tween(200)) +
+                        scaleIn(
+                            animationSpec = bouncyFloatSpring(),
+                            initialScale = 0.94f,
+                        )) togetherWith fadeOut(tween(140))
+                },
+                label = "mainTab",
+            ) { currentTab ->
+                when (currentTab) {
                 MainTab.Home -> HomeScreen(
                     controller = controller,
                     settings = settings,
@@ -558,6 +547,7 @@ internal fun AppScaffold(
                     },
                 )
                 MainTab.Settings -> SettingsScreen(controller, settings)
+                }
             }
         }
         if (wide) {
@@ -573,28 +563,18 @@ internal fun AppScaffold(
                         .windowInsetsPadding(WindowInsets.navigationBars)
                         .padding(vertical = 20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     ArrowsMark(44.dp)
-                    Spacer(Modifier.height(16.dp))
-                    RailNavItem(
-                        icon = MaterialSymbols.Outlined.Home,
-                        selectedIcon = MaterialSymbols.OutlinedFilled.Home,
-                        label = "Home",
-                        selected = tab == MainTab.Home,
-                    ) { tab = MainTab.Home }
-                    RailNavItem(
-                        icon = MaterialSymbols.Outlined.Compare_arrows,
-                        selectedIcon = MaterialSymbols.OutlinedFilled.Compare_arrows,
-                        label = strings.send,
-                        selected = tab == MainTab.Share,
-                    ) { tab = MainTab.Share }
-                    RailNavItem(
-                        icon = MaterialSymbols.Outlined.Settings,
-                        selectedIcon = MaterialSymbols.OutlinedFilled.Settings,
-                        label = strings.settings,
-                        selected = tab == MainTab.Settings,
-                    ) { tab = MainTab.Settings }
+                    // The improvised navbar stood upright (Ernest,
+                    // 2026-11-15, UDYAT's design): the official
+                    // VerticalFloatingToolbar, icons only, the
+                    // selected icon in a circle — centred on the rail.
+                    Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
+                        LsexSideNavBar(
+                            tab = tab,
+                            onSelect = { tab = it },
+                        )
+                    }
                 }
                 Box(Modifier.weight(1f).fillMaxHeight().padding(16.dp)) {
                     Surface(
@@ -631,89 +611,38 @@ internal fun AppScaffold(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    // Same width as the nav bar — always. (Ernest
-                    // corrected Luna's misreading on 2026-11-13: his
-                    // "the pill is still narrow" meant its HEIGHT,
-                    // not its width.)
+                    // The transfer pill tracks the improvised
+                    // navbar's measured width — the pill stays
+                    // exactly as wide as the bar under it (Ernest's
+                    // pill rule, carried over to the new bar).
+                    var navWidthPx by remember { mutableIntStateOf(0) }
+                    val pillWidth by animateDpAsState(
+                        targetValue = with(LocalDensity.current) { navWidthPx.toDp() },
+                        animationSpec = bouncyDpSpring(),
+                        label = "pillWidth",
+                    )
                     GlobalTransferPillHost(
                         controller = controller,
-                        modifier = Modifier.fillMaxWidth(0.827f),
+                        modifier = if (navWidthPx > 0) {
+                            Modifier.width(pillWidth)
+                        } else {
+                            Modifier
+                        },
                     ) { showTransfers = true }
-                    // The native expressive short navigation bar
-                    // (Ernest's "XR nav bar"): 64dp, surfaceContainer,
-                    // growing 56x32 indicator, filled selected icon,
-                    // secondary active label — floated with margins and
-                    // full rounding exactly like his mockup. The custom
-                    // pill and its dark backdrop box are gone.
-                    //
-                    // WIDTH (v0.10.0 fix): the 82.7% chrome width lives
-                    // on this wrapper Box, NEVER on the bar itself.
-                    // material3 alpha05's bar measures every item
-                    // through constraints.constrain(fixedSize), which
-                    // coerces each item's width UP to the bar's
-                    // incoming minWidth — a fillMaxWidth on the bar set
-                    // minWidth = 82.7% of the screen, inflated every
-                    // item to full bar width and pushed items 2-3 off
-                    // the bar (v0.9.0 showed only Home; root cause
-                    // convicted from the library bytecode in the UDYAT
-                    // investigation, cure proven there + in ETK). The
-                    // wrapper passes the bar a max width with min 0.
-                    Box(Modifier.fillMaxWidth(0.827f)) {
-                    ShortNavigationBar(
-                        modifier = Modifier
-                            .shadow(8.dp, RoundedCornerShape(36.dp))
-                            .clip(RoundedCornerShape(36.dp)),
-                        containerColor = MaterialTheme.colorScheme.surfaceContainer,
-                        contentColor = MaterialTheme.colorScheme.onSurface,
-                        windowInsets = WindowInsets(0, 0, 0, 0),
-                    ) {
-                        ShortNavigationBarItem(
-                            selected = tab == MainTab.Home,
-                            onClick = { tab = MainTab.Home },
-                            icon = {
-                                Icon(
-                                    if (tab == MainTab.Home) {
-                                        MaterialSymbols.OutlinedFilled.Home
-                                    } else {
-                                        MaterialSymbols.Outlined.Home
-                                    },
-                                    contentDescription = null,
-                                )
-                            },
-                            label = { Text("Home") },
-                        )
-                        ShortNavigationBarItem(
-                            selected = tab == MainTab.Share,
-                            onClick = { tab = MainTab.Share },
-                            icon = {
-                                Icon(
-                                    if (tab == MainTab.Share) {
-                                        MaterialSymbols.OutlinedFilled.Compare_arrows
-                                    } else {
-                                        MaterialSymbols.Outlined.Compare_arrows
-                                    },
-                                    contentDescription = null,
-                                )
-                            },
-                            label = { Text(strings.send) },
-                        )
-                        ShortNavigationBarItem(
-                            selected = tab == MainTab.Settings,
-                            onClick = { tab = MainTab.Settings },
-                            icon = {
-                                Icon(
-                                    if (tab == MainTab.Settings) {
-                                        MaterialSymbols.OutlinedFilled.Settings
-                                    } else {
-                                        MaterialSymbols.Outlined.Settings
-                                    },
-                                    contentDescription = null,
-                                )
-                            },
-                            label = { Text(strings.settings) },
-                        )
-                    }
-                    }
+                    // The improvised navbar (Ernest, 2026-11-15 —
+                    // UDYAT's design, replacing the
+                    // ShortNavigationBar): the official
+                    // HorizontalFloatingToolbar, Google Photos style —
+                    // the selected destination is a pill carrying its
+                    // filled icon + Medium label; the others are
+                    // plain Regular labels.
+                    LsexFloatingNavBar(
+                        tab = tab,
+                        sendLabel = strings.send,
+                        settingsLabel = strings.settings,
+                        onSelect = { tab = it },
+                        modifier = Modifier.onSizeChanged { navWidthPx = it.width },
+                    )
                 }
             }
         }
@@ -721,6 +650,79 @@ internal fun AppScaffold(
 
     }
     offer?.let { IncomingOfferDialog(controller, it) }
+    val webDownloadRequests by controller.webDownloadRequests.collectAsState()
+    webDownloadRequests.firstOrNull()?.let { request ->
+        AlertDialog(
+            onDismissRequest = { controller.answerWebDownload(request.id, false) },
+            icon = {
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                    Icon(
+                        MaterialSymbols.Outlined.Language,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            },
+            title = { Text("Browser download request") },
+            text = {
+                Text(
+                    "${request.deviceInfo} · ${request.ip} wants to download " +
+                        "the files you are sharing via link.",
+                )
+            },
+            confirmButton = {
+                Button(onClick = { controller.answerWebDownload(request.id, true) }) {
+                    Text("Accept")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { controller.answerWebDownload(request.id, false) }) {
+                    Text("Decline")
+                }
+            },
+        )
+    }
+    val incomingText by controller.incomingText.collectAsState()
+    incomingText?.let { message ->
+        val textClipboard = LocalClipboardManager.current
+        AlertDialog(
+            onDismissRequest = { controller.dismissIncomingText() },
+            icon = {
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                    Icon(
+                        MaterialSymbols.Outlined.Chat,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            },
+            title = { Text("Message from ${message.peerAlias}") },
+            text = {
+                SelectionContainer {
+                    Text(message.text)
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        textClipboard.setText(AnnotatedString(message.text))
+                        controller.dismissIncomingText()
+                    },
+                ) {
+                    Icon(MaterialSymbols.Outlined.Content_copy, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Copy")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { controller.dismissIncomingText() }) {
+                    Text("Close")
+                }
+            },
+        )
+    }
     if (showIpDialog) {
         IpAddressDialog(
             onDismiss = { showIpDialog = false },
@@ -824,61 +826,177 @@ private fun PillNavItem(
     }
 }
 
-/** Rail destination for the wide/desktop shell — same fill animation. */
+/**
+ * One destination inside the improvised navbar (UDYAT's item,
+ * Ernest 2026-11-15): the selected destination is a pill segment
+ * carrying its filled icon + label; the others are plain labels,
+ * exactly like Google Photos. The label is laid out the same in
+ * both states (same padding box) and the selected icon is overlaid
+ * independently — centring icon + label in a Row lets the symbol
+ * font's taller line box push the selected label below the others.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun RailNavItem(
-    icon: ImageVector,
+private fun LsexNavToolbarItem(
+    selected: Boolean,
     selectedIcon: ImageVector,
     label: String,
-    selected: Boolean,
     onClick: () -> Unit,
 ) {
-    val fill by animateFloatAsState(
-        targetValue = if (selected) 1f else 0f,
-        animationSpec = tween(250),
-        label = "railFill",
-    )
-    val indicator by androidx.compose.animation.core.animateValueAsState(
-        targetValue = if (selected) {
-            MaterialTheme.colorScheme.secondaryContainer
-        } else {
-            Color.Transparent
-        },
-        typeConverter = Color.VectorConverter(androidx.compose.ui.graphics.colorspace.ColorSpaces.Srgb),
-        animationSpec = tween(250),
-        label = "railIndicator",
-    )
-    Column(
-        Modifier
-            .clip(RoundedCornerShape(16.dp))
-            .clickable { onClick() }
-            .padding(horizontal = 4.dp, vertical = 6.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+    Box(
+        Modifier.animateContentSize(bouncySizeSpring())
+            .clip(RoundedCornerShape(50))
+            .clickable(onClick = onClick),
     ) {
-        Surface(shape = CircleShape, color = indicator) {
+        if (selected) {
             Box(
-                Modifier.padding(horizontal = 14.dp, vertical = 4.dp),
+                Modifier.background(
+                    MaterialTheme.colorScheme.secondaryContainer,
+                    RoundedCornerShape(50),
+                ),
+            ) {
+                Text(
+                    label,
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.Medium,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    maxLines = 1,
+                    modifier = Modifier.padding(
+                        start = 44.dp, end = 16.dp, top = 10.dp, bottom = 10.dp,
+                    ),
+                )
+                Box(
+                    Modifier.align(Alignment.CenterStart).padding(start = 16.dp),
+                ) {
+                    Icon(
+                        selectedIcon,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.size(20.dp),
+                    )
+                }
+            }
+        } else {
+            Text(
+                label,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Normal,
+                color = MaterialTheme.colorScheme.onSurface,
+                maxLines = 1,
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+            )
+        }
+    }
+}
+
+/**
+ * The improvised navbar, portrait (Ernest, 2026-11-15 — UDYAT's
+ * design): the OFFICIAL MD3 Expressive HorizontalFloatingToolbar,
+ * Google Photos style. The 4dp end spacers keep the selected pill's
+ * breathing room at the bar's ends equal to its y-axis gaps.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun LsexFloatingNavBar(
+    tab: MainTab,
+    sendLabel: String,
+    settingsLabel: String,
+    onSelect: (MainTab) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    HorizontalFloatingToolbar(
+        expanded = true,
+        colors = FloatingToolbarDefaults.standardFloatingToolbarColors(),
+        modifier = modifier,
+    ) {
+        Spacer(Modifier.width(4.dp))
+        LsexNavToolbarItem(
+            selected = tab == MainTab.Home,
+            selectedIcon = MaterialSymbols.OutlinedFilled.Home,
+            label = "Home",
+            onClick = { onSelect(MainTab.Home) },
+        )
+        LsexNavToolbarItem(
+            selected = tab == MainTab.Share,
+            selectedIcon = MaterialSymbols.OutlinedFilled.Compare_arrows,
+            label = sendLabel,
+            onClick = { onSelect(MainTab.Share) },
+        )
+        LsexNavToolbarItem(
+            selected = tab == MainTab.Settings,
+            selectedIcon = MaterialSymbols.OutlinedFilled.Settings,
+            label = settingsLabel,
+            onClick = { onSelect(MainTab.Settings) },
+        )
+        Spacer(Modifier.width(4.dp))
+    }
+}
+
+/**
+ * The improvised navbar, landscape / wide windows (Ernest,
+ * 2026-11-15 — UDYAT's design): the same floating toolbar stood
+ * upright (VerticalFloatingToolbar), but ICONS ONLY — no labels, so
+ * the rail stays slim — and the selected icon sits in a CIRCLE of
+ * secondaryContainer instead of a pill segment.
+ */
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun LsexSideNavBar(
+    tab: MainTab,
+    onSelect: (MainTab) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    VerticalFloatingToolbar(
+        expanded = true,
+        colors = FloatingToolbarDefaults.standardFloatingToolbarColors(),
+        modifier = modifier,
+    ) {
+        val items = listOf(
+            Triple(
+                MainTab.Home,
+                MaterialSymbols.Outlined.Home,
+                MaterialSymbols.OutlinedFilled.Home,
+            ),
+            Triple(
+                MainTab.Share,
+                MaterialSymbols.Outlined.Compare_arrows,
+                MaterialSymbols.OutlinedFilled.Compare_arrows,
+            ),
+            Triple(
+                MainTab.Settings,
+                MaterialSymbols.Outlined.Settings,
+                MaterialSymbols.OutlinedFilled.Settings,
+            ),
+        )
+        for ((target, icon, selectedIcon) in items) {
+            val selected = tab == target
+            val circle by animateColorAsState(
+                targetValue = if (selected) {
+                    MaterialTheme.colorScheme.secondaryContainer
+                } else {
+                    Color.Transparent
+                },
+                label = "sideNavCircle",
+            )
+            Box(
+                Modifier.size(48.dp)
+                    .background(circle, CircleShape)
+                    .clip(CircleShape)
+                    .clickable { onSelect(target) },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
-                    icon,
-                    contentDescription = label,
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.size(24.dp).alpha(1f - fill),
-                )
-                Icon(
-                    selectedIcon,
+                    if (selected) selectedIcon else icon,
                     contentDescription = null,
-                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                    modifier = Modifier.size(24.dp).alpha(fill),
+                    tint = if (selected) {
+                        MaterialTheme.colorScheme.onSecondaryContainer
+                    } else {
+                        MaterialTheme.colorScheme.onSurface
+                    },
+                    modifier = Modifier.size(22.dp),
                 )
             }
         }
-        Text(
-            label,
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-        )
     }
 }
 
@@ -973,7 +1091,7 @@ internal fun HomeScreen(
     var mode by rememberSaveable { mutableStateOf(0) }
     // Scan for the WiFi section's network list whenever it is shown.
     LaunchedEffect(mode) {
-        if (mode == 0) connectivity.scanWifiNetworks()
+        if (mode == 0 && supportsWifiNetworkList()) connectivity.scanWifiNetworks()
     }
     LaunchedEffect(connState.hotspot, connState.wifiDirect) {
         mode = when {
@@ -1059,7 +1177,7 @@ internal fun HomeScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(
-                    Modifier.padding(16.dp),
+                    Modifier.animateContentSize(bouncySizeSpring()).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     ConnectedChoiceGroup(
@@ -1076,6 +1194,7 @@ internal fun HomeScreen(
                     }
                     when (mode) {
                         0 -> {
+                            if (supportsWifiNetworkList()) {
                             Text("Networks", style = MaterialTheme.typography.titleSmall)
     // Ernest's point 21 (v0.10.0): with Location off, Android
     // returns an empty scan list — say so, with the way out.
@@ -1134,6 +1253,18 @@ internal fun HomeScreen(
                                     Text(if (connState.wifiEnabled == true) "Settings" else "Turn on")
                                 }
                             }
+                            } else {
+                                // Android (Ernest, v0.12.0): no network
+                                // listing — the whole status area is one
+                                // full-width Wi-Fi button; the QR scanner
+                                // below stays.
+                                Button(
+                                    onClick = { connectivity.toggleWifi() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(if (connState.wifiEnabled == true) "Settings" else "Turn on")
+                                }
+                            }
                             OutlinedButton(
                                 onClick = { showScanner = true },
                                 modifier = Modifier.fillMaxWidth(),
@@ -1142,7 +1273,7 @@ internal fun HomeScreen(
                                 Spacer(Modifier.width(8.dp))
                                 Text("Scan a code to join a network")
                             }
-                            if (connState.wifiNetworks.isEmpty()) {
+                            if (supportsWifiNetworkList() && connState.wifiNetworks.isEmpty()) {
                                 // Never leave this section silently empty
                                 // (v0.10.0 verdict): say WHY there is no
                                 // list and offer the one tap that fixes it.
@@ -1174,7 +1305,7 @@ internal fun HomeScreen(
                                     }
                                 }
                             }
-                            if (connState.wifiNetworks.isNotEmpty()) {
+                            if (supportsWifiNetworkList() && connState.wifiNetworks.isNotEmpty()) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         "Nearby networks",
@@ -1386,6 +1517,7 @@ internal fun HomeScreen(
         // group nested inside an extra card, which flattened it.)
         item {
             Column(
+                modifier = Modifier.animateContentSize(bouncySizeSpring()),
                 verticalArrangement =
                     Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
             ) {
@@ -1435,6 +1567,7 @@ internal fun HomeScreen(
                             modifier = Modifier.padding(horizontal = 16.dp),
                         )
                     } else {
+                        val clipboard = LocalClipboardManager.current
                         val shown = history.take(30)
                         Column(
                             verticalArrangement =
@@ -1482,6 +1615,18 @@ internal fun HomeScreen(
                                         }
                                     } else {
                                         null
+                                    },
+                                    onCopy = (
+                                        entry.preview
+                                            ?: if (entry.uri.isEmpty() && entry.handle.isEmpty()) {
+                                                // Pre-v0.12.0 text entries kept the
+                                                // (truncated) text in fileName.
+                                                entry.fileName
+                                            } else {
+                                                null
+                                            }
+                                        )?.let { text ->
+                                        { clipboard.setText(AnnotatedString(text)) }
                                     },
                                     onRemove = { controller.removeHistoryEntry(entry) },
                                     onDeleteFile = if (entry.incoming && entry.uri.isNotEmpty()) {
@@ -5188,6 +5333,7 @@ private fun HistoryRow(
     onOpen: (() -> Unit)? = null,
     onInstall: (() -> Unit)? = null,
     onResend: (() -> Unit)? = null,
+    onCopy: (() -> Unit)? = null,
     onRemove: () -> Unit,
     onDeleteFile: (() -> Unit)? = null,
 ) {
@@ -5201,9 +5347,10 @@ private fun HistoryRow(
             onOpen = onOpen,
             onInstall = onInstall,
             onResend = onResend,
+            onCopy = onCopy,
             onRemove = onRemove,
             showActions = true,
-            onClick = onOpen ?: onInstall ?: onResend,
+            onClick = onOpen ?: onInstall ?: onResend ?: onCopy,
         )
         return
     }
@@ -5211,7 +5358,7 @@ private fun HistoryRow(
     // remove-entry, the row's primary action (open / install / resend),
     // and for received files a red delete that removes the file itself.
     // (v0.8.0 shipped History with NO slide options at all.)
-    val hasPrimary = onOpen != null || onInstall != null || onResend != null
+    val hasPrimary = onOpen != null || onInstall != null || onResend != null || onCopy != null
     val actionCount = 1 + (if (hasPrimary) 1 else 0) + (if (onDeleteFile != null) 1 else 0)
     val density = LocalDensity.current
     // UDYAT's measured geometry (its latest list fix, ported): the
@@ -5275,16 +5422,18 @@ private fun HistoryRow(
                     content = MaterialTheme.colorScheme.onSecondaryContainer,
                     icon = when {
                         onInstall != null -> MaterialSymbols.Outlined.System_update
+                        onCopy != null -> MaterialSymbols.Outlined.Content_copy
                         else -> MaterialSymbols.Outlined.Logout
                     },
                     description = when {
                         onOpen != null -> "Open file"
                         onInstall != null -> "Install this package"
+                        onCopy != null -> "Copy text"
                         else -> "Resend"
                     },
                 ) {
                     scope.launch { state.snapTo(0) }
-                    (onOpen ?: onInstall ?: onResend)?.invoke()
+                    (onOpen ?: onInstall ?: onResend ?: onCopy)?.invoke()
                 }
             }
             if (onDeleteFile != null) {
@@ -5307,6 +5456,7 @@ private fun HistoryRow(
             onOpen = onOpen,
             onInstall = onInstall,
             onResend = onResend,
+            onCopy = onCopy,
             onRemove = onRemove,
             showActions = false,
             modifier = Modifier
@@ -5320,6 +5470,9 @@ private fun HistoryRow(
             onClick = {
                 if (state.currentValue == 1) {
                     scope.launch { state.snapTo(0) }
+                } else if (onOpen == null && onInstall == null && onResend == null) {
+                    // A text entry's primary action is copying it.
+                    onCopy?.invoke()
                 }
             },
         )
@@ -5335,6 +5488,7 @@ private fun HistoryRowItem(
     onOpen: (() -> Unit)?,
     onInstall: (() -> Unit)?,
     onResend: (() -> Unit)?,
+    onCopy: (() -> Unit)?,
     onRemove: () -> Unit,
     showActions: Boolean,
     modifier: Modifier = Modifier,
@@ -5388,6 +5542,15 @@ private fun HistoryRowItem(
                             Icon(
                                 MaterialSymbols.Outlined.Send,
                                 contentDescription = "Stage for resending",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                    if (onCopy != null) {
+                        IconButton(onClick = onCopy) {
+                            Icon(
+                                MaterialSymbols.Outlined.Content_copy,
+                                contentDescription = "Copy text",
                                 tint = MaterialTheme.colorScheme.primary,
                             )
                         }
@@ -6332,7 +6495,10 @@ internal fun ShareScreen(
                 }
                 else -> null
             }
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(
+                modifier = Modifier.animateItem(placementSpec = bouncyOffsetSpring()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 DeviceCard(
                     device = device,
                     isSelected = isSelected,
@@ -6456,6 +6622,7 @@ internal fun ShareScreen(
         if (staged.isNotEmpty()) {
             item {
                 Column(
+                    modifier = Modifier.animateContentSize(bouncySizeSpring()),
                     verticalArrangement =
                         Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
                 ) {
@@ -7141,12 +7308,22 @@ private fun GlobalTransferPillHost(
     val receiving = incomingProgress.any {
         it.status == TransferStatus.ACTIVE || it.status == TransferStatus.VERIFYING
     }
-    if (sending || receiving) {
+    AnimatedVisibility(
+        visible = sending || receiving,
+        modifier = modifier,
+        enter =
+            scaleIn(animationSpec = bouncyFloatSpring(), initialScale = 0.7f) +
+                fadeIn(tween(160)) +
+                slideInVertically(
+                    animationSpec = bouncyOffsetSpring(),
+                    initialOffsetY = { it / 2 },
+                ),
+        exit = scaleOut(tween(160)) + fadeOut(tween(160)),
+    ) {
         GlobalTransferPill(
             controller = controller,
             sending = sending,
             receiving = receiving,
-            modifier = modifier,
             onClick = onClick,
         )
     }

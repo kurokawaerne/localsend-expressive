@@ -35,6 +35,8 @@ actual fun platformHasSystemSplash(): Boolean = true
 
 actual fun prefersSwipeActions(): Boolean = true
 
+actual fun supportsWifiNetworkList(): Boolean = false
+
 // ── Media library (MediaStore) ────────────────────────────────────────────
 
 actual suspend fun loadMediaItems(kind: MediaKind): List<BrowserItem> =

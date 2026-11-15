@@ -91,6 +91,14 @@ class ReceiveServer(
             savedUri: String?,
         )
         fun onSessionFinished(sessionId: String, peer: RegisterDto)
+
+        /**
+         * A browser asked to download the via-link shared files
+         * (POST /prepare-download). The official flow: the request
+         * pends until the app answers — true accepts (the file list
+         * is served and the session opens), false declines (403).
+         */
+        suspend fun onWebDownloadRequest(ip: String, userAgent: String?): Boolean
     }
 
     private class Session(
@@ -128,7 +136,78 @@ class ReceiveServer(
     @Volatile
     private var activeSession: Session? = null
 
-    private val downloadSessions = ConcurrentHashMap<String, Map<String, WebShareFile>>()
+    /** A web download session (upstream model): keyed by the client's IP. */
+    private class WebSession(val ip: String) {
+        @Volatile
+        var accepted: Boolean = false
+    }
+
+    private val webSessions = ConcurrentHashMap<String, WebSession>()
+
+    /** Wrong-PIN count per IP for the download API (upstream check_pin). */
+    private val webPinAttempts = ConcurrentHashMap<String, Int>()
+
+    /**
+     * The offered files with their stable ids. The official server
+     * assigns the ids once when the share is built; ours are cached
+     * and rebuilt only when the shared set (name + size list) changes,
+     * so a page reload re-fetches the same ids.
+     */
+    @Volatile
+    private var offeredCache: Pair<List<Pair<String, Long>>, Map<String, WebShareFile>>? = null
+
+    private fun offeredFiles(): Map<String, WebShareFile> {
+        val files = webShareProvider()
+        val signature = files.map { it.name to it.size }
+        offeredCache?.let { if (it.first == signature) return it.second }
+        val map = files.associateBy { UUID.randomUUID().toString() }
+        offeredCache = signature to map
+        return map
+    }
+
+    /** Web send (the download page + API) is live only while files are offered. */
+    private fun webSendActive(): Boolean =
+        settingsProvider().downloadApi && webShareProvider().isNotEmpty()
+
+    /**
+     * The upstream PIN gate for the download API: 429 once 3 wrong
+     * PINs are on record for the IP (checked before the PIN itself),
+     * 401 on a missing or wrong PIN, success clears the record.
+     * Returns the error status to answer, or null to proceed.
+     */
+    private fun webPinError(remoteIp: String, given: String?): HttpStatusCode? {
+        val required = settingsProvider().pin
+        if (required.isEmpty()) return null
+        val count = webPinAttempts[remoteIp] ?: 0
+        if (count >= MAX_PIN_FAILURES) return HttpStatusCode.TooManyRequests
+        return when {
+            given == null -> HttpStatusCode.Unauthorized
+            given == required -> {
+                webPinAttempts.remove(remoteIp)
+                null
+            }
+            else -> {
+                webPinAttempts[remoteIp] = count + 1
+                HttpStatusCode.Unauthorized
+            }
+        }
+    }
+
+    private fun prepareDownloadResponse(sessionId: String): PrepareDownloadResponseDto {
+        val files = offeredFiles().mapValues { (id, file) ->
+            FileDto(
+                id = id,
+                fileName = file.name,
+                size = file.size,
+                fileType = guessFileType(file.name),
+            )
+        }
+        return PrepareDownloadResponseDto(
+            localProvider().toInfoDto().copy(download = true),
+            sessionId,
+            files,
+        )
+    }
 
     /** Failed PIN attempts per peer IP: (consecutive failures, last failure millis). */
     private val pinAttempts = ConcurrentHashMap<String, Pair<Int, Long>>()
@@ -160,7 +239,7 @@ class ReceiveServer(
         server = null
         activeSession?.abortStaging()
         activeSession = null
-        downloadSessions.clear()
+        webSessions.clear()
     }
 
     /**
@@ -592,45 +671,70 @@ class ReceiveServer(
                     activeSession?.abortStaging()
                     activeSession = null
                 }
-                if (sessionId != null) downloadSessions.remove(sessionId)
+                if (sessionId != null) webSessions.remove(sessionId)
                 call.respond(HttpStatusCode.OK)
             }
 
+            // The Download API, with the official implementation's
+            // semantics (v0.12.0 port): the session id is the client's
+            // IP, an accepted client can re-fetch the list on reload,
+            // the PIN gate answers 401/429, and a fresh request pends
+            // until the app accepts or declines it.
             post(ProtocolConstants.PATH_PREPARE_DOWNLOAD) {
-                if (!settingsProvider().downloadApi) {
+                val remoteIp = call.request.local.remoteHost
+                if (!ipAllowed(remoteIp) || !webSendActive()) {
                     call.respond(HttpStatusCode.Forbidden)
                     return@post
                 }
-                // Share via link serves the files the user picked for web
-                // sharing in the Receive tab (the official behavior), not
-                // whatever happens to sit in a folder.
-                val offered = webShareProvider().associateBy { UUID.randomUUID().toString() }
-                val sessionId = UUID.randomUUID().toString()
-                downloadSessions[sessionId] = offered
-                val files = offered.mapValues { (id, file) ->
-                    FileDto(
-                        id = id,
-                        fileName = file.name,
-                        size = file.size,
-                        fileType = guessFileType(file.name),
-                    )
+                val sessionParam = call.request.queryParameters["sessionId"]
+                if (sessionParam != null) {
+                    val existing = webSessions[sessionParam]
+                    if (existing != null && existing.accepted && existing.ip == remoteIp) {
+                        call.respond(prepareDownloadResponse(sessionParam))
+                        return@post
+                    }
                 }
-                call.respond(
-                    PrepareDownloadResponseDto(localProvider().toRegisterDto(), sessionId, files),
+                webPinError(remoteIp, call.request.queryParameters["pin"])?.let { status ->
+                    call.respond(status)
+                    return@post
+                }
+                // One session per IP; a new request replaces the old one.
+                val session = WebSession(remoteIp)
+                webSessions[remoteIp] = session
+                val accepted = callbacks.onWebDownloadRequest(
+                    remoteIp,
+                    call.request.headers[HttpHeaders.UserAgent],
                 )
+                if (!accepted) {
+                    webSessions.remove(remoteIp, session)
+                    call.respond(HttpStatusCode.Forbidden)
+                    return@post
+                }
+                session.accepted = true
+                call.respond(prepareDownloadResponse(remoteIp))
             }
 
             get(ProtocolConstants.PATH_DOWNLOAD) {
+                val remoteIp = call.request.local.remoteHost
                 val sessionId = call.request.queryParameters["sessionId"]
                 val fileId = call.request.queryParameters["fileId"]
-                val file = sessionId?.let { downloadSessions[it] }?.get(fileId)
-                if (file == null) {
+                if (sessionId == null || fileId == null) {
                     call.respond(HttpStatusCode.BadRequest)
+                    return@get
+                }
+                val session = webSessions[sessionId]
+                if (session == null || !session.accepted || session.ip != remoteIp) {
+                    call.respond(HttpStatusCode.Forbidden)
+                    return@get
+                }
+                val file = offeredFiles()[fileId]
+                if (file == null) {
+                    call.respond(HttpStatusCode.Forbidden)
                     return@get
                 }
                 call.response.header(
                     HttpHeaders.ContentDisposition,
-                    "attachment; filename=\"${file.name}\"",
+                    "attachment; filename=\"${encodeDispositionFileName(file.name)}\"",
                 )
                 call.respond(object : OutgoingContent.WriteChannelContent() {
                     override val contentLength: Long = file.size
@@ -649,198 +753,103 @@ class ReceiveServer(
                 })
             }
 
-            // Share / receive via link: the full web page (v0.8.0, the
-            // official app serves an equivalent one). The page talks to
-            // the same Protocol v2.2 endpoints the apps use: downloads go
-            // through /prepare-download + /download; uploads from the
-            // browser go through /prepare-upload + /upload with a
-            // synthetic "web" peer, so the app's normal approval flow
-            // (accept dialog, Quick Save, PIN, link auto-accept) applies
-            // to browser uploads exactly like to app sends.
+            // Share / receive via link, the official implementation's
+            // pages (v0.12.0 port, see WebPages): the download page
+            // while files are offered, else the upload page while the
+            // link is open, else the 403 page. Uploads from the browser
+            // go through the normal /prepare-upload + /upload flow, so
+            // the app's approval rules (accept dialog, Quick Save,
+            // PIN, link auto-accept) apply unchanged.
             get("/") {
+                when {
+                    webSendActive() ->
+                        call.respondText(WebPages.DOWNLOAD, ContentType.Text.Html)
+                    settingsProvider().downloadApi ->
+                        call.respondText(WebPages.UPLOAD, ContentType.Text.Html)
+                    else ->
+                        call.respondText(
+                            WebPages.ERROR_403,
+                            ContentType.Text.Html,
+                            HttpStatusCode.Forbidden,
+                        )
+                }
+            }
+
+            get("/i18n.json") {
                 if (!settingsProvider().downloadApi) {
-                    call.respond(HttpStatusCode.NotFound)
+                    call.respond(HttpStatusCode.Forbidden)
                     return@get
                 }
-                call.respondText(webLinkPage(localProvider().alias), ContentType.Text.Html)
+                call.respondText(
+                    webI18nJson(settingsProvider().language),
+                    ContentType.Application.Json,
+                )
             }
         }
     }
 
     /**
-     * The via-link web page. Deliberately written without any dollar
-     * signs or template literals so it can live in a Kotlin raw string.
+     * The upstream Content-Disposition encoding: RFC 2396 component
+     * percent-encoding of the UTF-8 bytes, '/' first flattened to '-'.
      */
-    private fun webLinkPage(alias: String): String = """
-<!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LocalSend Expressive — ${alias}</title>
-<style>
-  :root { color-scheme: light dark; }
-  body { font-family: system-ui, sans-serif; margin: 0; background: #f6f2fa; color: #1c1b1f; }
-  @media (prefers-color-scheme: dark) { body { background: #141218; color: #e6e1e5; } .card { background: #211f26 !important; } }
-  header { padding: 28px 20px 8px; max-width: 720px; margin: 0 auto; }
-  h1 { font-size: 26px; margin: 0 0 4px; }
-  .sub { opacity: .7; margin: 0 0 8px; }
-  main { max-width: 720px; margin: 0 auto; padding: 12px 20px 40px; display: grid; gap: 16px; }
-  .card { background: #fff; border-radius: 24px; padding: 20px; box-shadow: 0 1px 4px rgba(0,0,0,.12); }
-  .card h2 { margin: 0 0 12px; font-size: 18px; }
-  #drop { border: 2px dashed #6750a4; border-radius: 16px; padding: 28px; text-align: center; cursor: pointer; }
-  #drop.over { background: rgba(103,80,164,.12); }
-  button, .dl { background: #6750a4; color: #fff; border: 0; border-radius: 999px; padding: 10px 20px; font-size: 14px; cursor: pointer; text-decoration: none; display: inline-block; }
-  ul { list-style: none; padding: 0; margin: 0; display: grid; gap: 10px; }
-  li { display: flex; align-items: center; gap: 12px; }
-  li .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .bar { height: 6px; border-radius: 3px; background: rgba(103,80,164,.25); overflow: hidden; flex: 1; }
-  .bar i { display: block; height: 100%; width: 0; background: #6750a4; }
-  .note { font-size: 13px; opacity: .7; }
-  .err { color: #b3261e; }
-</style>
-</head>
-<body>
-<header>
-  <h1>LocalSend Expressive</h1>
-  <p class="sub">Connected to <b>${alias}</b> via link</p>
-</header>
-<main>
-  <section class="card">
-    <h2>Send files to this device</h2>
-    <div id="drop">Drop files here, or tap to choose<input type="file" id="pick" multiple hidden></div>
-    <p class="note">The device may ask its owner to approve the transfer first.</p>
-    <ul id="uploads"></ul>
-    <p id="upmsg" class="note"></p>
-  </section>
-  <section class="card">
-    <h2>Files shared with you</h2>
-    <ul id="downloads"></ul>
-    <p id="dlmsg" class="note">Loading…</p>
-  </section>
-</main>
-<script>
-var API = '/api/localsend/v2';
-var fp = localStorage.getItem('lsex-web-fp');
-if (!fp) {
-  fp = '';
-  var hex = '0123456789abcdef';
-  for (var i = 0; i < 64; i++) fp += hex.charAt(Math.floor(Math.random() * 16));
-  localStorage.setItem('lsex-web-fp', fp);
-}
-function fmt(n) {
-  if (n < 1024) return n + ' B';
-  var u = ['KB','MB','GB','TB'], i = -1;
-  do { n = n / 1024; i++; } while (n >= 1024 && i < u.length - 1);
-  return n.toFixed(1) + ' ' + u[i];
-}
-function loadDownloads() {
-  fetch(API + '/prepare-download', { method: 'POST' })
-    .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
-    .then(function(data) {
-      var ul = document.getElementById('downloads');
-      ul.innerHTML = '';
-      var ids = Object.keys(data.files || {});
-      document.getElementById('dlmsg').textContent = ids.length ? '' : 'Nothing is shared right now. Ask the owner to pick files for link sharing.';
-      ids.forEach(function(id) {
-        var f = data.files[id];
-        var li = document.createElement('li');
-        var a = document.createElement('a');
-        a.className = 'dl'; a.textContent = 'Download';
-        a.href = API + '/download?sessionId=' + encodeURIComponent(data.sessionId) + '&fileId=' + encodeURIComponent(id);
-        var name = document.createElement('span');
-        name.className = 'name'; name.textContent = f.fileName + ' (' + fmt(f.size) + ')';
-        li.appendChild(name); li.appendChild(a); ul.appendChild(li);
-      });
-    })
-    .catch(function(e) { document.getElementById('dlmsg').textContent = 'Could not load the shared files: ' + e.message; });
-}
-var drop = document.getElementById('drop');
-var pick = document.getElementById('pick');
-drop.addEventListener('click', function() { pick.click(); });
-drop.addEventListener('dragover', function(e) { e.preventDefault(); drop.classList.add('over'); });
-drop.addEventListener('dragleave', function() { drop.classList.remove('over'); });
-drop.addEventListener('drop', function(e) { e.preventDefault(); drop.classList.remove('over'); sendFiles(e.dataTransfer.files); });
-pick.addEventListener('change', function() { sendFiles(pick.files); pick.value = ''; });
-function sendFiles(fileList) {
-  var files = Array.prototype.slice.call(fileList);
-  if (!files.length) return;
-  var msg = document.getElementById('upmsg');
-  msg.textContent = 'Asking the device…';
-  msg.className = 'note';
-  var dtoFiles = {};
-  files.forEach(function(f, i) {
-    var id = 'web-' + Date.now() + '-' + i;
-    f._lsexId = id;
-    dtoFiles[id] = { id: id, fileName: f.name, size: f.size, fileType: f.type || 'other' };
-  });
-  var info = {
-    alias: 'Web browser', version: '2.2', deviceModel: navigator.platform || 'Browser',
-    deviceType: 'web', fingerprint: fp, port: 53317,
-    protocol: location.protocol.replace(':', ''), download: false, announce: false
-  };
-  var pin = '';
-  function attempt() {
-    var url = API + '/prepare-upload' + (pin ? ('?pin=' + encodeURIComponent(pin)) : '');
-    fetch(url, {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ info: info, files: dtoFiles })
-    }).then(function(r) {
-      if (r.status === 401 || r.status === 429) {
-        pin = window.prompt('This device asks for a PIN:') || '';
-        if (pin) { attempt(); return; }
-        throw new Error('A PIN is required.');
-      }
-      if (r.status === 403) throw new Error('The owner declined the transfer.');
-      if (r.status === 409) throw new Error('The device is busy with another transfer — try again in a moment.');
-      if (!r.ok) throw new Error('HTTP ' + r.status);
-      return r.json();
-    }).then(function(session) {
-      if (!session) return;
-      msg.textContent = 'Accepted — sending…';
-      files.forEach(function(f) { uploadOne(session, f, msg); });
-    }).catch(function(e) { msg.textContent = e.message; msg.className = 'note err'; });
-  }
-  attempt();
-}
-function uploadOne(session, f, msg) {
-  var token = session.files[f._lsexId];
-  var ul = document.getElementById('uploads');
-  var li = document.createElement('li');
-  if (!token) {
-    li.innerHTML = '';
-    var skip = document.createElement('span');
-    skip.className = 'name'; skip.textContent = f.name + ' — not accepted';
-    li.appendChild(skip); ul.appendChild(li);
-    return;
-  }
-  var name = document.createElement('span');
-  name.className = 'name'; name.textContent = f.name;
-  var bar = document.createElement('div'); bar.className = 'bar';
-  var fill = document.createElement('i'); bar.appendChild(fill);
-  var pct = document.createElement('span'); pct.textContent = '0%';
-  li.appendChild(name); li.appendChild(bar); li.appendChild(pct);
-  ul.appendChild(li);
-  var xhr = new XMLHttpRequest();
-  xhr.open('POST', API + '/upload?sessionId=' + encodeURIComponent(session.sessionId) + '&fileId=' + encodeURIComponent(f._lsexId) + '&token=' + encodeURIComponent(token));
-  xhr.upload.onprogress = function(e) {
-    if (e.lengthComputable) {
-      var p = Math.round(e.loaded * 100 / e.total);
-      fill.style.width = p + '%'; pct.textContent = p + '%';
+    private fun encodeDispositionFileName(raw: String): String {
+        val name = raw.replace('/', '-')
+        val keep = "-_.!~*'()"
+        val sb = StringBuilder()
+        for (byte in name.toByteArray(Charsets.UTF_8)) {
+            val value = byte.toInt() and 0xFF
+            val c = value.toChar()
+            if (c in 'A'..'Z' || c in 'a'..'z' || c in '0'..'9' || c in keep) {
+                sb.append(c)
+            } else {
+                sb.append('%').append(String.format("%02X", value))
+            }
+        }
+        return sb.toString()
     }
-  };
-  xhr.onload = function() {
-    if (xhr.status >= 200 && xhr.status < 300) { fill.style.width = '100%'; pct.textContent = 'Done'; }
-    else { pct.textContent = 'Failed (' + xhr.status + ')'; pct.className = 'err'; }
-  };
-  xhr.onerror = function() { pct.textContent = 'Failed'; pct.className = 'err'; };
-  xhr.send(f);
-}
-loadDownloads();
-</script>
-</body>
-</html>
-"""
+
+    /**
+     * The strings the official web pages fetch from /i18n.json
+     * (upstream WebI18n; English defaults, Spanish when the app
+     * language is Spanish).
+     */
+    private fun webI18nJson(language: String): String {
+        val strings = if (language == "es") {
+            listOf(
+                "waiting" to "Esperando respuesta…",
+                "enterPin" to "Introduce el PIN",
+                "invalidPin" to "PIN no válido",
+                "tooManyAttempts" to "Demasiados intentos",
+                "rejected" to "Rechazado",
+                "uploadRejected" to "El destinatario ha rechazado la solicitud.",
+                "busy" to "El destinatario está ocupado con otra solicitud.",
+                "files" to "Archivos",
+                "fileName" to "Nombre del archivo",
+                "size" to "Tamaño",
+                "dropHint" to "Coloca aquí los elementos a compartir.",
+            )
+        } else {
+            listOf(
+                "waiting" to "Waiting for response…",
+                "enterPin" to "Enter PIN",
+                "invalidPin" to "Invalid PIN",
+                "tooManyAttempts" to "Too many attempts",
+                "rejected" to "Rejected",
+                "uploadRejected" to "The recipient has rejected the request.",
+                "busy" to "The recipient is busy with another request.",
+                "files" to "Files",
+                "fileName" to "File name",
+                "size" to "Size",
+                "dropHint" to "Place items to share.",
+            )
+        }
+        fun esc(value: String): String = value
+            .replace("\\", "\\\\")
+            .replace("\"", "\\\"")
+        return strings.joinToString(prefix = "{", postfix = "}", separator = ",") {
+            "\"${it.first}\":\"${esc(it.second)}\""
+        }
+    }
 
     private companion object {
         const val BUFFER_SIZE = 64 * 1024
