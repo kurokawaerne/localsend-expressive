@@ -133,4 +133,10 @@ data class HistoryEntry(
      * unknown (text messages, pre-v0.5.0 entries).
      */
     val handle: String = "",
+    /**
+     * For text-message entries: the FULL text (fileName only holds the
+     * first 120 characters for display). Null for file entries and for
+     * entries written before v0.12.0.
+     */
+    val preview: String? = null,
 )

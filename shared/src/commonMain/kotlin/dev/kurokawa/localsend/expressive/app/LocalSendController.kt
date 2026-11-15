@@ -21,6 +21,27 @@ data class FileProgress(
 }
 
 /** An incoming prepare-upload waiting for the user's decision (M2). */
+/**
+ * A browser asking to download the files shared via link (the
+ * official web-send flow): POST /prepare-download pends until the
+ * user answers, unless the share-via-link auto-accept setting is on.
+ */
+/** A received text message, shown as a popup on arrival (v0.12.0). */
+data class IncomingText(
+    val id: String,
+    val peerAlias: String,
+    val text: String,
+    val timeMillis: Long,
+)
+
+data class WebDownloadRequest(
+    val id: String,
+    /** The browser's IP — also its download session id (upstream model). */
+    val ip: String,
+    /** Human-readable client, parsed from the User-Agent ("Chrome (Android)"). */
+    val deviceInfo: String,
+)
+
 data class IncomingOffer(
     val sessionId: String,
     val peer: RegisterDto,
@@ -79,6 +100,18 @@ interface LocalSendController {
      * (per-file selection), or null to decline the whole offer.
      */
     fun respondOffer(acceptedFileIds: Set<String>?)
+
+    /** Pending browser download requests (share via link), oldest first. */
+    val webDownloadRequests: StateFlow<List<WebDownloadRequest>>
+
+    /** Answer a pending [webDownloadRequests] entry. */
+    fun answerWebDownload(id: String, accept: Boolean)
+
+    /** The received text message to pop up, if any (queue head). */
+    val incomingText: StateFlow<IncomingText?>
+
+    /** Dismiss the current [incomingText] popup (shows the next, if any). */
+    fun dismissIncomingText()
 
     /** Re-announce in a burst and mark scanning active for the discovery timeout. */
     fun refreshDiscovery()
