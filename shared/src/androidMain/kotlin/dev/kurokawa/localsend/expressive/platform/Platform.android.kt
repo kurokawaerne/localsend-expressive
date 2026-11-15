@@ -68,7 +68,11 @@ actual fun loadInstalledApps(): List<InstalledApp> {
                 label = pm.getApplicationLabel(app).toString(),
                 packageName = app.packageName,
                 apkHandle = app.sourceDir,
-                apkSize = file.length(),
+                // Total install size: base + every split (v0.10.0
+                // showed the base APK alone for split apps).
+                apkSize = file.length() + (info.splitSourceDirs?.sumOf { path ->
+                    runCatching { java.io.File(path).length() }.getOrDefault(0L)
+                } ?: 0L),
                 splitHandles = app.splitSourceDirs?.toList() ?: emptyList(),
                 isSystem = (app.flags and android.content.pm.ApplicationInfo.FLAG_SYSTEM) != 0 ||
                     (app.flags and android.content.pm.ApplicationInfo.FLAG_UPDATED_SYSTEM_APP) != 0,

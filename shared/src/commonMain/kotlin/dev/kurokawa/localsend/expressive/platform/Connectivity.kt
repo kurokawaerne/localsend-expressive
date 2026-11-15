@@ -41,6 +41,7 @@ data class ConnectivityState(
      * instead of silently showing nothing (v0.10.0).
      */
     val locationOff: Boolean = false,
+    val wifiPermissionMissing: Boolean = false,
 )
 
 /**

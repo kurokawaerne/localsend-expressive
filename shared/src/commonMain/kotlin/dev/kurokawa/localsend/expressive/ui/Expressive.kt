@@ -10,6 +10,8 @@ import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
 import androidx.compose.material3.Text
 import androidx.compose.material3.ToggleButton
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ToggleButtonDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
@@ -55,6 +57,16 @@ fun QuickSaveConnectedGroup(
                 checked = index == selectedIndex,
                 onCheckedChange = { if (it) onSelect(index) },
                 shapes = shapes,
+                // Explicit colors: with the library defaults the
+                // unchecked segments sat one container step from the
+                // tile behind them and read as invisible on the phone
+                // (v0.10.0 verdict).
+                colors = ToggleButtonDefaults.toggleButtonColors(
+                    checkedContainerColor = MaterialTheme.colorScheme.primary,
+                    checkedContentColor = MaterialTheme.colorScheme.onPrimary,
+                    containerColor = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    contentColor = MaterialTheme.colorScheme.onSurface,
+                ),
                 modifier = Modifier.weight(1f).padding(horizontal = 1.dp),
             ) {
                 Text(label, maxLines = 1, softWrap = false)
