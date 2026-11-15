@@ -108,6 +108,64 @@ class CertManager {
         }
 
         /**
+         * True when the certificate is expired, not yet valid, or close
+         * enough to expiry that peers/browsers would start refusing it.
+         * (v0.10.0 verdict: peers answered our handshakes with
+         * SSLV3_ALERT_CERTIFICATE_UNKNOWN and the browser called the
+         * via-link certificate expired — the old gates never looked at
+         * the validity window at all.)
+         */
+        fun expiredOrNear(cert: X509Certificate): Boolean {
+            val now = System.currentTimeMillis()
+            return cert.notAfter.time < now + 30L * 24 * 3600 * 1000 ||
+                cert.notBefore.time > now + 5 * 60 * 1000
+        }
+
+        /**
+         * True when this machine owns an address today that the stored
+         * certificate's SAN list does not cover. SANs freeze at
+         * generation time, so joining a new network (or becoming a
+         * hotspot with a fresh subnet) silently strands the old
+         * certificate: clients connecting to the uncovered address
+         * reject it. Regenerating re-snapshots the live addresses.
+         */
+        /**
+         * Canonical text form of an IP for SAN comparisons: the
+         * scope id of a link-local IPv6 address (fe80::1%eth0) is
+         * meaningless inside a certificate, and the form a stored
+         * certificate parses back to never carries one — comparing
+         * raw hostAddress strings against parsed SANs therefore
+         * reports a permanent "miss" on any machine with link-local
+         * IPv6 (i.e. all of them) and would regenerate the identity
+         * on every start.
+         */
+        fun canonicalIp(raw: String): String {
+            val stripped = raw.substringBefore('%').lowercase()
+            return runCatching { InetAddress.getByName(stripped).hostAddress }
+                .getOrNull() ?: stripped
+        }
+
+        fun missesCurrentAddresses(cert: X509Certificate): Boolean {
+            val sanIps = runCatching { cert.subjectAlternativeNames }.getOrNull()
+                ?.filter { it.size >= 2 && it[0] == 7 }
+                ?.mapNotNull { it[1]?.toString()?.let { ip -> canonicalIp(ip) } }
+                ?.toSet()
+                ?: return true
+            val current = mutableSetOf<String>()
+            runCatching {
+                NetworkInterface.getNetworkInterfaces().toList().forEach { iface ->
+                    if (!iface.isUp || iface.isLoopback) return@forEach
+                    iface.inetAddresses.toList().forEach { addr ->
+                        if (!addr.isLoopbackAddress) {
+                            addr.hostAddress?.let { current += canonicalIp(it) }
+                        }
+                    }
+                }
+            }
+            return current.any { it !in sanIps }
+        }
+
+        /**
          * SAN entries for generated certificates: the names/IPs a browser
          * on the local network can plausibly use to reach the via-link
          * page — loopback, the well-known hotspot / Wi-Fi Direct gateway
@@ -127,7 +185,9 @@ class CertManager {
             runCatching {
                 NetworkInterface.getNetworkInterfaces().toList().forEach { iface ->
                     iface.inetAddresses.toList().forEach { addr: InetAddress ->
-                        addr.hostAddress?.let { names += GeneralName(GeneralName.iPAddress, it) }
+                        addr.hostAddress?.let {
+                            names += GeneralName(GeneralName.iPAddress, canonicalIp(it))
+                        }
                     }
                 }
             }
@@ -157,7 +217,9 @@ class CertManager {
             // authentication can never be presented to official peers
             // (their servers require mutual TLS) — replace it once.
             val existing = store.getCertificate(ALIAS) as? X509Certificate
-            if (existing == null || blocksClientAuth(existing) || browserUnusable(existing)) {
+            if (existing == null || blocksClientAuth(existing) || browserUnusable(existing) ||
+                expiredOrNear(existing) || missesCurrentAddresses(existing)
+            ) {
                 regenerate = true
             }
         }
