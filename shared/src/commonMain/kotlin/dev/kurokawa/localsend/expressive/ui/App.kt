@@ -151,6 +151,7 @@ import dev.kurokawa.localsend.expressive.platform.QrScannerView
 import dev.kurokawa.localsend.expressive.platform.installPackage
 import dev.kurokawa.localsend.expressive.platform.stageAppBundle
 import dev.kurokawa.localsend.expressive.platform.installerSupported
+import dev.kurokawa.localsend.expressive.platform.fullScreenDialogProperties
 import dev.kurokawa.localsend.expressive.platform.isInstallablePackage
 import dev.kurokawa.localsend.expressive.platform.joinWifiNetwork
 import dev.kurokawa.localsend.expressive.platform.supportsWifiNetworkList
@@ -2368,10 +2369,7 @@ private fun FullscreenMediaPreview(
             setOf("mp4", "mkv", "webm", "avi", "mov", "3gp")
     androidx.compose.ui.window.Dialog(
         onDismissRequest = onDismiss,
-        properties = androidx.compose.ui.window.DialogProperties(
-            usePlatformDefaultWidth = false,
-            usePlatformInsets = false,
-        ),
+        properties = fullScreenDialogProperties(),
     ) {
         Box(
             Modifier
@@ -3925,14 +3923,11 @@ private fun CopyButton(text: String) {
 private fun DonatePage(onDismiss: () -> Unit) {
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(
-            usePlatformDefaultWidth = false,
-            // Edge-to-edge (Ernest, 2026-11-15): a full-screen
-            // dialog window otherwise paints the status bar and
-            // the navigation hint black — the page must draw
-            // behind them like the rest of the app.
-            usePlatformInsets = false,
-        ),
+        // Edge-to-edge (Ernest, 2026-11-15): a full-screen dialog
+        // window otherwise paints the status bar and the navigation
+        // hint black — the page must draw behind them like the rest
+        // of the app. Built per platform (see Browser.kt).
+        properties = fullScreenDialogProperties(),
     ) {
         DonateContent(onDismiss)
     }
