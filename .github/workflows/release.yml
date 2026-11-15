@@ -177,14 +177,14 @@ jobs:
           prerelease: true
           files: release-assets/*
           body: |
-            The v0.12.0 polish batch: four fixes from Ernest's review, in one release.
+            The motion batch: three fixes from Ernest's review, in one release.
 
-            **Navbar spacing, UDYAT's fix**
-            - The improvised navbar's item padding tightens from 16 to 12 — the selected pill's label end and the unselected labels — so the bar's spacing is even, exactly as UDYAT applied it.
+            **The navbar pill no longer chops**
+            - The selected pill in the improvised navbar used to slice itself (and its label) mid-animation when switching sections — the incoming item was laid out at full width inside a still-animating, pill-clipped box. The item is now one layout in both states: a single animation drives the label's padding, the pill's colour and the icon's fade, so the pill wraps its content exactly at every frame.
 
-            **Landscape shell**
-            - The rail's top-left mark is the current logo now; the old comparison-arrows mark is retired.
-            - The rectangle behind the vertical bar is transparent — the bar floats on the plain background.
+            **Swipe between pages**
+            - Slide horizontally across a free space of a page to move to the adjacent page. Swipe-reveal rows and horizontal scrollers keep their own drags — only free space turns the page.
 
-            **Donate page bars**
-            - The Donate page no longer paints the status bar and the navigation hint black: full-screen pages draw edge-to-edge like the rest of the app. The fullscreen media preview is genuinely fullscreen now, too.
+            **Everything opens with motion**
+            - Page switches slide laterally with the direction of travel, whether they come from the navbar or from a swipe.
+            - The full-screen pages — Donate, link sharing, the content picker, the media preview — rise and fade in, and play their exit before closing. The link page and the picker also draw edge-to-edge now (they had the same black status and navigation bars the Donate page had).
