@@ -3,7 +3,12 @@ import com.composables.icons.materialsymbols.MaterialSymbols
 import com.composables.icons.materialsymbols.outlined.*
 import com.composables.icons.materialsymbols.outlinedfilled.*
 
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.SpringSpec
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.layout.Row
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.ButtonGroupDefaults
@@ -74,3 +79,19 @@ fun QuickSaveConnectedGroup(
         }
     }
 }
+
+/**
+ * The MD3E bounce (Ernest, v0.12.0): one spring voice for the places
+ * where content pops in or resizes by hand. Stock components already
+ * follow MotionScheme.expressive(); these specs cover tab switches,
+ * the transfer pill, expanding sections and list placement — a
+ * visible single overshoot, never silly.
+ */
+fun bouncyFloatSpring(): SpringSpec<Float> =
+    spring(dampingRatio = 0.62f, stiffness = Spring.StiffnessMediumLow)
+
+fun bouncySizeSpring(): SpringSpec<IntSize> =
+    spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)
+
+fun bouncyOffsetSpring(): SpringSpec<IntOffset> =
+    spring(dampingRatio = 0.72f, stiffness = Spring.StiffnessMediumLow)

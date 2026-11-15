@@ -18,6 +18,15 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.border
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.Canvas
@@ -25,6 +34,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -142,6 +152,7 @@ import dev.kurokawa.localsend.expressive.platform.stageAppBundle
 import dev.kurokawa.localsend.expressive.platform.installerSupported
 import dev.kurokawa.localsend.expressive.platform.isInstallablePackage
 import dev.kurokawa.localsend.expressive.platform.joinWifiNetwork
+import dev.kurokawa.localsend.expressive.platform.supportsWifiNetworkList
 import dev.kurokawa.localsend.expressive.platform.WifiNetwork
 import dev.kurokawa.localsend.expressive.platform.loadInstalledApps
 import dev.kurokawa.localsend.expressive.platform.deleteReceivedFile
@@ -191,6 +202,7 @@ import dev.kurokawa.localsend.expressive.theme.minusColorScheme
 import dev.kurokawa.localsend.expressive.theme.LocalSendExpressiveTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import androidx.compose.foundation.gestures.AnchoredDraggableState
@@ -350,103 +362,66 @@ internal fun LsexWordmark(modifier: Modifier = Modifier) {
 }
 
 /**
- * Animated splash (Ernest's exact spec): the two comparison arrows start
- * at the TOP and BOTTOM corners of the screen, sweep quickly to the
- * center along an almost-circular arc, BOUNCE when they meet, and settle
- * into the static mark (pale circle + arrows) with the wordmark at the
- * bottom. Colors come from the live color scheme, so the splash follows
- * dynamic color like the rest of the app. Runs on every platform —
- * Android's system splash (same artwork, light/dark adaptive) hands off
- * to it. Hardened: the completion callback fires from a finally block,
- * so no animation failure can trap the user on the splash.
+ * The in-app splash (desktop; Android's ONE splash is the system one
+ * with the same artwork and motion). v0.12.0 rework (Ernest): the old
+ * flying-arrows artwork is gone — the splash is the CURRENT app logo,
+ * the gradient radar mark, spinning one full turn while it bounces
+ * in on springs, over the theme's surface color so the dynamic /
+ * chosen theme colors carry the whole splash. The wordmark fades in
+ * at the bottom. Hardened: the completion callback fires from a
+ * finally block, so no animation failure can trap the user here.
  */
 @Composable
 internal fun SplashOverlay(onDone: () -> Unit) {
-    val progress = remember { Animatable(0f) }
+    val rotation = remember { Animatable(0f) }
+    val scale = remember { Animatable(0.45f) }
+    val fade = remember { Animatable(0f) }
     LaunchedEffect(Unit) {
         try {
-            progress.animateTo(1f, tween(durationMillis = 1150, easing = LinearEasing))
-            delay(320)
+            coroutineScope {
+                launch {
+                    rotation.animateTo(
+                        360f,
+                        spring(
+                            dampingRatio = 0.55f,
+                            stiffness = Spring.StiffnessMediumLow,
+                        ),
+                    )
+                }
+                launch {
+                    scale.animateTo(
+                        1f,
+                        spring(
+                            dampingRatio = 0.42f,
+                            stiffness = Spring.StiffnessMediumLow,
+                        ),
+                    )
+                }
+                launch { fade.animateTo(1f, tween(350)) }
+            }
+            delay(300)
         } finally {
             onDone()
         }
     }
-    val primary = MaterialTheme.colorScheme.primary
     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
-        BoxWithConstraints(Modifier.fillMaxSize()) {
-            val wPx = constraints.maxWidth.toFloat()
-            val hPx = constraints.maxHeight.toFloat()
-            val t = progress.value
-            // Ease-out for the flight itself (fast start, gentle arrival).
-            val te = 1f - (1f - t).let { it * it * it }
-            // Bounce: once the arrows meet (~82% in), they rebound a
-            // little way back along their paths and settle again.
-            val bouncePhase = ((te - 0.82f) / 0.18f).coerceIn(0f, 1f)
-            val rebound = if (te > 0.82f) {
-                sin(bouncePhase * PI.toFloat()) * min(wPx, hPx) * 0.028f
-            } else {
-                0f
-            }
-            // Position of one arrow: corner -> center along a quadratic
-            // arc (the perpendicular bulge peaks mid-flight and curves
-            // BOTH arrows in the same rotational sense — the "almost
-            // circular" sweep), plus the rebound along the travel axis.
-            fun arrowOffset(startX: Float, startY: Float): Offset {
-                val vx = -startX
-                val vy = -startY
-                val len = sqrt(vx * vx + vy * vy).coerceAtLeast(1f)
-                val bulge = sin(te * PI.toFloat()) * min(wPx, hPx) * 0.10f
-                val along = te + rebound / len
-                return Offset(
-                    startX + vx * along + (-vy / len) * bulge * (1f - te),
-                    startY + vy * along + (vx / len) * bulge * (1f - te),
-                )
-            }
-            val fade = 0.3f + 0.7f * te
-            // Arrow 1 (points up-right) starts at the BOTTOM-left corner.
-            val o1 = arrowOffset(-wPx * 0.44f, hPx * 0.32f)
-            Canvas(
-                Modifier.fillMaxSize().graphicsLayer {
-                    translationX = o1.x
-                    translationY = o1.y
-                    alpha = fade
-                },
-            ) {
-                val cx = size.width / 2f
-                val cy = size.height / 2f
-                val s = size.minDimension * 0.16f
-                val stroke = s * 0.26f
-                drawLine(primary, Offset(cx - s, cy + s * 0.45f), Offset(cx + s * 0.05f, cy + s * 0.45f), stroke)
-                drawLine(primary, Offset(cx - s * 0.35f, cy - s * 0.2f), Offset(cx + s * 0.05f, cy + s * 0.45f), stroke)
-                drawLine(primary, Offset(cx - s * 0.35f, cy + s * 1.1f), Offset(cx + s * 0.05f, cy + s * 0.45f), stroke)
-            }
-            // Arrow 2 (points down-left) starts at the TOP-right corner.
-            val o2 = arrowOffset(wPx * 0.44f, -hPx * 0.32f)
-            Canvas(
-                Modifier.fillMaxSize().graphicsLayer {
-                    translationX = o2.x
-                    translationY = o2.y
-                    alpha = fade
-                },
-            ) {
-                val cx = size.width / 2f
-                val cy = size.height / 2f
-                val s = size.minDimension * 0.16f
-                val stroke = s * 0.26f
-                drawLine(primary, Offset(cx + s, cy - s * 0.45f), Offset(cx - s * 0.05f, cy - s * 0.45f), stroke)
-                drawLine(primary, Offset(cx + s * 0.35f, cy + s * 0.2f), Offset(cx - s * 0.05f, cy - s * 0.45f), stroke)
-                drawLine(primary, Offset(cx + s * 0.35f, cy - s * 1.1f), Offset(cx - s * 0.05f, cy - s * 0.45f), stroke)
-            }
-            // The settled mark fades in as the arrows land.
+        Box(Modifier.fillMaxSize()) {
+            AppLogo(
+                Modifier
+                    .align(Alignment.Center)
+                    .size(156.dp)
+                    .graphicsLayer {
+                        rotationZ = rotation.value
+                        scaleX = scale.value
+                        scaleY = scale.value
+                        alpha = fade.value
+                    },
+            )
             Box(
-                Modifier.align(Alignment.Center)
-                    .graphicsLayer { alpha = ((te - 0.6f) / 0.4f).coerceIn(0f, 1f) },
-            ) {
-                ArrowsMark(120.dp)
-            }
-            Box(
-                Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp)
-                    .graphicsLayer { alpha = ((te - 0.6f) / 0.4f).coerceIn(0f, 1f) },
+                Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = 64.dp)
+                    .graphicsLayer { alpha = fade.value },
             ) {
                 LsexWordmark()
             }
@@ -531,7 +506,20 @@ internal fun AppScaffold(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 840.dp
         val content: @Composable () -> Unit = {
-            when (tab) {
+            AnimatedContent(
+                targetState = tab,
+                transitionSpec = {
+                    // MD3E bounce (Ernest, v0.12.0): pages scale-settle
+                    // on a spring instead of snapping in.
+                    (fadeIn(tween(200)) +
+                        scaleIn(
+                            animationSpec = bouncyFloatSpring(),
+                            initialScale = 0.94f,
+                        )) togetherWith fadeOut(tween(140))
+                },
+                label = "mainTab",
+            ) { currentTab ->
+                when (currentTab) {
                 MainTab.Home -> HomeScreen(
                     controller = controller,
                     settings = settings,
@@ -558,6 +546,7 @@ internal fun AppScaffold(
                     },
                 )
                 MainTab.Settings -> SettingsScreen(controller, settings)
+                }
             }
         }
         if (wide) {
@@ -721,6 +710,79 @@ internal fun AppScaffold(
 
     }
     offer?.let { IncomingOfferDialog(controller, it) }
+    val webDownloadRequests by controller.webDownloadRequests.collectAsState()
+    webDownloadRequests.firstOrNull()?.let { request ->
+        AlertDialog(
+            onDismissRequest = { controller.answerWebDownload(request.id, false) },
+            icon = {
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                    Icon(
+                        MaterialSymbols.Outlined.Language,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            },
+            title = { Text("Browser download request") },
+            text = {
+                Text(
+                    "${request.deviceInfo} · ${request.ip} wants to download " +
+                        "the files you are sharing via link.",
+                )
+            },
+            confirmButton = {
+                Button(onClick = { controller.answerWebDownload(request.id, true) }) {
+                    Text("Accept")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { controller.answerWebDownload(request.id, false) }) {
+                    Text("Decline")
+                }
+            },
+        )
+    }
+    val incomingText by controller.incomingText.collectAsState()
+    incomingText?.let { message ->
+        val textClipboard = LocalClipboardManager.current
+        AlertDialog(
+            onDismissRequest = { controller.dismissIncomingText() },
+            icon = {
+                Surface(shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                    Icon(
+                        MaterialSymbols.Outlined.Chat,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier = Modifier.padding(12.dp),
+                    )
+                }
+            },
+            title = { Text("Message from ${message.peerAlias}") },
+            text = {
+                SelectionContainer {
+                    Text(message.text)
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        textClipboard.setText(AnnotatedString(message.text))
+                        controller.dismissIncomingText()
+                    },
+                ) {
+                    Icon(MaterialSymbols.Outlined.Content_copy, contentDescription = null)
+                    Spacer(Modifier.width(6.dp))
+                    Text("Copy")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { controller.dismissIncomingText() }) {
+                    Text("Close")
+                }
+            },
+        )
+    }
     if (showIpDialog) {
         IpAddressDialog(
             onDismiss = { showIpDialog = false },
@@ -973,7 +1035,7 @@ internal fun HomeScreen(
     var mode by rememberSaveable { mutableStateOf(0) }
     // Scan for the WiFi section's network list whenever it is shown.
     LaunchedEffect(mode) {
-        if (mode == 0) connectivity.scanWifiNetworks()
+        if (mode == 0 && supportsWifiNetworkList()) connectivity.scanWifiNetworks()
     }
     LaunchedEffect(connState.hotspot, connState.wifiDirect) {
         mode = when {
@@ -1059,7 +1121,7 @@ internal fun HomeScreen(
                 modifier = Modifier.fillMaxWidth(),
             ) {
                 Column(
-                    Modifier.padding(16.dp),
+                    Modifier.animateContentSize(bouncySizeSpring()).padding(16.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     ConnectedChoiceGroup(
@@ -1076,6 +1138,7 @@ internal fun HomeScreen(
                     }
                     when (mode) {
                         0 -> {
+                            if (supportsWifiNetworkList()) {
                             Text("Networks", style = MaterialTheme.typography.titleSmall)
     // Ernest's point 21 (v0.10.0): with Location off, Android
     // returns an empty scan list — say so, with the way out.
@@ -1134,6 +1197,18 @@ internal fun HomeScreen(
                                     Text(if (connState.wifiEnabled == true) "Settings" else "Turn on")
                                 }
                             }
+                            } else {
+                                // Android (Ernest, v0.12.0): no network
+                                // listing — the whole status area is one
+                                // full-width Wi-Fi button; the QR scanner
+                                // below stays.
+                                Button(
+                                    onClick = { connectivity.toggleWifi() },
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    Text(if (connState.wifiEnabled == true) "Settings" else "Turn on")
+                                }
+                            }
                             OutlinedButton(
                                 onClick = { showScanner = true },
                                 modifier = Modifier.fillMaxWidth(),
@@ -1142,7 +1217,7 @@ internal fun HomeScreen(
                                 Spacer(Modifier.width(8.dp))
                                 Text("Scan a code to join a network")
                             }
-                            if (connState.wifiNetworks.isEmpty()) {
+                            if (supportsWifiNetworkList() && connState.wifiNetworks.isEmpty()) {
                                 // Never leave this section silently empty
                                 // (v0.10.0 verdict): say WHY there is no
                                 // list and offer the one tap that fixes it.
@@ -1174,7 +1249,7 @@ internal fun HomeScreen(
                                     }
                                 }
                             }
-                            if (connState.wifiNetworks.isNotEmpty()) {
+                            if (supportsWifiNetworkList() && connState.wifiNetworks.isNotEmpty()) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
                                     Text(
                                         "Nearby networks",
@@ -1386,6 +1461,7 @@ internal fun HomeScreen(
         // group nested inside an extra card, which flattened it.)
         item {
             Column(
+                modifier = Modifier.animateContentSize(bouncySizeSpring()),
                 verticalArrangement =
                     Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
             ) {
@@ -1435,6 +1511,7 @@ internal fun HomeScreen(
                             modifier = Modifier.padding(horizontal = 16.dp),
                         )
                     } else {
+                        val clipboard = LocalClipboardManager.current
                         val shown = history.take(30)
                         Column(
                             verticalArrangement =
@@ -1482,6 +1559,18 @@ internal fun HomeScreen(
                                         }
                                     } else {
                                         null
+                                    },
+                                    onCopy = (
+                                        entry.preview
+                                            ?: if (entry.uri.isEmpty() && entry.handle.isEmpty()) {
+                                                // Pre-v0.12.0 text entries kept the
+                                                // (truncated) text in fileName.
+                                                entry.fileName
+                                            } else {
+                                                null
+                                            }
+                                        )?.let { text ->
+                                        { clipboard.setText(AnnotatedString(text)) }
                                     },
                                     onRemove = { controller.removeHistoryEntry(entry) },
                                     onDeleteFile = if (entry.incoming && entry.uri.isNotEmpty()) {
@@ -5188,6 +5277,7 @@ private fun HistoryRow(
     onOpen: (() -> Unit)? = null,
     onInstall: (() -> Unit)? = null,
     onResend: (() -> Unit)? = null,
+    onCopy: (() -> Unit)? = null,
     onRemove: () -> Unit,
     onDeleteFile: (() -> Unit)? = null,
 ) {
@@ -5201,9 +5291,10 @@ private fun HistoryRow(
             onOpen = onOpen,
             onInstall = onInstall,
             onResend = onResend,
+            onCopy = onCopy,
             onRemove = onRemove,
             showActions = true,
-            onClick = onOpen ?: onInstall ?: onResend,
+            onClick = onOpen ?: onInstall ?: onResend ?: onCopy,
         )
         return
     }
@@ -5211,7 +5302,7 @@ private fun HistoryRow(
     // remove-entry, the row's primary action (open / install / resend),
     // and for received files a red delete that removes the file itself.
     // (v0.8.0 shipped History with NO slide options at all.)
-    val hasPrimary = onOpen != null || onInstall != null || onResend != null
+    val hasPrimary = onOpen != null || onInstall != null || onResend != null || onCopy != null
     val actionCount = 1 + (if (hasPrimary) 1 else 0) + (if (onDeleteFile != null) 1 else 0)
     val density = LocalDensity.current
     // UDYAT's measured geometry (its latest list fix, ported): the
@@ -5275,16 +5366,18 @@ private fun HistoryRow(
                     content = MaterialTheme.colorScheme.onSecondaryContainer,
                     icon = when {
                         onInstall != null -> MaterialSymbols.Outlined.System_update
+                        onCopy != null -> MaterialSymbols.Outlined.Content_copy
                         else -> MaterialSymbols.Outlined.Logout
                     },
                     description = when {
                         onOpen != null -> "Open file"
                         onInstall != null -> "Install this package"
+                        onCopy != null -> "Copy text"
                         else -> "Resend"
                     },
                 ) {
                     scope.launch { state.snapTo(0) }
-                    (onOpen ?: onInstall ?: onResend)?.invoke()
+                    (onOpen ?: onInstall ?: onResend ?: onCopy)?.invoke()
                 }
             }
             if (onDeleteFile != null) {
@@ -5307,6 +5400,7 @@ private fun HistoryRow(
             onOpen = onOpen,
             onInstall = onInstall,
             onResend = onResend,
+            onCopy = onCopy,
             onRemove = onRemove,
             showActions = false,
             modifier = Modifier
@@ -5320,6 +5414,9 @@ private fun HistoryRow(
             onClick = {
                 if (state.currentValue == 1) {
                     scope.launch { state.snapTo(0) }
+                } else if (onOpen == null && onInstall == null && onResend == null) {
+                    // A text entry's primary action is copying it.
+                    onCopy?.invoke()
                 }
             },
         )
@@ -5335,6 +5432,7 @@ private fun HistoryRowItem(
     onOpen: (() -> Unit)?,
     onInstall: (() -> Unit)?,
     onResend: (() -> Unit)?,
+    onCopy: (() -> Unit)?,
     onRemove: () -> Unit,
     showActions: Boolean,
     modifier: Modifier = Modifier,
@@ -5388,6 +5486,15 @@ private fun HistoryRowItem(
                             Icon(
                                 MaterialSymbols.Outlined.Send,
                                 contentDescription = "Stage for resending",
+                                tint = MaterialTheme.colorScheme.primary,
+                            )
+                        }
+                    }
+                    if (onCopy != null) {
+                        IconButton(onClick = onCopy) {
+                            Icon(
+                                MaterialSymbols.Outlined.Content_copy,
+                                contentDescription = "Copy text",
                                 tint = MaterialTheme.colorScheme.primary,
                             )
                         }
@@ -6332,7 +6439,10 @@ internal fun ShareScreen(
                 }
                 else -> null
             }
-            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            Column(
+                modifier = Modifier.animateItem(placementSpec = bouncyOffsetSpring()),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
                 DeviceCard(
                     device = device,
                     isSelected = isSelected,
@@ -6456,6 +6566,7 @@ internal fun ShareScreen(
         if (staged.isNotEmpty()) {
             item {
                 Column(
+                    modifier = Modifier.animateContentSize(bouncySizeSpring()),
                     verticalArrangement =
                         Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
                 ) {
@@ -7141,12 +7252,22 @@ private fun GlobalTransferPillHost(
     val receiving = incomingProgress.any {
         it.status == TransferStatus.ACTIVE || it.status == TransferStatus.VERIFYING
     }
-    if (sending || receiving) {
+    AnimatedVisibility(
+        visible = sending || receiving,
+        modifier = modifier,
+        enter =
+            scaleIn(animationSpec = bouncyFloatSpring(), initialScale = 0.7f) +
+                fadeIn(tween(160)) +
+                slideInVertically(
+                    animationSpec = bouncyOffsetSpring(),
+                    initialOffsetY = { it / 2 },
+                ),
+        exit = scaleOut(tween(160)) + fadeOut(tween(160)),
+    ) {
         GlobalTransferPill(
             controller = controller,
             sending = sending,
             receiving = receiving,
-            modifier = modifier,
             onClick = onClick,
         )
     }
