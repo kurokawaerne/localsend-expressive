@@ -78,13 +78,19 @@ class TransferNotifier(private val context: Context) {
             }
                 .distinctUntilChanged()
                 .collect { snapshot ->
-                    if (!snapshot.active) {
-                        manager.cancel(NOTIFICATION_ID)
-                    } else {
-                        manager.notify(
-                            NOTIFICATION_ID,
-                            buildNotification(snapshot),
-                        )
+                    // A notification failure must NEVER kill the app:
+                    // v0.10.0 crashed here (bubble PendingIntent had to
+                    // be mutable) and the persisted outbox re-triggered
+                    // the post on every relaunch — a crash loop.
+                    runCatching {
+                        if (!snapshot.active) {
+                            manager.cancel(NOTIFICATION_ID)
+                        } else {
+                            manager.notify(
+                                NOTIFICATION_ID,
+                                buildNotification(snapshot),
+                            )
+                        }
                     }
                 }
         }
@@ -97,11 +103,15 @@ class TransferNotifier(private val context: Context) {
             Intent(context, TransferActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        // Android REQUIRES the intent attached to a bubble to be
+        // mutable — with FLAG_IMMUTABLE the NotificationManager throws
+        // IllegalArgumentException ("PendingIntents attached to bubbles
+        // must be mutable") and the notification is never posted.
         val bubbleIntent = PendingIntent.getActivity(
             context,
             11,
             Intent(context, TransferActivity::class.java),
-            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            PendingIntent.FLAG_MUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         val builder = NotificationCompat.Builder(context, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)

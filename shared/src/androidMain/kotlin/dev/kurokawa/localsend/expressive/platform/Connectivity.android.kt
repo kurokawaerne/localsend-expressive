@@ -137,6 +137,9 @@ actual class ConnectivityController {
         _state.value = _state.value.copy(
             wifiEnabled = wifi?.isWifiEnabled,
             locationOff = !isLocationEnabled(),
+            wifiPermissionMissing = context?.let {
+                !hasPermissions(it, nearbyWifiPermissions())
+            } ?: false,
         )
         if (p2pGroupActive) requestGroupInfo()
     }
@@ -185,16 +188,21 @@ actual class ConnectivityController {
         if (!hasPermissions(ctx, permissions)) {
             PermissionGate.request(permissions) { granted ->
                 if (granted) {
+                    _state.value = _state.value.copy(wifiPermissionMissing = false)
                     scanWifiNetworks()
                 } else {
                     _state.value = _state.value.copy(
+                        wifiPermissionMissing = true,
                         message = "The network list needs the nearby-devices / location permission.",
                     )
                 }
             }
             return
         }
-        _state.value = _state.value.copy(locationOff = !isLocationEnabled())
+        _state.value = _state.value.copy(
+            locationOff = !isLocationEnabled(),
+            wifiPermissionMissing = false,
+        )
         // Cached results show instantly; a fresh scan refreshes them.
         publishScanResults()
         // v0.10.0: the results receiver STAYS registered for the
