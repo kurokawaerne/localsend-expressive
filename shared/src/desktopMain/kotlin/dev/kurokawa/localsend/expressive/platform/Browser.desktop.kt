@@ -9,6 +9,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.toComposeImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -22,6 +23,12 @@ actual fun platformHasSystemSplash(): Boolean = false
 actual fun prefersSwipeActions(): Boolean = false
 
 actual fun supportsWifiNetworkList(): Boolean = true
+
+actual fun fullScreenDialogProperties(): DialogProperties =
+    DialogProperties(
+        usePlatformDefaultWidth = false,
+        usePlatformInsets = false,
+    )
 
 private val IMAGE_EXT = setOf("jpg", "jpeg", "png", "webp", "gif", "bmp")
 private val VIDEO_EXT = setOf("mp4", "mkv", "webm", "avi", "mov", "3gp")
