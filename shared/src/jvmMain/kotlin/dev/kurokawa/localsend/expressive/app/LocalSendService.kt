@@ -33,6 +33,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import java.io.IOException
 import java.io.InputStream
@@ -71,6 +72,16 @@ class LocalSendService : LocalSendController {
 
     private val _incomingOffer = MutableStateFlow<IncomingOffer?>(null)
     override val incomingOffer: StateFlow<IncomingOffer?> = _incomingOffer
+
+    private val _webDownloadRequests = MutableStateFlow<List<WebDownloadRequest>>(emptyList())
+    override val webDownloadRequests: StateFlow<List<WebDownloadRequest>> = _webDownloadRequests
+    private val webDownloadLock = Any()
+    private val webDownloadDeferreds = HashMap<String, CompletableDeferred<Boolean>>()
+
+    private val _incomingText = MutableStateFlow<IncomingText?>(null)
+    override val incomingText: StateFlow<IncomingText?> = _incomingText
+    private val textLock = Any()
+    private val textQueue = ArrayDeque<IncomingText>()
 
     private val _incomingProgress = MutableStateFlow<List<FileProgress>>(emptyList())
     private val _incomingPeer = MutableStateFlow<String?>(null)
@@ -381,7 +392,21 @@ class LocalSendService : LocalSendController {
         override fun onPeerRegistered(dto: RegisterDto, ip: String) = addDevice(dto, ip)
 
         override fun onMessage(peer: RegisterDto, text: String) {
-            addHistory(peer.alias, text.take(120), text.toByteArray(Charsets.UTF_8).size.toLong(), incoming = true, success = true)
+            addHistory(peer.alias, text.take(120), text.toByteArray(Charsets.UTF_8).size.toLong(), incoming = true, success = true, preview = text)
+            // Ernest (v0.12.0): a received text pops up with a copy
+            // button, it doesn't just land in History silently.
+            val incoming = IncomingText(
+                id = UUID.randomUUID().toString(),
+                peerAlias = peer.alias,
+                text = text,
+                timeMillis = System.currentTimeMillis(),
+            )
+            synchronized(textLock) {
+                textQueue.addLast(incoming)
+                if (_incomingText.value == null) {
+                    _incomingText.value = textQueue.firstOrNull()
+                }
+            }
         }
 
         override suspend fun onOffer(offer: IncomingOffer): Set<String>? {
@@ -390,10 +415,17 @@ class LocalSendService : LocalSendController {
         }
 
         override fun onReceiveProgress(sessionId: String, files: List<FileProgress>) {
-            _incomingProgress.value = files
             val live = files.any {
-                it.status == TransferStatus.ACTIVE || it.status == TransferStatus.WAITING
+                it.status == TransferStatus.ACTIVE || it.status == TransferStatus.WAITING ||
+                    it.status == TransferStatus.VERIFYING
             }
+            // Once every file is terminal the snapshot is cleared:
+            // keeping the last all-DONE list around forever poisoned
+            // every consumer that tests emptiness (the transfer
+            // notification could never cancel) and corrupted the
+            // next receive's totals. Completed receives live in
+            // History.
+            _incomingProgress.value = if (live) files else emptyList()
             _incomingPeer.value = if (live) sessionPeers[sessionId] else null
             if (!live) sessionPeers.remove(sessionId)
         }
@@ -413,6 +445,58 @@ class LocalSendService : LocalSendController {
         }
 
         override fun onSessionFinished(sessionId: String, peer: RegisterDto) = Unit
+
+        override suspend fun onWebDownloadRequest(ip: String, userAgent: String?): Boolean {
+            // The official flow: the request pends until the user
+            // answers, unless share-via-link auto-accept is on.
+            if (_settings.value.shareViaLinkAutoAccept) return true
+            val request = WebDownloadRequest(
+                id = UUID.randomUUID().toString(),
+                ip = ip,
+                deviceInfo = webClientLabel(userAgent),
+            )
+            val deferred = CompletableDeferred<Boolean>()
+            synchronized(webDownloadLock) {
+                webDownloadDeferreds[request.id] = deferred
+                _webDownloadRequests.value = _webDownloadRequests.value + request
+            }
+            return try {
+                // Five minutes of patience, then decline: a forgotten
+                // prompt must not hold the browser (or the session
+                // slot) forever.
+                withTimeoutOrNull(WEB_DOWNLOAD_DECISION_TIMEOUT_MS) { deferred.await() } ?: false
+            } finally {
+                synchronized(webDownloadLock) {
+                    webDownloadDeferreds.remove(request.id)
+                    _webDownloadRequests.value =
+                        _webDownloadRequests.value.filterNot { it.id == request.id }
+                }
+            }
+        }
+    }
+
+    /** "Chrome (Android)"-style label for a browser's User-Agent (upstream format). */
+    private fun webClientLabel(userAgent: String?): String {
+        if (userAgent == null) return "Web browser"
+        val browser = when {
+            "Edg/" in userAgent -> "Edge"
+            "OPR/" in userAgent || "Opera" in userAgent -> "Opera"
+            "Chrome/" in userAgent -> "Chrome"
+            "Firefox/" in userAgent -> "Firefox"
+            "Safari/" in userAgent -> "Safari"
+            else -> null
+        }
+        val os = when {
+            "Android" in userAgent -> "Android"
+            "iPhone" in userAgent || "iPad" in userAgent -> "iOS"
+            "Windows" in userAgent -> "Windows"
+            "Mac OS" in userAgent || "Macintosh" in userAgent -> "macOS"
+            "Linux" in userAgent -> "Linux"
+            else -> null
+        }
+        return listOfNotNull(browser, os?.let { "($it)" })
+            .joinToString(" ")
+            .ifEmpty { "Web browser" }
     }
 
     private suspend fun awaitOfferDecision(offer: IncomingOffer): Set<String>? {
@@ -445,6 +529,18 @@ class LocalSendService : LocalSendController {
     override fun respondOffer(acceptedFileIds: Set<String>?) {
         val head = synchronized(offerLock) { offerQueue.firstOrNull()?.second }
         head?.complete(acceptedFileIds)
+    }
+
+    override fun answerWebDownload(id: String, accept: Boolean) {
+        val deferred = synchronized(webDownloadLock) { webDownloadDeferreds[id] }
+        deferred?.complete(accept)
+    }
+
+    override fun dismissIncomingText() {
+        synchronized(textLock) {
+            if (textQueue.isNotEmpty()) textQueue.removeFirst()
+            _incomingText.value = textQueue.firstOrNull()
+        }
     }
 
     // ── outbox: persistence ────────────────────────────────────────────────
@@ -1111,7 +1207,7 @@ class LocalSendService : LocalSendController {
                 if (sessionId == null) {
                     // 204 — the message itself rode inside prepare-upload.
                     progress = progress.copy(done = bytes.size.toLong(), status = TransferStatus.DONE)
-                    addHistory(target.info.alias, text.take(120), bytes.size.toLong(), incoming = false, success = true)
+                    addHistory(target.info.alias, text.take(120), bytes.size.toLong(), incoming = false, success = true, preview = text)
                     publish(active = false)
                     return@launch
                 }
@@ -1129,7 +1225,7 @@ class LocalSendService : LocalSendController {
                 }
                 progress = progress.copy(done = bytes.size.toLong(), status = TransferStatus.DONE)
                 currentSendSession = null
-                addHistory(target.info.alias, text.take(120), bytes.size.toLong(), incoming = false, success = true)
+                addHistory(target.info.alias, text.take(120), bytes.size.toLong(), incoming = false, success = true, preview = text)
                 publish(active = false)
             } catch (e: CancellationException) {
                 progress = progress.copy(status = TransferStatus.CANCELLED)
@@ -1170,7 +1266,7 @@ class LocalSendService : LocalSendController {
                     val sessionId = prepared.sessionId
                     if (sessionId == null) {
                         progress = progress.copy(done = bytes.size.toLong(), status = TransferStatus.DONE)
-                        addHistory(target.info.alias, text.take(120), bytes.size.toLong(), incoming = false, success = true)
+                        addHistory(target.info.alias, text.take(120), bytes.size.toLong(), incoming = false, success = true, preview = text)
                         publish(active = false)
                         continue
                     }
@@ -1188,7 +1284,7 @@ class LocalSendService : LocalSendController {
                     }
                     progress = progress.copy(done = bytes.size.toLong(), status = TransferStatus.DONE)
                     currentSendSession = null
-                    addHistory(target.info.alias, text.take(120), bytes.size.toLong(), incoming = false, success = true)
+                    addHistory(target.info.alias, text.take(120), bytes.size.toLong(), incoming = false, success = true, preview = text)
                     publish(active = false)
                 } catch (e: CancellationException) {
                     progress = progress.copy(status = TransferStatus.CANCELLED)
@@ -1335,6 +1431,7 @@ class LocalSendService : LocalSendController {
         success: Boolean,
         uri: String = "",
         handle: String = "",
+        preview: String? = null,
     ) {
         if (!_settings.value.saveToHistory) return
         val entry = HistoryEntry(
@@ -1346,6 +1443,7 @@ class LocalSendService : LocalSendController {
             success = success,
             uri = uri,
             handle = handle,
+            preview = preview,
         )
         _history.value = (listOf(entry) + _history.value).take(200)
         store.saveHistory(_history.value)
@@ -1370,6 +1468,7 @@ class LocalSendService : LocalSendController {
         const val DEVICE_TTL_MS = 600_000L
         /** Outbox jobs kept on disk (finished ones are dropped first). */
         const val MAX_OUTBOX_JOBS = 25
+        const val WEB_DOWNLOAD_DECISION_TIMEOUT_MS = 5 * 60 * 1000L
         /** Automatic attempts per file within one run before parking it as FAILED. */
         const val MAX_AUTO_ATTEMPTS = 5
         /** Fresh prepare-upload rounds per run when the receive session keeps dying. */
