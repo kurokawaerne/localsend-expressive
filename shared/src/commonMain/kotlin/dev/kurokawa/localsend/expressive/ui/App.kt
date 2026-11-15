@@ -12,6 +12,8 @@ import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.CubicBezierEasing
+import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.core.animateValueAsState
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -26,6 +28,12 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
 import androidx.compose.animation.scaleOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.border
@@ -33,6 +41,7 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -114,6 +123,9 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.lerp
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.material3.MaterialShapes
@@ -399,6 +411,52 @@ internal fun SplashOverlay(onDone: () -> Unit) {
     }
 }
 
+/**
+ * The tab pages' swipe area (Ernest, 2026-11-15): a horizontal
+ * slide across a FREE SPACE of the page moves to the adjacent
+ * page. The detector sits on the container, so it only ever sees
+ * drags no child consumed — swipe-reveal rows keep their drags,
+ * horizontal scrollers keep theirs, vertical lists only consume
+ * vertical movement. Past a 56dp accumulated drag the page flips
+ * (left = next, right = previous), animated by the tab
+ * AnimatedContent's lateral transition.
+ */
+@Composable
+private fun TabSwipeArea(
+    tab: MainTab,
+    onSelect: (MainTab) -> Unit,
+    content: @Composable () -> Unit,
+) {
+    var dragTotal by remember { mutableFloatStateOf(0f) }
+    Box(
+        Modifier
+            .fillMaxSize()
+            .pointerInput(tab) {
+                detectHorizontalDragGestures(
+                    onDragStart = { dragTotal = 0f },
+                    onDragEnd = {
+                        val threshold = 56.dp.toPx()
+                        val tabs = MainTab.entries
+                        when {
+                            dragTotal <= -threshold &&
+                                tab.ordinal < tabs.lastIndex ->
+                                onSelect(tabs[tab.ordinal + 1])
+                            dragTotal >= threshold && tab.ordinal > 0 ->
+                                onSelect(tabs[tab.ordinal - 1])
+                        }
+                        dragTotal = 0f
+                    },
+                    onDragCancel = { dragTotal = 0f },
+                ) { _, dragAmount -> dragTotal += dragAmount }
+            },
+    ) {
+        content()
+    }
+}
+
+/** MD3's emphasized easing, cubic-bezier(0.2, 0, 0, 1). */
+private val LsexEmphasizedEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
+
 @Composable
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 internal fun AppScaffold(
@@ -479,13 +537,22 @@ internal fun AppScaffold(
             AnimatedContent(
                 targetState = tab,
                 transitionSpec = {
-                    // MD3E bounce (Ernest, v0.12.0): pages scale-settle
-                    // on a spring instead of snapping in.
-                    (fadeIn(tween(200)) +
-                        scaleIn(
-                            animationSpec = bouncyFloatSpring(),
-                            initialScale = 0.94f,
-                        )) togetherWith fadeOut(tween(140))
+                    // Lateral shared-axis (Ernest, 2026-11-15):
+                    // pages slide WITH the direction of travel and
+                    // crossfade — the same motion whether the change
+                    // comes from the navbar or from the new
+                    // free-space swipe. (Supersedes the v0.12.0
+                    // scale-settle for tab switches.)
+                    val forward = targetState.ordinal > initialState.ordinal
+                    val enterShift = if (forward) 1 else -1
+                    (slideInHorizontally(
+                        animationSpec = tween(340, easing = LsexEmphasizedEasing),
+                    ) { enterShift * it / 3 } +
+                        fadeIn(tween(240))) togetherWith
+                        (slideOutHorizontally(
+                            animationSpec = tween(340, easing = LsexEmphasizedEasing),
+                        ) { -enterShift * it / 3 } +
+                            fadeOut(tween(200)))
                 },
                 label = "mainTab",
             ) { currentTab ->
@@ -553,7 +620,9 @@ internal fun AppScaffold(
                         color = MaterialTheme.colorScheme.surfaceContainerLowest,
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        content()
+                        TabSwipeArea(tab = tab, onSelect = { tab = it }) {
+                            content()
+                        }
                     }
                     GlobalTransferPillHost(
                         controller = controller,
@@ -572,7 +641,9 @@ internal fun AppScaffold(
                         .fillMaxSize()
                         .windowInsetsPadding(WindowInsets.statusBars),
                 ) {
-                    content()
+                    TabSwipeArea(tab = tab, onSelect = { tab = it }) {
+                        content()
+                    }
                 }
                 Column(
                     Modifier
@@ -801,10 +872,24 @@ private fun PillNavItem(
  * One destination inside the improvised navbar (UDYAT's item,
  * Ernest 2026-11-15): the selected destination is a pill segment
  * carrying its filled icon + label; the others are plain labels,
- * exactly like Google Photos. The label is laid out the same in
- * both states (same padding box) and the selected icon is overlaid
- * independently — centring icon + label in a Row lets the symbol
- * font's taller line box push the selected label below the others.
+ * exactly like Google Photos.
+ *
+ * The pill CHOP fix (Ernest's v0.12.1 / UDYAT -7 verdict: "while
+ * the selected pill transitions between sections it chops part of
+ * the pill mid-animation"). Root cause: the old item swapped its
+ * whole content structure on selection (pill Box vs plain Text)
+ * inside an animateContentSize box CLIPPED to a pill — the
+ * incoming content was laid out at its FINAL width from frame
+ * zero while the box was still animating, so the clip sliced the
+ * pill (and the label's tail) at the box's intermediate width;
+ * the outgoing pill's background also popped off instantly while
+ * its width was still animating down. The cure: ONE layout in
+ * both states, no animateContentSize, no structural swap — a
+ * single fraction (0 = unselected, 1 = selected) drives the
+ * label's start padding (12 → 44, opening the icon slot), the
+ * pill colour's alpha, the label colour and the overlaid icon's
+ * alpha. The box wraps its content exactly at every frame, so
+ * there is never anything to chop.
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -814,48 +899,53 @@ private fun LsexNavToolbarItem(
     label: String,
     onClick: () -> Unit,
 ) {
+    val scheme = MaterialTheme.colorScheme
+    val fraction by animateFloatAsState(
+        targetValue = if (selected) 1f else 0f,
+        animationSpec = spring(
+            dampingRatio = 0.85f,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
+        label = "navItemSelectedFraction",
+    )
+    val f = fraction.coerceIn(0f, 1f)
     Box(
-        Modifier.animateContentSize(bouncySizeSpring())
+        Modifier
             .clip(RoundedCornerShape(50))
+            .background(
+                scheme.secondaryContainer.copy(alpha = f),
+                RoundedCornerShape(50),
+            )
             .clickable(onClick = onClick),
     ) {
-        if (selected) {
+        Text(
+            label,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = if (f >= 0.5f) {
+                FontWeight.Medium
+            } else {
+                FontWeight.Normal
+            },
+            color = lerp(scheme.onSurface, scheme.onSecondaryContainer, f),
+            maxLines = 1,
+            modifier = Modifier.padding(
+                start = lerp(12.dp, 44.dp, f),
+                end = 12.dp,
+                top = 10.dp,
+                bottom = 10.dp,
+            ),
+        )
+        if (f > 0.01f) {
             Box(
-                Modifier.background(
-                    MaterialTheme.colorScheme.secondaryContainer,
-                    RoundedCornerShape(50),
-                ),
+                Modifier.align(Alignment.CenterStart).padding(start = 16.dp),
             ) {
-                Text(
-                    label,
-                    style = MaterialTheme.typography.labelLarge,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSecondaryContainer,
-                    maxLines = 1,
-                    modifier = Modifier.padding(
-                        start = 44.dp, end = 12.dp, top = 10.dp, bottom = 10.dp,
-                    ),
+                Icon(
+                    selectedIcon,
+                    contentDescription = null,
+                    tint = scheme.onSecondaryContainer.copy(alpha = f),
+                    modifier = Modifier.size(20.dp),
                 )
-                Box(
-                    Modifier.align(Alignment.CenterStart).padding(start = 16.dp),
-                ) {
-                    Icon(
-                        selectedIcon,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                        modifier = Modifier.size(20.dp),
-                    )
-                }
             }
-        } else {
-            Text(
-                label,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Normal,
-                color = MaterialTheme.colorScheme.onSurface,
-                maxLines = 1,
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
-            )
         }
     }
 }
@@ -2353,12 +2443,25 @@ private fun FullscreenMediaPreview(
     onDismiss: () -> Unit,
 ) {
     var scale by remember { mutableFloatStateOf(1f) }
+    // Animated opening/closing (Ernest, 2026-11-15): the preview
+    // fades/scales in, and dismissals play the exit before the
+    // dialog actually closes — the predictive-back scale below
+    // still rides on top during a back gesture.
+    val transition = remember {
+        MutableTransitionState(false).apply { targetState = true }
+    }
+    val dismiss: () -> Unit = { transition.targetState = false }
+    LaunchedEffect(transition.currentState, transition.targetState) {
+        if (!transition.currentState && !transition.targetState) {
+            onDismiss()
+        }
+    }
     PredictiveBackHandler { progress ->
         try {
             progress.collect { event ->
                 scale = 1f - event.progress * 0.12f
             }
-            onDismiss()
+            dismiss()
         } catch (e: kotlinx.coroutines.CancellationException) {
             scale = 1f
             throw e
@@ -2368,9 +2471,22 @@ private fun FullscreenMediaPreview(
         item.name.substringAfterLast('.', "").lowercase() in
             setOf("mp4", "mkv", "webm", "avi", "mov", "3gp")
     androidx.compose.ui.window.Dialog(
-        onDismissRequest = onDismiss,
+        onDismissRequest = dismiss,
         properties = fullScreenDialogProperties(),
     ) {
+        AnimatedVisibility(
+            visibleState = transition,
+            enter = fadeIn(tween(200)) +
+                scaleIn(
+                    animationSpec = tween(260, easing = LsexEmphasizedEasing),
+                    initialScale = 0.96f,
+                ),
+            exit = fadeOut(tween(160)) +
+                scaleOut(
+                    animationSpec = tween(200, easing = LsexEmphasizedEasing),
+                    targetScale = 0.96f,
+                ),
+        ) {
         Box(
             Modifier
                 .fillMaxSize()
@@ -2409,7 +2525,7 @@ private fun FullscreenMediaPreview(
                     .padding(horizontal = 4.dp, vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                IconButton(onClick = onDismiss) {
+                IconButton(onClick = dismiss) {
                     Icon(
                         MaterialSymbols.Outlined.Close,
                         contentDescription = "Close",
@@ -2445,10 +2561,11 @@ private fun FullscreenMediaPreview(
                     Text("Open", color = Color.White)
                 }
                 Spacer(Modifier.width(8.dp))
-                Button(onClick = { onToggle(); onDismiss() }) {
+                Button(onClick = { onToggle(); dismiss() }) {
                     Text(if (checked) "Remove" else "Select")
                 }
             }
+        }
         }
     }
 }
@@ -3915,21 +4032,59 @@ private fun CopyButton(text: String) {
 }
 
 /**
+ * A full-screen page hosted in a Dialog that OPENS and CLOSES
+ * with motion (Ernest, 2026-11-15: switches and openings must
+ * animate, not cut): the content rises and fades in, and on any
+ * dismiss request the exit plays BEFORE the page actually
+ * closes — [content] receives the animated dismiss as its
+ * requestDismiss. The window is edge-to-edge via
+ * [fullScreenDialogProperties] — the Donate black-bars cure,
+ * applied here to every full-screen page (the link page and the
+ * picker still had plain dialog windows with the same black-bar
+ * defect until this batch).
+ */
+@Composable
+private fun AnimatedPageDialog(
+    onDismiss: () -> Unit,
+    content: @Composable (requestDismiss: () -> Unit) -> Unit,
+) {
+    val transition = remember {
+        MutableTransitionState(false).apply { targetState = true }
+    }
+    LaunchedEffect(transition.currentState, transition.targetState) {
+        if (!transition.currentState && !transition.targetState) {
+            onDismiss()
+        }
+    }
+    Dialog(
+        onDismissRequest = { transition.targetState = false },
+        properties = fullScreenDialogProperties(),
+    ) {
+        AnimatedVisibility(
+            visibleState = transition,
+            enter = fadeIn(tween(240)) +
+                slideInVertically(
+                    animationSpec = tween(320, easing = LsexEmphasizedEasing),
+                ) { it / 16 },
+            exit = fadeOut(tween(160)) +
+                slideOutVertically(
+                    animationSpec = tween(220, easing = LsexEmphasizedEasing),
+                ) { it / 16 },
+        ) {
+            content { transition.targetState = false }
+        }
+    }
+}
+
+/**
  * The Donate page (Ernest, 2026-11-13): ONE section reached from a
  * single Settings entry — his words and wallets, every address with
  * a copy button.
  */
 @Composable
 private fun DonatePage(onDismiss: () -> Unit) {
-    Dialog(
-        onDismissRequest = onDismiss,
-        // Edge-to-edge (Ernest, 2026-11-15): a full-screen dialog
-        // window otherwise paints the status bar and the navigation
-        // hint black — the page must draw behind them like the rest
-        // of the app. Built per platform (see Browser.kt).
-        properties = fullScreenDialogProperties(),
-    ) {
-        DonateContent(onDismiss)
+    AnimatedPageDialog(onDismiss = onDismiss) { requestDismiss ->
+        DonateContent(requestDismiss)
     }
 }
 
@@ -6763,10 +6918,7 @@ internal fun PickerScreen(
         ContentTab.Apps, ContentTab.Photos, ContentTab.Videos,
         ContentTab.Audio, ContentTab.Files,
     )
-    androidx.compose.ui.window.Dialog(
-        onDismissRequest = onDismiss,
-        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
-    ) {
+    AnimatedPageDialog(onDismiss = onDismiss) { requestDismiss ->
         Surface(
             Modifier.fillMaxSize(),
             color = MaterialTheme.colorScheme.background,
@@ -6781,7 +6933,7 @@ internal fun PickerScreen(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(vertical = 6.dp),
                 ) {
-                    IconButton(onClick = onDismiss) {
+                    IconButton(onClick = requestDismiss) {
                         Icon(MaterialSymbols.Outlined.Arrow_back, contentDescription = "Back")
                     }
                     Text(
@@ -6789,7 +6941,7 @@ internal fun PickerScreen(
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f),
                     )
-                    Button(onClick = onDismiss) { Text("Done · $stagedCount") }
+                    Button(onClick = requestDismiss) { Text("Done · $stagedCount") }
                 }
                 // Ernest (v0.10.0): NO tabs — the content sections
                 // switch through the same connected ToggleButton
@@ -7385,10 +7537,7 @@ private fun LinkPage(
     localIp: String?,
     onDismiss: () -> Unit,
 ) {
-    androidx.compose.ui.window.Dialog(
-        onDismissRequest = onDismiss,
-        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
-    ) {
+    AnimatedPageDialog(onDismiss = onDismiss) { requestDismiss ->
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(
                 Modifier
@@ -7400,7 +7549,7 @@ private fun LinkPage(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier.padding(vertical = 8.dp),
                 ) {
-                    IconButton(onClick = onDismiss) {
+                    IconButton(onClick = requestDismiss) {
                         Icon(MaterialSymbols.Outlined.Arrow_back, contentDescription = "Back")
                     }
                     Text(
