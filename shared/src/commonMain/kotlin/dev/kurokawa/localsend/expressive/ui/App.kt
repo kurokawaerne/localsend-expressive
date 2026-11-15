@@ -151,6 +151,7 @@ import dev.kurokawa.localsend.expressive.platform.QrScannerView
 import dev.kurokawa.localsend.expressive.platform.installPackage
 import dev.kurokawa.localsend.expressive.platform.stageAppBundle
 import dev.kurokawa.localsend.expressive.platform.installerSupported
+import dev.kurokawa.localsend.expressive.platform.fullScreenDialogProperties
 import dev.kurokawa.localsend.expressive.platform.isInstallablePackage
 import dev.kurokawa.localsend.expressive.platform.joinWifiNetwork
 import dev.kurokawa.localsend.expressive.platform.supportsWifiNetworkList
@@ -301,38 +302,6 @@ fun AppRoot(controller: LocalSendController, onReady: () -> Unit = {}) {
         }
     }
 }
-/**
- * The LSEx logo mark, drawn the same way as the launcher icon: a paper
- * plane inside an orbit ring with a satellite dot. [orbitAngle] animates
- * the dot around the ring (splash); the header uses a static angle.
- */
-/**
- * The comparison-arrows mark (Ernest's own glyph from his splash mockup):
- * two opposing arrows meeting in the middle, drawn on a pale circle.
- * Also the app icon and the splash image.
- */
-@Composable
-private fun ArrowsMark(size: androidx.compose.ui.unit.Dp, modifier: Modifier = Modifier) {
-    val primary = MaterialTheme.colorScheme.primary
-    val container = MaterialTheme.colorScheme.primaryContainer
-    Surface(shape = CircleShape, color = container, modifier = modifier.size(size)) {
-        Canvas(Modifier.fillMaxSize().padding(size * 0.22f)) {
-            val w = this.size.width
-            val h = this.size.height
-            val stroke = w * 0.13f
-            val head = w * 0.30f
-            // top-right arrow pointing down-left
-            drawLine(primary, Offset(w * 0.95f, h * 0.28f), Offset(w * 0.48f, h * 0.28f), stroke)
-            drawLine(primary, Offset(w * 0.72f, h * 0.05f), Offset(w * 0.48f, h * 0.28f), stroke)
-            drawLine(primary, Offset(w * 0.72f, h * 0.51f), Offset(w * 0.48f, h * 0.28f), stroke)
-            // bottom-left arrow pointing up-right
-            drawLine(primary, Offset(w * 0.05f, h * 0.72f), Offset(w * 0.52f, h * 0.72f), stroke)
-            drawLine(primary, Offset(w * 0.28f, h * 0.49f), Offset(w * 0.52f, h * 0.72f), stroke)
-            drawLine(primary, Offset(w * 0.28f, h * 0.95f), Offset(w * 0.52f, h * 0.72f), stroke)
-        }
-    }
-}
-
 /** The wordmark from Ernest's mockups: "LocalSend" + italic "Ex", in primary. */
 @Composable
 internal fun LsexWordmark(modifier: Modifier = Modifier) {
@@ -551,20 +520,22 @@ internal fun AppScaffold(
             }
         }
         if (wide) {
-            // Desktop (GooglebookOS direction): a calm rail on a tinted
-            // backdrop, the content floating as one large rounded sheet,
-            // the transfer pill inside the sheet's bottom-end corner.
+            // Desktop (GooglebookOS direction): the improvised
+            // navbar floats on the plain background (Ernest,
+            // 2026-11-15: the rectangle behind the bar is
+            // transparent now), the content as one large rounded
+            // sheet, the transfer pill inside the sheet's
+            // bottom-end corner.
             Row(Modifier.fillMaxSize()) {
                 Column(
                     Modifier
                         .width(96.dp)
                         .fillMaxHeight()
-                        .background(MaterialTheme.colorScheme.surfaceContainerLow)
                         .windowInsetsPadding(WindowInsets.navigationBars)
                         .padding(vertical = 20.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    ArrowsMark(44.dp)
+                    AppLogo(Modifier.size(44.dp))
                     // The improvised navbar stood upright (Ernest,
                     // 2026-11-15, UDYAT's design): the official
                     // VerticalFloatingToolbar, icons only, the
@@ -862,7 +833,7 @@ private fun LsexNavToolbarItem(
                     color = MaterialTheme.colorScheme.onSecondaryContainer,
                     maxLines = 1,
                     modifier = Modifier.padding(
-                        start = 44.dp, end = 16.dp, top = 10.dp, bottom = 10.dp,
+                        start = 44.dp, end = 12.dp, top = 10.dp, bottom = 10.dp,
                     ),
                 )
                 Box(
@@ -883,7 +854,7 @@ private fun LsexNavToolbarItem(
                 fontWeight = FontWeight.Normal,
                 color = MaterialTheme.colorScheme.onSurface,
                 maxLines = 1,
-                modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
             )
         }
     }
@@ -2398,9 +2369,7 @@ private fun FullscreenMediaPreview(
             setOf("mp4", "mkv", "webm", "avi", "mov", "3gp")
     androidx.compose.ui.window.Dialog(
         onDismissRequest = onDismiss,
-        properties = androidx.compose.ui.window.DialogProperties(
-            usePlatformDefaultWidth = false,
-        ),
+        properties = fullScreenDialogProperties(),
     ) {
         Box(
             Modifier
@@ -3954,7 +3923,11 @@ private fun CopyButton(text: String) {
 private fun DonatePage(onDismiss: () -> Unit) {
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        // Edge-to-edge (Ernest, 2026-11-15): a full-screen dialog
+        // window otherwise paints the status bar and the navigation
+        // hint black — the page must draw behind them like the rest
+        // of the app. Built per platform (see Browser.kt).
+        properties = fullScreenDialogProperties(),
     ) {
         DonateContent(onDismiss)
     }
@@ -3981,6 +3954,7 @@ internal fun DonateContent(onDismiss: () -> Unit) {
         Column(
             Modifier
                 .statusBarsPadding()
+                .navigationBarsPadding()
                 .padding(horizontal = 16.dp),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {

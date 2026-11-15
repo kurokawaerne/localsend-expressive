@@ -177,27 +177,14 @@ jobs:
           prerelease: true
           files: release-assets/*
           body: |
-            The v0.11.0 verdict release: all five points of Ernest's on-device review, in one batch.
+            The v0.12.0 polish batch: four fixes from Ernest's review, in one release.
 
-            **PC: the launcher finds its jars again**
-            - The Arch package calls the app through a /usr/bin symlink, and the launcher located its jars relative to the path it was called by — /usr — so the JVM died with `ClassNotFoundException: MainKt`. The launcher now resolves the symlink first (reproduced and verified locally: through the symlink it failed word-for-word, with the fix the app starts).
+            **Navbar spacing, UDYAT's fix**
+            - The improvised navbar's item padding tightens from 16 to 12 — the selected pill's label end and the unselected labels — so the bar's spacing is even, exactly as UDYAT applied it.
 
-            **The Live Update goes away when the transfer ends**
-            - The promoted notification only cancelled when no unfinished job AND no receive data existed — but the receive progress was never cleared after a receive finished, so any earlier receive pinned it at 100% with a Pause button forever. It now tracks actual movement (bytes flowing or a paused job), and the finished receive snapshot clears (completed transfers live in History, as before).
+            **Landscape shell**
+            - The rail's top-left mark is the current logo now; the old comparison-arrows mark is retired.
+            - The rectangle behind the vertical bar is transparent — the bar floats on the plain background.
 
-            **Web share is the original implementation now**
-            - The browser pages and the download API were replaced with the official LocalSend implementation's: its download and upload pages served verbatim, sessions keyed by the browser's IP, an accepted browser can reload the list, the PIN gate answers 401 / 429 after three wrong tries, downloads validate the session + IP and send properly encoded filenames, and a fresh download request pends until you accept it — or instantly, when the share-via-link auto-accept setting is on. Uploads from the browser keep flowing through the normal approval rules.
-
-            **Copy received texts**
-            - Text messages are stored in full in History now (only the first 120 characters were kept), and text entries carry a **Copy** action in their swipe buttons; tapping a text row copies it too. Desktop shows the copy button inline.
-
-            **Also in this batch (added during review)**
-            - Android: the Wi-Fi network listing is gone from Home — it never populated; the pane is now one full-width Turn on button plus the QR scanner. Desktop keeps its working network list.
-            - A received text now pops up with a Copy button, and still lands in History with its full text.
-            - Bouncy Material 3 Expressive motion: springy tab switches, the transfer pill's entrance, expanding sections and device-list movement.
-            - Navigation is UDYAT's improvised navbar now: the official floating toolbar in portrait (the selected destination is a pill with its filled icon + label; the others are plain labels), stood upright and icon-only in landscape with the selected icon in a circle. The transfer pill matches the bar's width.
-            - The splash is the current logo now — the gradient radar mark spins and bounces in over the dynamic theme colors, on Android and desktop alike; the old arrows artwork is retired.
-
-            **Icon, and release hygiene**
-            - The launcher glyph shrinks again — 58 of 108 units wide — fully inside the adaptive-icon safe circle, so launcher masks no longer crop the arcs.
-            - Release assets are finally named after the actual version (the 0.11.0 assets said 0.10.0); the Arch pkgver follows the tag too.
+            **Donate page bars**
+            - The Donate page no longer paints the status bar and the navigation hint black: full-screen pages draw edge-to-edge like the rest of the app. The fullscreen media preview is genuinely fullscreen now, too.

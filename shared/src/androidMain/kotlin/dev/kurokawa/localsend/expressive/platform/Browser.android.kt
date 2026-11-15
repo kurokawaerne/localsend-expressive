@@ -24,6 +24,7 @@ import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.window.DialogProperties
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.core.content.ContextCompat
@@ -36,6 +37,12 @@ actual fun platformHasSystemSplash(): Boolean = true
 actual fun prefersSwipeActions(): Boolean = true
 
 actual fun supportsWifiNetworkList(): Boolean = false
+
+actual fun fullScreenDialogProperties(): DialogProperties =
+    DialogProperties(
+        usePlatformDefaultWidth = false,
+        decorFitsSystemWindows = false,
+    )
 
 // ── Media library (MediaStore) ────────────────────────────────────────────
 
