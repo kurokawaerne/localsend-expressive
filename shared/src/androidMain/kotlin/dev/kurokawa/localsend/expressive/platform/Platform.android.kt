@@ -70,7 +70,7 @@ actual fun loadInstalledApps(): List<InstalledApp> {
                 apkHandle = app.sourceDir,
                 // Total install size: base + every split (v0.10.0
                 // showed the base APK alone for split apps).
-                apkSize = file.length() + (info.splitSourceDirs?.sumOf { path ->
+                apkSize = file.length() + (app.splitSourceDirs?.sumOf { path ->
                     runCatching { java.io.File(path).length() }.getOrDefault(0L)
                 } ?: 0L),
                 splitHandles = app.splitSourceDirs?.toList() ?: emptyList(),
