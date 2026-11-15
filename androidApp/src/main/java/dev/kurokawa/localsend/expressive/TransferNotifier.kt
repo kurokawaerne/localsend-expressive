@@ -57,7 +57,9 @@ class TransferNotifier(private val context: Context) {
                         it.status == TransferStatus.ACTIVE ||
                             it.status == TransferStatus.VERIFYING
                     }
-                val paused = openJobs.any { it.paused }
+                val paused = openJobs.any { job ->
+                    job.paused && job.files.any { it.status != TransferStatus.DONE }
+                }
                 val percent = if (total > 0) {
                     ((done.toDouble() / total) * 100).toInt().coerceIn(0, 100)
                 } else {
@@ -70,7 +72,12 @@ class TransferNotifier(private val context: Context) {
                     else -> "Transferring"
                 }
                 Snapshot(
-                    active = moving || paused || openJobs.isNotEmpty() || incoming.isNotEmpty(),
+                    // The notification lives only while bytes are
+                    // actually moving or a job is paused mid-transfer.
+                    // v0.11.0 kept it alive while any unfinished job or
+                    // any (stale, completed) receive snapshot existed,
+                    // so a finished transfer sat at 100% forever.
+                    active = moving || paused,
                     paused = paused && !moving,
                     percent = percent,
                     label = label,
