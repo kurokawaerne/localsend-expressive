@@ -129,10 +129,26 @@ class CertManager {
          * certificate: clients connecting to the uncovered address
          * reject it. Regenerating re-snapshots the live addresses.
          */
+        /**
+         * Canonical text form of an IP for SAN comparisons: the
+         * scope id of a link-local IPv6 address (fe80::1%eth0) is
+         * meaningless inside a certificate, and the form a stored
+         * certificate parses back to never carries one — comparing
+         * raw hostAddress strings against parsed SANs therefore
+         * reports a permanent "miss" on any machine with link-local
+         * IPv6 (i.e. all of them) and would regenerate the identity
+         * on every start.
+         */
+        fun canonicalIp(raw: String): String {
+            val stripped = raw.substringBefore('%').lowercase()
+            return runCatching { InetAddress.getByName(stripped).hostAddress }
+                .getOrNull() ?: stripped
+        }
+
         fun missesCurrentAddresses(cert: X509Certificate): Boolean {
             val sanIps = runCatching { cert.subjectAlternativeNames }.getOrNull()
                 ?.filter { it.size >= 2 && it[0] == 7 }
-                ?.mapNotNull { it[1]?.toString() }
+                ?.mapNotNull { it[1]?.toString()?.let { ip -> canonicalIp(ip) } }
                 ?.toSet()
                 ?: return true
             val current = mutableSetOf<String>()
@@ -140,7 +156,9 @@ class CertManager {
                 NetworkInterface.getNetworkInterfaces().toList().forEach { iface ->
                     if (!iface.isUp || iface.isLoopback) return@forEach
                     iface.inetAddresses.toList().forEach { addr ->
-                        if (!addr.isLoopbackAddress) addr.hostAddress?.let { current += it }
+                        if (!addr.isLoopbackAddress) {
+                            addr.hostAddress?.let { current += canonicalIp(it) }
+                        }
                     }
                 }
             }
@@ -167,7 +185,9 @@ class CertManager {
             runCatching {
                 NetworkInterface.getNetworkInterfaces().toList().forEach { iface ->
                     iface.inetAddresses.toList().forEach { addr: InetAddress ->
-                        addr.hostAddress?.let { names += GeneralName(GeneralName.iPAddress, it) }
+                        addr.hostAddress?.let {
+                            names += GeneralName(GeneralName.iPAddress, canonicalIp(it))
+                        }
                     }
                 }
             }
