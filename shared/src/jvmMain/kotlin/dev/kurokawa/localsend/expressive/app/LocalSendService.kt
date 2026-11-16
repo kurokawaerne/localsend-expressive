@@ -64,6 +64,14 @@ class LocalSendService : LocalSendController {
     private val _settings = MutableStateFlow(store.loadSettings())
     override val settings: StateFlow<AppSettings> = _settings
 
+    private val _openTransfersSignal = MutableStateFlow(0)
+    override val openTransfersSignal: StateFlow<Int> = _openTransfersSignal
+
+    /** Platform hook (notification tap): ask the UI to open the sheet. */
+    fun requestOpenTransfers() {
+        _openTransfersSignal.value += 1
+    }
+
     private val _localDevice = MutableStateFlow(buildLocal())
     override val localDevice: StateFlow<LocalDevice> = _localDevice
 
@@ -137,6 +145,17 @@ class LocalSendService : LocalSendController {
     private val _queuedOfferCount = MutableStateFlow(0)
     override val queuedOfferCount: StateFlow<Int> = _queuedOfferCount
 
+    /** The user's drag-reorder of the incoming queue (served to LSEx senders). */
+    private val _receiveOrder = MutableStateFlow<List<String>>(emptyList())
+
+    override fun setReceiveOrder(fileIds: List<String>) {
+        _receiveOrder.value = fileIds
+    }
+
+    override fun restartServer() {
+        restartNetworking()
+    }
+
     /**
      * Incoming offers waiting for the user, FIFO (v0.8.0 receive queue).
      * The head is mirrored into [_incomingOffer] for the accept dialog;
@@ -163,6 +182,13 @@ class LocalSendService : LocalSendController {
         // Persist a stable HTTP-mode fingerprint once, so favorites keep working.
         if (!_settings.value.https && _settings.value.httpFingerprint.isEmpty()) {
             _settings.value = _settings.value.copy(httpFingerprint = generateRandomFingerprint())
+            store.saveSettings(_settings.value)
+        }
+        // The stable LSEx device id: generated ONCE, kept forever, so
+        // peers key our identity on it — renaming this device (alias,
+        // model, type) never makes it a "new device" to them.
+        if (_settings.value.deviceId.isEmpty()) {
+            _settings.value = _settings.value.copy(deviceId = UUID.randomUUID().toString())
             store.saveSettings(_settings.value)
         }
         _localDevice.value = buildLocal()
@@ -206,6 +232,7 @@ class LocalSendService : LocalSendController {
                         ) { openPickedInput(picked.handle) }
                     }
                 },
+                orderProvider = { _receiveOrder.value },
                 callbacks = serverCallbacks,
             ).also { it.start() }
         }
@@ -336,6 +363,8 @@ class LocalSendService : LocalSendController {
             port = s.port,
             protocol = if (s.https) "https" else "http",
             download = s.downloadApi,
+            deviceId = s.deviceId,
+            avatar = s.avatar,
         )
     }
 
@@ -345,15 +374,83 @@ class LocalSendService : LocalSendController {
         if (dto.fingerprint == _localDevice.value.fingerprint) return
         val now = System.currentTimeMillis()
         val current = _devices.value.toMutableList()
-        val index = current.indexOfFirst { it.fingerprint == dto.fingerprint }
         val device = DiscoveredDevice(dto, ip, now)
+        // Identity, not display fields: an LSEx peer that renamed itself
+        // (alias/model/type edits) is the SAME entry — matched by its
+        // stable deviceId when it announces one, else by fingerprint.
+        val index = current.indexOfFirst {
+            it.identityKey == device.identityKey || it.fingerprint == dto.fingerprint
+        }
         if (index >= 0) current[index] = device else current += device
         _devices.value = current.sortedBy { it.info.alias.lowercase() }
+        noteDeviceSeen(device, now)
+    }
+
+    /**
+     * Remember when each identity was last seen (drives the 30-day
+     * per-device data discard) and refresh a favorite's remembered
+     * details while it's in range. Settings writes are throttled: the
+     * map only persists when a NEW identity appears or a favorite's
+     * details actually changed; timestamps ride along on any other save.
+     */
+    private fun noteDeviceSeen(device: DiscoveredDevice, now: Long) {
+        val s = _settings.value
+        val key = device.identityKey
+        val favorite = s.favoriteDevices.firstOrNull {
+            it.identityKey == key || it.fingerprint == device.fingerprint
+        }
+        val refreshedFavorite = favorite?.copy(
+            identityKey = key,
+            fingerprint = device.fingerprint,
+            alias = device.info.alias,
+            deviceModel = device.info.deviceModel,
+            deviceType = device.info.deviceType?.name,
+            avatar = device.info.avatar,
+            lastSeenMillis = now,
+        )
+        val favoriteChanged = refreshedFavorite != null && refreshedFavorite != favorite
+        val isNewIdentity = key !in s.deviceLastSeen
+        // A known identity's timestamp refreshes at most once a day —
+        // fresh enough for the 30-day discard, cheap enough for the
+        // announce cadence.
+        val isStale = now - (s.deviceLastSeen[key] ?: 0L) > SEEN_PERSIST_INTERVAL_MS
+        if (!favoriteChanged && !isNewIdentity && !isStale) return
+        _settings.value = s.copy(
+            deviceLastSeen = s.deviceLastSeen + (key to now),
+            favoriteDevices = if (favoriteChanged) {
+                s.favoriteDevices.map { if (it === favorite) refreshedFavorite!! else it }
+            } else {
+                s.favoriteDevices
+            },
+        )
+        store.saveSettings(_settings.value)
     }
 
     private fun pruneDevices() {
         val cutoff = System.currentTimeMillis() - DEVICE_TTL_MS
         _devices.value = _devices.value.filter { it.lastSeenMillis >= cutoff }
+        discardStaleDeviceData()
+    }
+
+    /**
+     * Per-device data retention (Ernest, v0.12.4): pending transfers for a
+     * device that has been disconnected for 30 days are discarded — its
+     * sheet comes back empty when it eventually returns. Finished jobs
+     * (history-like) are untouched.
+     */
+    private fun discardStaleDeviceData() {
+        val now = System.currentTimeMillis()
+        val seen = _settings.value.deviceLastSeen
+        val stale = _outbox.value.filter { job ->
+            !job.finished &&
+                now - (seen[job.targetIdentity] ?: job.createdAtMillis) > DEVICE_DATA_RETENTION_MS
+        }
+        if (stale.isEmpty()) return
+        synchronized(outboxLock) {
+            _outbox.value = _outbox.value.filter { it.id !in stale.map { s -> s.id } }
+            stale.forEach { wantedJobIds -= it.id }
+        }
+        persistOutbox()
     }
 
     private fun onAnnouncement(dto: RegisterDto, ip: String) {
@@ -376,6 +473,8 @@ class LocalSendService : LocalSendController {
                         port = dto.port,
                         protocol = dto.protocol,
                         download = response.download,
+                        deviceId = response.deviceId,
+                        avatar = response.avatar,
                     ),
                     ip,
                 )
@@ -503,7 +602,7 @@ class LocalSendService : LocalSendController {
         val s = _settings.value
         val allIds = offer.files.map { it.id }.toSet()
         if (s.quickSave) return allIds
-        if (s.autoAcceptFavorites && offer.peer.fingerprint in s.favorites) return allIds
+        if (s.autoAcceptFavorites && isFavorite(offer.peer)) return allIds
         // Uploads arriving through the web page (receive via link) carry
         // deviceType "web"; the official auto-accept setting covers them.
         if (s.shareViaLinkAutoAccept && offer.peer.deviceType?.name == "web") return allIds
@@ -618,6 +717,7 @@ class LocalSendService : LocalSendController {
             fingerprint = job.targetFingerprint,
             port = job.targetPort,
             protocol = job.targetProtocol,
+            deviceId = job.targetDeviceId,
         ),
         job.targetIp,
         System.currentTimeMillis(),
@@ -663,6 +763,7 @@ class LocalSendService : LocalSendController {
             targetProtocol = target.info.protocol,
             targetModel = target.info.deviceModel,
             targetType = target.info.deviceType?.name,
+            targetDeviceId = target.info.deviceId,
             files = files.map { picked ->
                 OutboxFile(
                     fileId = UUID.randomUUID().toString(),
@@ -742,8 +843,25 @@ class LocalSendService : LocalSendController {
         failedJobIds.forEach { retryOutboxJob(it) }
     }
 
+    /**
+     * Tell the peer a job's session is OVER (Ernest, v0.12.4: cancelling
+     * here must quit the transfer on the other device too). The peer
+     * frees its session slot and discards the staged chunks at once
+     * instead of holding both for the 10-minute idle expiry. Pausing
+     * deliberately does NOT do this — a paused job's staging stays
+     * adoptable so resume picks up mid-file.
+     */
+    private fun cancelPeerSession(job: OutboxJob) {
+        val client = sendClient ?: return
+        val sid = job.sessionId ?: return
+        val target = jobTarget(job)
+        scope.launch { client.cancel(target, sid) }
+        mutateJob(job.id) { it.copy(sessionId = null, tokens = emptyMap()) }
+    }
+
     override fun dismissOutboxJob(jobId: String) {
         if (runningJobId == jobId) runnerJob?.cancel()
+        jobById(jobId)?.let { cancelPeerSession(it) }
         synchronized(outboxLock) {
             _outbox.value = _outbox.value.filter { it.id != jobId }
             wantedJobIds -= jobId
@@ -831,9 +949,11 @@ class LocalSendService : LocalSendController {
             // (our server lets the same peer replace its own stale one).
             val liveSession = if (sessionId != null && tokens.isNotEmpty() && chunked) {
                 val probe = pending.firstOrNull { it.fileId in tokens }
-                probe != null && client.chunkStatus(
-                    target, sessionId, probe.fileId, tokens.getValue(probe.fileId),
-                ) != null
+                probe != null && runCatching {
+                    client.chunkStatus(
+                        target, sessionId, probe.fileId, tokens.getValue(probe.fileId),
+                    )
+                }.isSuccess
             } else {
                 false
             }
@@ -926,8 +1046,9 @@ class LocalSendService : LocalSendController {
 
             var sessionDied = false
             val filesNow = jobById(jobId)?.files ?: return
-            for (file in filesNow) {
-                if (file.status == TransferStatus.DONE) continue
+            val remaining = filesNow.filter { it.status != TransferStatus.DONE }.toMutableList()
+            while (remaining.isNotEmpty()) {
+                val file = remaining.removeAt(0)
                 val token = tokens[file.fileId] ?: continue
                 val outcome = sendOneFile(
                     client, target, sessionId!!, token, jobId, file.fileId, chunked,
@@ -936,11 +1057,44 @@ class LocalSendService : LocalSendController {
                     sessionDied = true
                     break
                 }
+                // Priority sync (v0.12.4): between files, ask the receiver
+                // whether it reordered its queue — the remaining files
+                // follow its order. Advisory only: any failure keeps ours.
+                if (chunked && remaining.size > 1) {
+                    val probePair = remaining.firstNotNullOfOrNull { f ->
+                        tokens[f.fileId]?.let { tok -> f.fileId to tok }
+                    }
+                    val order = probePair?.let { (fid, tok) ->
+                        client.fetchReceiveOrder(target, sessionId, fid, tok)
+                    }
+                    if (!order.isNullOrEmpty()) {
+                        remaining.sortBy { f ->
+                            order.indexOf(f.fileId).let { i -> if (i < 0) Int.MAX_VALUE else i }
+                        }
+                    }
+                }
             }
             if (sessionDied) {
                 mutateJob(jobId) { it.copy(sessionId = null, tokens = emptyMap()) }
                 sessionRestarts++
-                if (sessionRestarts > MAX_SESSION_RESTARTS) return
+                if (sessionRestarts > MAX_SESSION_RESTARTS) {
+                    // Give up VISIBLY: park the remaining files as failed
+                    // with a resume affordance. (Previously the runner
+                    // just returned — the files sat at their last byte
+                    // count, up to 100%, forever, with nothing scheduled
+                    // and no error anywhere: Ernest's "stale at 100%".)
+                    jobById(jobId)?.files
+                        ?.filter { it.status != TransferStatus.DONE }
+                        ?.forEach { file ->
+                            mutateFile(jobId, file.fileId) {
+                                it.copy(
+                                    status = TransferStatus.FAILED,
+                                    lastError = "The connection to the device was lost — tap retry to resume",
+                                )
+                            }
+                        }
+                    return
+                }
                 continue
             }
             return
@@ -993,6 +1147,7 @@ class LocalSendService : LocalSendController {
                 )
                 return FileOutcome.DONE
             } catch (e: SessionDeadException) {
+                liveDone.remove(fileId)
                 mutateFile(jobId, fileId) {
                     it.copy(status = TransferStatus.WAITING, lastError = null)
                 }
@@ -1005,6 +1160,7 @@ class LocalSendService : LocalSendController {
             } catch (e: SendException) {
                 // Protocol rejections (declined, busy, bad checksum) are not
                 // transient: park the file for a manual retry.
+                liveDone.remove(fileId)
                 if (e.status == HttpStatusCode.Forbidden) {
                     mutateFile(jobId, fileId) {
                         it.copy(status = TransferStatus.WAITING, lastError = null)
@@ -1028,6 +1184,7 @@ class LocalSendService : LocalSendController {
                     delay(backoffMillis(attemptsNow))
                     continue
                 }
+                liveDone.remove(fileId)
                 mutateFile(jobId, fileId) {
                     it.copy(status = TransferStatus.FAILED, lastError = message)
                 }
@@ -1039,11 +1196,32 @@ class LocalSendService : LocalSendController {
     private fun backoffMillis(attempts: Int): Long =
         (2_000L shl attempts.coerceIn(0, 4)).coerceAtMost(30_000L)
 
+    /** Chunk status probe where ONLY a 403 means "the session is gone". */
+    private suspend fun probeChunkStatus(
+        client: SendClient,
+        target: DiscoveredDevice,
+        sessionId: String,
+        fileId: String,
+        token: String,
+    ): Long = try {
+        client.chunkStatus(target, sessionId, fileId, token)
+    } catch (e: SendException) {
+        if (e.status == HttpStatusCode.Forbidden) throw SessionDeadException()
+        throw e
+    }
+
     /**
      * Chunked send (LSEx extension): ask the receiver what it already has,
      * then stream only the missing chunks. Any interruption leaves the
      * receiver's staged bytes intact, so the next attempt — in seconds or
      * after an app restart — picks up at the confirmed offset.
+     *
+     * v0.12.4 speed pass: the receiver's confirmed count comes back in
+     * every chunk response, so the loop trusts it instead of paying a
+     * status round trip per chunk (the old loop did GET status + PUT per
+     * 1 MiB AND rewrote outbox.json to disk per chunk). Status is probed
+     * on entry and after a rejected chunk / refused finish only, and the
+     * persisted byte count is throttled like the whole-file path's.
      */
     private suspend fun sendFileChunked(
         client: SendClient,
@@ -1057,12 +1235,34 @@ class LocalSendService : LocalSendController {
             ?: throw IOException("Outbox file vanished")
         val reader = ChunkReader(file.handle)
         try {
+            var confirmed = probeChunkStatus(client, target, sessionId, fileId, token)
+            mutateFile(jobId, fileId) { it.copy(confirmedBytes = confirmed) }
+            var lastPersisted = confirmed
+            var finishAttempts = 0
             while (true) {
-                val confirmed = client.chunkStatus(target, sessionId, fileId, token)
-                    ?: throw SessionDeadException()
                 val resumeAt = TransferMath.resumeOffset(confirmed)
-                mutateFile(jobId, fileId) { it.copy(confirmedBytes = confirmed) }
-                if (resumeAt >= file.size) break
+                if (resumeAt >= file.size) {
+                    try {
+                        client.finishChunkedFile(target, sessionId, fileId, token)
+                        break
+                    } catch (e: SendException) {
+                        when (e.status) {
+                            HttpStatusCode.Forbidden -> throw SessionDeadException()
+                            HttpStatusCode.Conflict -> {
+                                // "Not all bytes staged" — re-sync from
+                                // the receiver's count and keep sending
+                                // (parking this as a failure, the old
+                                // behaviour, stranded complete files).
+                                if (++finishAttempts > MAX_FINISH_ATTEMPTS) throw e
+                                confirmed = probeChunkStatus(
+                                    client, target, sessionId, fileId, token,
+                                )
+                                continue
+                            }
+                            else -> throw e
+                        }
+                    }
+                }
                 val index = resumeAt / TransferMath.CHUNK_SIZE
                 val length = TransferMath.chunkLength(index, file.size).toInt()
                 val bytes = reader.readChunk(resumeAt, length)
@@ -1072,19 +1272,31 @@ class LocalSendService : LocalSendController {
                         TransferMath.sha256Hex(bytes),
                     )
                 } catch (e: SendException) {
-                    if (e.status == HttpStatusCode.Forbidden) throw SessionDeadException()
-                    throw e
+                    when (e.status) {
+                        HttpStatusCode.Forbidden -> throw SessionDeadException()
+                        HttpStatusCode.UnprocessableEntity -> {
+                            // A torn chunk was rejected: re-sync from the
+                            // receiver's confirmed count and resend.
+                            confirmed = probeChunkStatus(
+                                client, target, sessionId, fileId, token,
+                            )
+                            continue
+                        }
+                        else -> throw e
+                    }
                 }
-                mutateFile(jobId, fileId) { it.copy(confirmedBytes = newConfirmed) }
+                confirmed = newConfirmed
+                liveDone[fileId] = confirmed
+                if (confirmed - lastPersisted >= PERSIST_EVERY_BYTES || confirmed >= file.size) {
+                    lastPersisted = confirmed
+                    mutateFile(jobId, fileId) { it.copy(confirmedBytes = confirmed) }
+                } else {
+                    jobById(jobId)?.let { publishJobState(it) }
+                }
             }
+            mutateFile(jobId, fileId) { it.copy(confirmedBytes = file.size) }
         } finally {
             reader.close()
-        }
-        try {
-            client.finishChunkedFile(target, sessionId, fileId, token)
-        } catch (e: SendException) {
-            if (e.status == HttpStatusCode.Forbidden) throw SessionDeadException()
-            throw e
         }
     }
 
@@ -1370,11 +1582,8 @@ class LocalSendService : LocalSendController {
             it.id == runningJobId
         }
         val session = currentSendSession
-        if (client != null && job?.sessionId != null) {
-            val target = jobTarget(job)
-            val sid = job.sessionId
-            scope.launch { client.cancel(target, sid) }
-            mutateJob(job.id) { it.copy(sessionId = null, tokens = emptyMap()) }
+        if (job != null) {
+            cancelPeerSession(job)
         } else if (session != null && client != null) {
             scope.launch { client.cancel(session.first, session.second) }
         }
@@ -1420,7 +1629,57 @@ class LocalSendService : LocalSendController {
         } else {
             s.favorites + fingerprint
         }
-        updateSettings(s.copy(favorites = favorites))
+        // Keep the rich records in sync: removing by fingerprint drops
+        // any record carrying it (adding needs the device, see below).
+        val records = if (fingerprint in s.favorites) {
+            s.favoriteDevices.filterNot { it.fingerprint == fingerprint }
+        } else {
+            s.favoriteDevices
+        }
+        updateSettings(s.copy(favorites = favorites, favoriteDevices = records))
+    }
+
+    override fun toggleFavorite(device: DiscoveredDevice) {
+        val s = _settings.value
+        val key = device.identityKey
+        val existing = s.favoriteDevices.firstOrNull {
+            it.identityKey == key || it.fingerprint == device.fingerprint
+        }
+        if (existing != null || device.fingerprint in s.favorites) {
+            updateSettings(
+                s.copy(
+                    favorites = s.favorites - device.fingerprint,
+                    favoriteDevices = s.favoriteDevices.filterNot {
+                        it.identityKey == key || it.fingerprint == device.fingerprint
+                    },
+                ),
+            )
+        } else {
+            updateSettings(
+                s.copy(
+                    favorites = s.favorites + device.fingerprint,
+                    favoriteDevices = s.favoriteDevices + FavoriteDevice(
+                        identityKey = key,
+                        fingerprint = device.fingerprint,
+                        alias = device.info.alias,
+                        deviceModel = device.info.deviceModel,
+                        deviceType = device.info.deviceType?.name,
+                        avatar = device.info.avatar,
+                        lastSeenMillis = device.lastSeenMillis,
+                    ),
+                ),
+            )
+        }
+    }
+
+    /** Is this peer a favorite (by stable identity or legacy fingerprint)? */
+    private fun isFavorite(peer: RegisterDto): Boolean {
+        val s = _settings.value
+        if (peer.fingerprint in s.favorites) return true
+        val key = peer.deviceId ?: peer.fingerprint
+        return s.favoriteDevices.any {
+            it.identityKey == key || it.fingerprint == peer.fingerprint
+        }
     }
 
     private fun addHistory(
@@ -1473,5 +1732,13 @@ class LocalSendService : LocalSendController {
         const val MAX_AUTO_ATTEMPTS = 5
         /** Fresh prepare-upload rounds per run when the receive session keeps dying. */
         const val MAX_SESSION_RESTARTS = 2
+        /** Chunked sends persist their byte count at most every ~4 MiB (the live count rides [liveDone]). */
+        const val PERSIST_EVERY_BYTES = 4L * 1024 * 1024
+        /** How often a known identity's last-seen timestamp is persisted. */
+        const val SEEN_PERSIST_INTERVAL_MS = 24 * 60 * 60 * 1000L
+        /** Pending per-device transfer data is discarded after 30 days disconnected. */
+        const val DEVICE_DATA_RETENTION_MS = 30L * 24 * 60 * 60 * 1000
+        /** finish-file refusals (409) re-synced before the file is parked as failed. */
+        const val MAX_FINISH_ATTEMPTS = 3
     }
 }
