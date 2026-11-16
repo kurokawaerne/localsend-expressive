@@ -71,6 +71,13 @@ expect class ConnectivityController() {
 /** Open a URL in the platform browser (e.g. a scanned web-share link). */
 expect fun openUrl(url: String)
 
+/**
+ * Share plain text through the platform's share mechanism (Android:
+ * the system share sheet — Bluetooth is one of its targets; desktop:
+ * copies the text to the clipboard).
+ */
+expect fun shareText(text: String)
+
 /** User preferences for the radios the app can bring up (Settings → Connection). */
 data class ConnectivityPrefs(
     val hotspotSsid: String = "",
