@@ -14,6 +14,9 @@
         <item name="windowSplashScreenBackground">@color/splash_background</item>
         <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_animated</item>
         <item name="windowSplashScreenAnimationDuration">900</item>
+        <!-- The branding image (wordmark) is API 31+ platform-only:
+             core-splashscreen declares no compat attr for it, so it
+             lives in values-v31/themes.xml on the android: attr. -->
         <item name="postSplashScreenTheme">@style/Theme.LocalSendExpressive</item>
     </style>
 </resources>

@@ -79,7 +79,15 @@ jobs:
           # on the system Java 21. The app's .cfg carries no java
           # options — just the jar classpath and the main class —
           # and the v0.9.0 slimmed image was verified booting with
-          # exactly this invocation on a plain JRE.
+          # exactly this invocation on a plain JRE. The classpath
+          # must ALSO name the lib/app directory itself, not just
+          # its jars: the Compose packaging extracts Skiko's native
+          # library (libskiko-linux-x64.so + its .sha256) LOOSE into
+          # lib/app and empties the runtime jar, and a jars-only
+          # wildcard makes those files invisible as classpath
+          # resources — v0.12.2 crashed on launch with Skiko's
+          # "Cannot find libskiko-linux-x64.so.sha256" (reproduced
+          # and fix-verified locally against the shipped portable).
           cat > "$APP/bin/localsend-expressive" <<'LAUNCHER'
           #!/bin/sh
           # LocalSend Expressive — runs on a separately installed Java 21.
@@ -105,7 +113,7 @@ jobs:
             echo "LocalSend Expressive needs Java 21 or newer." >&2
             exit 1
           fi
-          exec "$JAVA" -cp "$APPDIR/lib/app/*" dev.kurokawa.localsend.expressive.MainKt "$@"
+          exec "$JAVA" -cp "$APPDIR/lib/app:$APPDIR/lib/app/*" dev.kurokawa.localsend.expressive.MainKt "$@"
           LAUNCHER
           chmod +x "$APP/bin/localsend-expressive"
           # libapplauncher.so only served the replaced ELF launcher.
@@ -177,14 +185,30 @@ jobs:
           prerelease: true
           files: release-assets/*
           body: |
-            The motion batch: three fixes from Ernest's review, in one release.
+            The verdict batch: Ernest's v0.12.2 review, plus a performance pass, in one release.
 
-            **The navbar pill no longer chops**
-            - The selected pill in the improvised navbar used to slice itself (and its label) mid-animation when switching sections — the incoming item was laid out at full width inside a still-animating, pill-clipped box. The item is now one layout in both states: a single animation drives the label's padding, the pill's colour and the icon's fade, so the pill wraps its content exactly at every frame.
+            **Desktop crash fixed**
+            - v0.12.2's Linux builds died on launch: Skiko's native library ships as a loose file next to the jars, and the slim launcher's classpath only matched jars, so the runtime could not find it. The launcher now puts the lib/app directory itself on the classpath. Desktop starts again.
 
-            **Swipe between pages**
-            - Slide horizontally across a free space of a page to move to the adjacent page. Swipe-reveal rows and horizontal scrollers keep their own drags — only free space turns the page.
+            **Performance**
+            - Page sliding now uses a real pager: pages follow your finger and fling, instead of a crossfade that only fired after the swipe ended.
+            - Settings scrolling is smooth: every row is now its own lazy item, so rows compose one at a time as they arrive instead of a whole settings group in a single frame.
+            - The installed-apps list is cached instead of rescanning every installed package each time the picker opens.
+            - Settings keeps its scroll position when you switch tabs and come back.
 
-            **Everything opens with motion**
-            - Page switches slide laterally with the direction of travel, whether they come from the navbar or from a swipe.
-            - The full-screen pages — Donate, link sharing, the content picker, the media preview — rise and fade in, and play their exit before closing. The link page and the picker also draw edge-to-edge now (they had the same black status and navigation bars the Donate page had).
+            **Split APKs**
+            - Selecting split apps no longer hangs: the .apks bundle is stored uncompressed (the files inside are already compressed), so bundling is near-instant.
+            - Tapping other split apps while one bundles no longer drops the taps, and leaving the tab no longer cancels a bundle mid-way.
+            - The size shown in the apps grid and the size shown in the selection list now agree.
+
+            **Sorting that sticks**
+            - Tap the active sort criterion again to reverse it; the menu shows the direction with an arrow.
+            - Sort can be set per folder ("Only for this folder") or globally; audio uses the global choice.
+            - Choices are saved and survive restarts.
+
+            **Predictive back**
+            - Full-screen pages scale with the predictive-back gesture as you swipe.
+            - In the file browser, back now climbs one folder at a time instead of leaving the picker from any depth.
+
+            **Splash branding**
+            - The Android splash screen now carries the LocalSendEx wordmark at the bottom, in the brand colour, with a night variant.

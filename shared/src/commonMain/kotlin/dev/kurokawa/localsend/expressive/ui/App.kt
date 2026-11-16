@@ -20,7 +20,6 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.tween
-import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
@@ -41,11 +40,12 @@ import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.pager.HorizontalPager
+import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -60,6 +60,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListState
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
@@ -119,6 +122,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -215,6 +219,7 @@ import dev.kurokawa.localsend.expressive.theme.MonoLightScheme
 import dev.kurokawa.localsend.expressive.theme.minusColorScheme
 import dev.kurokawa.localsend.expressive.theme.LocalSendExpressiveTheme
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -411,49 +416,6 @@ internal fun SplashOverlay(onDone: () -> Unit) {
     }
 }
 
-/**
- * The tab pages' swipe area (Ernest, 2026-11-15): a horizontal
- * slide across a FREE SPACE of the page moves to the adjacent
- * page. The detector sits on the container, so it only ever sees
- * drags no child consumed — swipe-reveal rows keep their drags,
- * horizontal scrollers keep theirs, vertical lists only consume
- * vertical movement. Past a 56dp accumulated drag the page flips
- * (left = next, right = previous), animated by the tab
- * AnimatedContent's lateral transition.
- */
-@Composable
-private fun TabSwipeArea(
-    tab: MainTab,
-    onSelect: (MainTab) -> Unit,
-    content: @Composable () -> Unit,
-) {
-    var dragTotal by remember { mutableFloatStateOf(0f) }
-    Box(
-        Modifier
-            .fillMaxSize()
-            .pointerInput(tab) {
-                detectHorizontalDragGestures(
-                    onDragStart = { dragTotal = 0f },
-                    onDragEnd = {
-                        val threshold = 56.dp.toPx()
-                        val tabs = MainTab.entries
-                        when {
-                            dragTotal <= -threshold &&
-                                tab.ordinal < tabs.lastIndex ->
-                                onSelect(tabs[tab.ordinal + 1])
-                            dragTotal >= threshold && tab.ordinal > 0 ->
-                                onSelect(tabs[tab.ordinal - 1])
-                        }
-                        dragTotal = 0f
-                    },
-                    onDragCancel = { dragTotal = 0f },
-                ) { _, dragAmount -> dragTotal += dragAmount }
-            },
-    ) {
-        content()
-    }
-}
-
 /** MD3's emphasized easing, cubic-bezier(0.2, 0, 0, 1). */
 private val LsexEmphasizedEasing = CubicBezierEasing(0.2f, 0f, 0f, 1f)
 
@@ -522,6 +484,37 @@ internal fun AppScaffold(
         }
     }
 
+    // The pages live in a HorizontalPager (Ernest, 2026-11-15:
+    // "the app feels specially slow while sliding between pages").
+    // The pager tracks the finger and only draws the pages actually
+    // on screen; the old AnimatedContent crossfaded TWO full pages
+    // through an offscreen layer on every switch, taps included,
+    // and the swipe only fired after the finger lifted. `tab` stays
+    // the logical selection (the QS tile and share intents set it);
+    // the two are kept in sync both ways.
+    // Hoisted so the Settings page keeps its scroll position when
+    // the pager disposes and recreates it across tab switches.
+    val settingsListState = rememberLazyListState()
+    val pagerState = rememberPagerState(initialPage = tab.ordinal) {
+        MainTab.entries.size
+    }
+    LaunchedEffect(pagerState) {
+        snapshotFlow { pagerState.currentPage }.collect { page ->
+            val newTab = MainTab.entries[page]
+            if (newTab != tab) tab = newTab
+        }
+    }
+    LaunchedEffect(tab) {
+        if (pagerState.currentPage != tab.ordinal &&
+            pagerState.targetPage != tab.ordinal
+        ) {
+            pagerState.animateScrollToPage(
+                tab.ordinal,
+                animationSpec = tween(340, easing = LsexEmphasizedEasing),
+            )
+        }
+    }
+
     // A root Surface, not just a background paint: the Surface is what
     // provides LocalContentColor (onBackground) to bare Texts. Without
     // it, headings outside cards fell back to the composition default —
@@ -534,29 +527,11 @@ internal fun AppScaffold(
     BoxWithConstraints(Modifier.fillMaxSize()) {
         val wide = maxWidth >= 840.dp
         val content: @Composable () -> Unit = {
-            AnimatedContent(
-                targetState = tab,
-                transitionSpec = {
-                    // Lateral shared-axis (Ernest, 2026-11-15):
-                    // pages slide WITH the direction of travel and
-                    // crossfade — the same motion whether the change
-                    // comes from the navbar or from the new
-                    // free-space swipe. (Supersedes the v0.12.0
-                    // scale-settle for tab switches.)
-                    val forward = targetState.ordinal > initialState.ordinal
-                    val enterShift = if (forward) 1 else -1
-                    (slideInHorizontally(
-                        animationSpec = tween(340, easing = LsexEmphasizedEasing),
-                    ) { enterShift * it / 3 } +
-                        fadeIn(tween(240))) togetherWith
-                        (slideOutHorizontally(
-                            animationSpec = tween(340, easing = LsexEmphasizedEasing),
-                        ) { -enterShift * it / 3 } +
-                            fadeOut(tween(200)))
-                },
-                label = "mainTab",
-            ) { currentTab ->
-                when (currentTab) {
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier.fillMaxSize(),
+            ) { page ->
+                when (MainTab.entries[page]) {
                 MainTab.Home -> HomeScreen(
                     controller = controller,
                     settings = settings,
@@ -582,7 +557,7 @@ internal fun AppScaffold(
                         showLinkPage = true
                     },
                 )
-                MainTab.Settings -> SettingsScreen(controller, settings)
+                MainTab.Settings -> SettingsScreen(controller, settings, settingsListState)
                 }
             }
         }
@@ -620,9 +595,7 @@ internal fun AppScaffold(
                         color = MaterialTheme.colorScheme.surfaceContainerLowest,
                         modifier = Modifier.fillMaxSize(),
                     ) {
-                        TabSwipeArea(tab = tab, onSelect = { tab = it }) {
-                            content()
-                        }
+                        content()
                     }
                     GlobalTransferPillHost(
                         controller = controller,
@@ -641,9 +614,7 @@ internal fun AppScaffold(
                         .fillMaxSize()
                         .windowInsetsPadding(WindowInsets.statusBars),
                 ) {
-                    TabSwipeArea(tab = tab, onSelect = { tab = it }) {
-                        content()
-                    }
+                    content()
                 }
                 Column(
                     Modifier
@@ -1919,7 +1890,12 @@ private fun AppsBrowser(
     // un-staging uses the same handle.
     val scope = rememberCoroutineScope()
     var bundles by remember { mutableStateOf<Map<String, PickedFile>>(emptyMap()) }
-    var preparing by remember { mutableStateOf<String?>(null) }
+    // Per-package preparing set (Ernest, v0.12.2 verdict #6): the
+    // old single-slot guard silently DROPPED taps on every other
+    // split app while one was bundling, and leaving the tab
+    // cancelled the composition scope mid-bundle, losing the
+    // selection altogether.
+    var preparing by remember { mutableStateOf<Set<String>>(emptySet()) }
     fun toggleApp(app: InstalledApp) {
         if (app.splitHandles.isEmpty()) {
             onToggleApp(app)
@@ -1932,11 +1908,16 @@ private fun AppsBrowser(
             )
             return
         }
-        if (preparing != null) return
-        preparing = app.packageName
+        if (app.packageName in preparing) return
+        preparing = preparing + app.packageName
         scope.launch {
-            val bundle = withContext(Dispatchers.IO) { stageAppBundle(app) }
-            preparing = null
+            // NonCancellable: the bundle is a cache file the parent
+            // still stages even if this browser leaves composition
+            // (tab switch) while it is being written.
+            val bundle = withContext(Dispatchers.IO + NonCancellable) {
+                stageAppBundle(app)
+            }
+            preparing = preparing - app.packageName
             if (bundle != null) {
                 bundles = bundles + (app.packageName to bundle)
                 onToggleApp(
@@ -2032,6 +2013,38 @@ private fun AppsBrowser(
 
 private enum class BrowseSort { Name, Size, Date, Type }
 
+/**
+ * Explorer sort state (Ernest, v0.12.2 verdict #3 + #7): a criterion
+ * AND a direction — tapping the active criterion again (or the
+ * menu's Reverse-order checkbox) flips it. The state is SAVEABLE:
+ * it persists in AppSettings as a global default, with optional
+ * per-folder overrides ("Only for this folder").
+ */
+private data class SortState(val mode: BrowseSort, val ascending: Boolean) {
+    fun encode(): String = "${mode.name}:${if (ascending) "1" else "0"}"
+
+    companion object {
+        fun decode(raw: String?): SortState? {
+            if (raw == null) return null
+            val mode = BrowseSort.entries
+                .firstOrNull { it.name == raw.substringBefore(':') } ?: return null
+            return SortState(mode, raw.substringAfter(':', "1") != "0")
+        }
+    }
+}
+
+/** Each criterion's natural direction (what "not reversed" means). */
+private val BrowseSort.defaultAscending: Boolean
+    get() = when (this) {
+        BrowseSort.Name, BrowseSort.Type -> true
+        BrowseSort.Size, BrowseSort.Date -> false
+    }
+
+private fun AppSettings.globalSortState(): SortState = SortState(
+    BrowseSort.entries.firstOrNull { it.name == browseSortMode } ?: BrowseSort.Name,
+    browseSortAscending,
+)
+
 /** File-browser filters (Ernest, v0.11.0: "we need filter options"). */
 private enum class FileFilter { All, Folders, Images, Videos, Audio, Documents, Apks, Archives }
 
@@ -2101,11 +2114,19 @@ private fun FilterMenuButton(
     }
 }
 
-/** Sort control shared by the Files and Music browsers (v0.10.0). */
+/**
+ * Sort control shared by the Files and Music browsers (v0.10.0;
+ * v0.12.2 verdict #3/#7: reversible + saveable). Tapping the active
+ * criterion flips its direction; the menu also carries Ernest's two
+ * checkboxes — Reverse order, and (Files only) Only for this
+ * folder. Checkbox rows keep the menu open.
+ */
 @Composable
 private fun SortMenuButton(
-    sort: BrowseSort,
-    onSort: (BrowseSort) -> Unit,
+    state: SortState,
+    onState: (SortState) -> Unit,
+    onlyThisFolder: Boolean? = null,
+    onOnlyThisFolder: ((Boolean) -> Unit)? = null,
 ) {
     var open by remember { mutableStateOf(false) }
     Box {
@@ -2116,11 +2137,52 @@ private fun SortMenuButton(
             BrowseSort.entries.forEach { mode ->
                 DropdownMenuItem(
                     text = { Text(mode.name) },
-                    onClick = { onSort(mode); open = false },
+                    onClick = {
+                        onState(
+                            if (mode == state.mode) {
+                                state.copy(ascending = !state.ascending)
+                            } else {
+                                SortState(mode, mode.defaultAscending)
+                            },
+                        )
+                        open = false
+                    },
+                    leadingIcon = {
+                        if (state.mode == mode) {
+                            Icon(
+                                if (state.ascending) {
+                                    MaterialSymbols.Outlined.Arrow_upward
+                                } else {
+                                    MaterialSymbols.Outlined.Arrow_downward
+                                },
+                                contentDescription = null,
+                            )
+                        }
+                    },
                     trailingIcon = {
-                        if (sort == mode) {
+                        if (state.mode == mode) {
                             Icon(MaterialSymbols.Outlined.Check, contentDescription = null)
                         }
+                    },
+                )
+            }
+            HorizontalDivider()
+            DropdownMenuItem(
+                text = { Text("Reverse order") },
+                onClick = { onState(state.copy(ascending = !state.ascending)) },
+                trailingIcon = {
+                    Checkbox(
+                        checked = state.ascending != state.mode.defaultAscending,
+                        onCheckedChange = null,
+                    )
+                },
+            )
+            if (onlyThisFolder != null && onOnlyThisFolder != null) {
+                DropdownMenuItem(
+                    text = { Text("Only for this folder") },
+                    onClick = { onOnlyThisFolder(!onlyThisFolder) },
+                    trailingIcon = {
+                        Checkbox(checked = onlyThisFolder, onCheckedChange = null)
                     },
                 )
             }
@@ -2128,17 +2190,17 @@ private fun SortMenuButton(
     }
 }
 
-private fun List<BrowserItem>.sortedForBrowse(sort: BrowseSort): List<BrowserItem> =
-    when (sort) {
-        BrowseSort.Name -> sortedBy { it.name.lowercase() }
-        BrowseSort.Size -> sortedByDescending { it.size }
-        BrowseSort.Date -> sortedByDescending { it.dateMillis }
-        BrowseSort.Type -> sortedWith(
-            compareBy<BrowserItem> {
-                it.name.substringAfterLast('.', "").lowercase()
-            }.thenBy { it.name.lowercase() },
-        )
+private fun List<BrowserItem>.sortedForBrowse(state: SortState): List<BrowserItem> {
+    val comparator: Comparator<BrowserItem> = when (state.mode) {
+        BrowseSort.Name -> compareBy { it.name.lowercase() }
+        BrowseSort.Size -> compareBy { it.size }
+        BrowseSort.Date -> compareBy { it.dateMillis }
+        BrowseSort.Type -> compareBy<BrowserItem> {
+            it.name.substringAfterLast('.', "").lowercase()
+        }.thenBy { it.name.lowercase() }
     }
+    return sortedWith(if (state.ascending) comparator else comparator.reversed())
+}
 
 /**
  * Music browser (v0.10.0): Ernest asked for search + filter + sort in
@@ -2151,14 +2213,18 @@ internal fun AudioList(
     items: List<BrowserItem>,
     stagedIds: Set<String>,
     onToggleItem: (BrowserItem) -> Unit,
+    settings: AppSettings,
+    onUpdateSettings: (AppSettings) -> Unit,
 ) {
     var query by remember { mutableStateOf("") }
-    var sort by remember { mutableStateOf(BrowseSort.Name) }
+    // Saveable sort (v0.12.2 verdict #7): Music uses the shared
+    // global sort state from settings — no per-folder overrides.
+    val sortState = settings.globalSortState()
     var filter by remember { mutableStateOf(AudioFilter.All) }
     val visible = items
         .filter { query.isBlank() || it.name.contains(query, ignoreCase = true) }
         .filter { filter.matches(it) }
-        .sortedForBrowse(sort)
+        .sortedForBrowse(sortState)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         SearchBar(
             inputField = {
@@ -2198,7 +2264,17 @@ internal fun AudioList(
                 options = AudioFilter.entries.map { it.name },
                 selectedIndex = AudioFilter.entries.indexOf(filter),
             ) { filter = AudioFilter.entries[it] }
-            SortMenuButton(sort) { sort = it }
+            SortMenuButton(
+                state = sortState,
+                onState = { new ->
+                    onUpdateSettings(
+                        settings.copy(
+                            browseSortMode = new.mode.name,
+                            browseSortAscending = new.ascending,
+                        ),
+                    )
+                },
+            )
         }
         LazyColumn(
             verticalArrangement =
@@ -2243,6 +2319,8 @@ private fun MediaBrowser(
     kind: MediaKind,
     stagedIds: Set<String>,
     onToggleItem: (BrowserItem) -> Unit,
+    settings: AppSettings,
+    onUpdateSettings: (AppSettings) -> Unit,
 ) {
     val access = rememberStorageAccess()
     if (!access.mediaGranted) {
@@ -2280,6 +2358,8 @@ private fun MediaBrowser(
             items = loaded,
             stagedIds = stagedIds,
             onToggleItem = onToggleItem,
+            settings = settings,
+            onUpdateSettings = onUpdateSettings,
         )
         else -> Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -2570,13 +2650,19 @@ private fun FullscreenMediaPreview(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(
+    ExperimentalMaterial3Api::class,
+    ExperimentalMaterial3ExpressiveApi::class,
+    ExperimentalComposeUiApi::class,
+)
 @Composable
 private fun FileBrowser(
     stagedIds: Set<String>,
     onToggleFile: (BrowserItem) -> Unit,
     onToggleFolder: (BrowserItem) -> Unit,
     onStageFile: (PickedFile) -> Unit,
+    settings: AppSettings,
+    onUpdateSettings: (AppSettings) -> Unit,
 ) {
     val access = rememberStorageAccess()
     val pickFiles = rememberFilePickerLauncher { picked ->
@@ -2610,8 +2696,43 @@ private fun FileBrowser(
     var entries by remember { mutableStateOf<List<BrowserItem>?>(null) }
     // Ernest (v0.10.0): the explorer gets search + sort, like Music.
     var query by remember { mutableStateOf("") }
-    var sort by remember { mutableStateOf(BrowseSort.Name) }
+    // Saveable sort (v0.12.2 verdict #7): the effective state is the
+    // per-folder override when one exists, else the global default.
+    // Changing the sort edits whichever of the two is in force;
+    // "Only for this folder" creates/removes the override.
+    val folderOverride = currentPath?.let { SortState.decode(settings.folderSorts[it]) }
+    val sortState = folderOverride ?: settings.globalSortState()
+    val onlyThisFolder = folderOverride != null
+    fun applySort(new: SortState) {
+        if (onlyThisFolder && currentPath != null) {
+            onUpdateSettings(
+                settings.copy(folderSorts = settings.folderSorts + (currentPath to new.encode())),
+            )
+        } else {
+            onUpdateSettings(
+                settings.copy(
+                    browseSortMode = new.mode.name,
+                    browseSortAscending = new.ascending,
+                ),
+            )
+        }
+    }
     var fileFilter by remember { mutableStateOf(FileFilter.All) }
+    // Predictive back (v0.12.2 verdict #2): inside a folder, the
+    // back gesture pops one level (with the gesture's scale on the
+    // page) instead of leaving the picker entirely. At the root the
+    // handler disables and the picker's own page handler takes over.
+    var backScale by remember { mutableFloatStateOf(1f) }
+    PredictiveBackHandler(enabled = pathStack.isNotEmpty()) { progress ->
+        try {
+            progress.collect { event -> backScale = 1f - event.progress * 0.08f }
+            pathStack = pathStack.dropLast(1)
+            backScale = 1f
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            backScale = 1f
+            throw e
+        }
+    }
     LaunchedEffect(currentPath) {
         query = ""
         entries = if (currentPath == null) {
@@ -2620,7 +2741,10 @@ private fun FileBrowser(
             listBrowserFolder(currentPath)
         }
     }
-    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Column(
+        modifier = Modifier.scale(backScale),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
         // Breadcrumb path bar: tap a crumb to jump back up.
         Row(
             Modifier
@@ -2674,7 +2798,29 @@ private fun FileBrowser(
                 options = FileFilter.entries.map { it.name },
                 selectedIndex = FileFilter.entries.indexOf(fileFilter),
             ) { fileFilter = FileFilter.entries[it] }
-            SortMenuButton(sort) { sort = it }
+            SortMenuButton(
+                state = sortState,
+                onState = ::applySort,
+                onlyThisFolder = if (currentPath != null) onlyThisFolder else null,
+                onOnlyThisFolder = if (currentPath != null) {
+                    { checked ->
+                        if (currentPath != null) {
+                            onUpdateSettings(
+                                if (checked) {
+                                    settings.copy(
+                                        folderSorts = settings.folderSorts +
+                                            (currentPath to sortState.encode()),
+                                    )
+                                } else {
+                                    settings.copy(folderSorts = settings.folderSorts - currentPath)
+                                },
+                            )
+                        }
+                    }
+                } else {
+                    null
+                },
+            )
         }
         val loaded = entries
         when {
@@ -2701,8 +2847,8 @@ private fun FileBrowser(
                             fileFilter.matches(it)
                     }
                     .let { filtered ->
-                        filtered.filter { it.isFolder }.sortedForBrowse(sort) +
-                            filtered.filter { !it.isFolder }.sortedForBrowse(sort)
+                        filtered.filter { it.isFolder }.sortedForBrowse(sortState) +
+                            filtered.filter { !it.isFolder }.sortedForBrowse(sortState)
                     }
                 LazyColumn(
                     verticalArrangement =
@@ -3482,6 +3628,38 @@ private fun MinusLeadingIcon(icon: ImageVector, active: Boolean) {
     }
 }
 
+/**
+ * [MinusGroup] flattened into the Settings LazyColumn (Ernest,
+ * 2026-11-15: "slow while scrolling the settings"). A group used to
+ * be ONE lazy item, so a whole group — up to ~15 rows — composed in
+ * a single frame when it scrolled in. Here every row is its own
+ * lazy item and composes individually. The spacing reproduces
+ * MinusGroup's exactly: the header keeps its own 10dp below it,
+ * rows sit 3dp apart, and the list's 22dp group gap rides as the
+ * last row's bottom padding (the Settings list is spacedBy(0)).
+ */
+private fun LazyListScope.minusGroupItems(
+    title: String?,
+    rows: List<@Composable (Int, Int, RoundedCornerShape) -> Unit>,
+    keyPrefix: String,
+) {
+    if (title != null) {
+        item(key = "$keyPrefix-header") { MinusGroupHeader(title) }
+    }
+    itemsIndexed(
+        rows,
+        key = { index, _ -> "$keyPrefix-$index" },
+    ) { index, row ->
+        Box(
+            Modifier.padding(
+                bottom = if (index == rows.lastIndex) 22.dp else 3.dp,
+            ),
+        ) {
+            row(index, rows.size, historyTileShape(index, rows.size))
+        }
+    }
+}
+
 @Composable
 private fun MinusTile(
     shape: RoundedCornerShape,
@@ -4044,6 +4222,7 @@ private fun CopyButton(text: String) {
  * defect until this batch).
  */
 @Composable
+@OptIn(ExperimentalComposeUiApi::class)
 private fun AnimatedPageDialog(
     onDismiss: () -> Unit,
     content: @Composable (requestDismiss: () -> Unit) -> Unit,
@@ -4054,6 +4233,21 @@ private fun AnimatedPageDialog(
     LaunchedEffect(transition.currentState, transition.targetState) {
         if (!transition.currentState && !transition.targetState) {
             onDismiss()
+        }
+    }
+    // Predictive back (Ernest, v0.12.2 verdict #2): these full-screen
+    // pages previously dismissed with no gesture feedback at all.
+    // The page now scales down with the gesture and plays its exit
+    // animation when the gesture completes — the same treatment the
+    // media preview already had.
+    var backScale by remember { mutableFloatStateOf(1f) }
+    PredictiveBackHandler { progress ->
+        try {
+            progress.collect { event -> backScale = 1f - event.progress * 0.1f }
+            transition.targetState = false
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            backScale = 1f
+            throw e
         }
     }
     Dialog(
@@ -4071,7 +4265,9 @@ private fun AnimatedPageDialog(
                     animationSpec = tween(220, easing = LsexEmphasizedEasing),
                 ) { it / 16 },
         ) {
-            content { transition.targetState = false }
+            Box(Modifier.scale(backScale)) {
+                content { transition.targetState = false }
+            }
         }
     }
 }
@@ -4217,7 +4413,11 @@ internal fun DonateContent(onDismiss: () -> Unit) {
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-internal fun SettingsScreen(controller: LocalSendController, settings: AppSettings) {
+internal fun SettingsScreen(
+    controller: LocalSendController,
+    settings: AppSettings,
+    listState: LazyListState = rememberLazyListState(),
+) {
     val strings = LocalStrings.current
     val local by controller.localDevice.collectAsState()
     var advanced by rememberSaveable { mutableStateOf(false) }
@@ -4277,18 +4477,22 @@ internal fun SettingsScreen(controller: LocalSendController, settings: AppSettin
 
     LazyColumn(
         Modifier.fillMaxSize(),
+        state = listState,
         contentPadding = PaddingValues(
             start = 16.dp, end = 16.dp, top = 16.dp, bottom = 128.dp,
         ),
-        verticalArrangement = Arrangement.spacedBy(22.dp),
+        verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         item {
-            Text(strings.settings, style = MaterialTheme.typography.headlineMedium)
+            Text(
+                strings.settings,
+                style = MaterialTheme.typography.headlineMedium,
+                modifier = Modifier.padding(bottom = 22.dp),
+            )
         }
 
         // ── Profile: avatar + name + device info, edited in place ──
-        item {
-            MinusGroup(
+        minusGroupItems(
                 title = null,
                 rows = buildList {
                     add { _, _, shape ->
@@ -4445,12 +4649,11 @@ internal fun SettingsScreen(controller: LocalSendController, settings: AppSettin
                         }
                     }
                 },
+                keyPrefix = "s1",
             )
-        }
 
         // ── General ──
-        item {
-            MinusGroup(
+        minusGroupItems(
                 title = "General",
                 rows = buildList {
                     add { _, _, shape ->
@@ -4697,13 +4900,12 @@ internal fun SettingsScreen(controller: LocalSendController, settings: AppSettin
                         )
                     }
                 },
+                keyPrefix = "s2",
             )
-        }
 
         // ── Desktop (window behaviour) ──
         if (platformDeviceType() == DeviceType.desktop) {
-            item {
-                MinusGroup(
+            minusGroupItems(
                     title = "Desktop",
                     rows = listOf(
                         { index: Int, count: Int, _: RoundedCornerShape ->
@@ -4749,13 +4951,12 @@ internal fun SettingsScreen(controller: LocalSendController, settings: AppSettin
                             )
                         },
                     ),
+                    keyPrefix = "s3",
                 )
-            }
         }
 
         // ── Receive ──
-        item {
-            MinusGroup(
+        minusGroupItems(
                 title = strings.receive,
                 rows = buildList {
                     add { _, _, shape ->
@@ -4958,13 +5159,12 @@ internal fun SettingsScreen(controller: LocalSendController, settings: AppSettin
                         }
                     }
                 },
+                keyPrefix = "s4",
             )
-        }
 
         // ── Sending (advanced) ──
         if (advanced) {
-            item {
-                MinusGroup(
+            minusGroupItems(
                     title = "Sending",
                     rows = listOf(
                         { index: Int, count: Int, _: RoundedCornerShape ->
@@ -5034,13 +5234,12 @@ internal fun SettingsScreen(controller: LocalSendController, settings: AppSettin
                             )
                         },
                     ),
+                    keyPrefix = "s5",
                 )
-            }
         }
 
         // ── Connection ──
-        item {
-            MinusGroup(
+        minusGroupItems(
                 title = "Connection",
                 rows = buildList {
                     add { _, _, shape ->
@@ -5091,12 +5290,11 @@ internal fun SettingsScreen(controller: LocalSendController, settings: AppSettin
                         }
                     }
                 },
+                keyPrefix = "s6",
             )
-        }
 
         // ── Network ──
-        item {
-            MinusGroup(
+        minusGroupItems(
                 title = "Network",
                 rows = buildList {
                     add { index, count, _ ->
@@ -5291,13 +5489,12 @@ internal fun SettingsScreen(controller: LocalSendController, settings: AppSettin
                         }
                     }
                 },
+                keyPrefix = "s7",
             )
-        }
 
         // ── Favorites ──
         if (settings.favorites.isNotEmpty()) {
-            item {
-                MinusGroup(
+            minusGroupItems(
                     title = "Favorites",
                     rows = settings.favorites.map { fingerprint ->
                         { _: Int, _: Int, shape: RoundedCornerShape ->
@@ -5332,16 +5529,15 @@ internal fun SettingsScreen(controller: LocalSendController, settings: AppSettin
                             }
                         }
                     },
+                    keyPrefix = "s8",
                 )
-            }
         }
 
         // ── Donate ──
         // Ernest (2026-11-13): ONE section inside Settings that
         // opens its own page — not nine tiles spread down the
         // settings list.
-        item {
-            MinusGroup(
+        minusGroupItems(
                 title = null,
                 rows = listOf { _, _, shape ->
                     MinusNavRow(
@@ -5353,8 +5549,8 @@ internal fun SettingsScreen(controller: LocalSendController, settings: AppSettin
                         onClick = { showDonate = true },
                     )
                 },
+                keyPrefix = "s9",
             )
-        }
 
         item {
             val ltcAddress = "ltc1q2t7pg8xyyqvu2cm2jxpxtqcxr5layxztf32q5g"
@@ -6999,6 +7195,8 @@ internal fun PickerScreen(
                             onToggleItem = { item ->
                                 onToggleFile(PickedFile(item.handle, item.name, item.size))
                             },
+                            settings = settings,
+                            onUpdateSettings = { controller.updateSettings(it) },
                         )
                         ContentTab.Videos -> MediaBrowser(
                             kind = MediaKind.VIDEOS,
@@ -7006,6 +7204,8 @@ internal fun PickerScreen(
                             onToggleItem = { item ->
                                 onToggleFile(PickedFile(item.handle, item.name, item.size))
                             },
+                            settings = settings,
+                            onUpdateSettings = { controller.updateSettings(it) },
                         )
                         ContentTab.Audio -> MediaBrowser(
                             kind = MediaKind.AUDIO,
@@ -7013,6 +7213,8 @@ internal fun PickerScreen(
                             onToggleItem = { item ->
                                 onToggleFile(PickedFile(item.handle, item.name, item.size))
                             },
+                            settings = settings,
+                            onUpdateSettings = { controller.updateSettings(it) },
                         )
                         ContentTab.Files -> FileBrowser(
                             stagedIds = stagedIds,
@@ -7021,6 +7223,8 @@ internal fun PickerScreen(
                             },
                             onToggleFolder = onToggleFolder,
                             onStageFile = onStageFile,
+                            settings = settings,
+                            onUpdateSettings = { controller.updateSettings(it) },
                         )
                         else -> Unit
                     }

@@ -83,6 +83,13 @@ data class AppSettings(
     val destinationTreeUri: String = "",
     /** App picker: hide system apps (they're rarely what you want to send). */
     val hideSystemApps: Boolean = true,
+    // Explorer sorting (Ernest, v0.12.2 verdict): the sort state is
+    // SAVEABLE — a global default plus optional per-folder overrides
+    // ("Only for this folder"). Overrides map a folder path to
+    // "Mode:ascending" (ascending = "1"/"0").
+    val browseSortMode: String = "Name",
+    val browseSortAscending: Boolean = true,
+    val folderSorts: Map<String, String> = emptyMap(),
     // ── v0.8.0 ──
     /**
      * Avatar shown for this device (Settings → avatar picker). Empty =

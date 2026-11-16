@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- API 31+: the full Splash style restated (a style in a
+         qualified directory shadows the base one wholesale, so all
+         items repeat) plus the platform branding image — the
+         LocalSendEx wordmark at the bottom of the splash.
+         core-splashscreen 1.2.0 declares no compat attr for branding
+         (verified in its AAR: only Background, AnimatedIcon,
+         IconBackgroundColor, AnimationDuration), so the item uses
+         the android: platform attr, which only exists on API 31+.
+         The drawable resolves to drawable-night-nodpi at night. -->
+    <style name="Theme.LocalSendExpressive.Splash" parent="Theme.SplashScreen">
+        <item name="windowSplashScreenBackground">@color/splash_background</item>
+        <item name="windowSplashScreenAnimatedIcon">@drawable/ic_splash_animated</item>
+        <item name="windowSplashScreenAnimationDuration">900</item>
+        <item name="android:windowSplashScreenBrandingImage">@drawable/splash_branding</item>
+        <item name="postSplashScreenTheme">@style/Theme.LocalSendExpressive</item>
+    </style>
+</resources>
