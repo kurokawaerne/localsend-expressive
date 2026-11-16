@@ -65,6 +65,8 @@ class ReceiveServer(
     private val ipAllowed: (String) -> Boolean = { true },
     /** Files offered through the Download API (share via link). */
     private val webShareProvider: () -> List<WebShareFile> = { emptyList() },
+    /** The user's current receive-queue order (file ids), served to LSEx senders. */
+    private val orderProvider: () -> List<String> = { emptyList() },
     private val callbacks: Callbacks,
 ) {
     interface Callbacks {
@@ -335,12 +337,13 @@ class ReceiveServer(
 
                 // A session whose sender vanished (app killed, Wi-Fi drop)
                 // must not block the single session slot forever: expire it
-                // after an idle timeout so a retry can start fresh.
+                // after an idle timeout so a retry can start fresh. The
+                // staged chunks are NOT discarded — they are keyed by peer
+                // and the next session adopts them (that's the resume).
                 val current = activeSession
                 if (current != null &&
                     System.currentTimeMillis() - current.lastActivityMillis > SESSION_IDLE_TIMEOUT_MS
                 ) {
-                    current.abortStaging()
                     activeSession = null
                 }
 
@@ -353,7 +356,6 @@ class ReceiveServer(
                     stale.peer.fingerprint == request.info.fingerprint &&
                     stale.peerIp == remoteIp
                 ) {
-                    stale.abortStaging()
                     activeSession = null
                 }
 
@@ -518,7 +520,11 @@ class ReceiveServer(
                     return@get
                 }
                 val fileId = q["fileId"]!!
-                val received = session.staging[fileId]?.contiguousLength() ?: 0L
+                // Adopt (or create) the peer-keyed staging so a resumed
+                // session reports the bytes staged by its predecessor.
+                val received = session.staging.computeIfAbsent(fileId) {
+                    createChunkStaging(session.peer.fingerprint, fileId, fileDto.size)
+                }.contiguousLength()
                 call.respond(ChunkStatusDto(fileId, received, fileDto.size))
             }
 
@@ -572,7 +578,7 @@ class ReceiveServer(
                     return@put
                 }
                 val staging = session.staging.computeIfAbsent(fileId) {
-                    createChunkStaging(session.id, fileId)
+                    createChunkStaging(session.peer.fingerprint, fileId, fileDto.size)
                 }
                 staging.writeAt(offset, bytes, 0, bytes.size)
                 session.touch()
@@ -582,6 +588,23 @@ class ReceiveServer(
                 )
                 callbacks.onReceiveProgress(session.id, session.progress.values.toList())
                 call.respond(ChunkStatusDto(fileId, receivedNow, fileDto.size))
+            }
+
+            get(ProtocolConstants.PATH_LSEX_ORDER) {
+                val remoteIp = call.request.local.remoteHost
+                if (!ipAllowed(remoteIp)) {
+                    call.respond(HttpStatusCode.Forbidden)
+                    return@get
+                }
+                val q = call.request.queryParameters
+                chunkSession(q["sessionId"], q["fileId"], q["token"], remoteIp)
+                    ?: run {
+                        call.respond(HttpStatusCode.Forbidden)
+                        return@get
+                    }
+                call.respond(
+                    dev.kurokawa.localsend.expressive.protocol.ReceiveOrderDto(orderProvider()),
+                )
             }
 
             post(ProtocolConstants.PATH_LSEX_FINISH_FILE) {
@@ -658,7 +681,6 @@ class ReceiveServer(
                 callbacks.onReceiveProgress(session.id, session.progress.values.toList())
                 callbacks.onFileReceived(session.id, session.peer, fileDto, target.displayName, target.resultUri)
                 if (session.received.size == session.files.size) {
-                    session.abortStaging()
                     activeSession = null
                     callbacks.onSessionFinished(session.id, session.peer)
                 }
@@ -667,9 +689,26 @@ class ReceiveServer(
 
             post(ProtocolConstants.PATH_CANCEL) {
                 val sessionId = call.request.queryParameters["sessionId"]
-                if (activeSession?.id == sessionId) {
-                    activeSession?.abortStaging()
+                val session = activeSession
+                if (session != null && session.id == sessionId) {
+                    // A deliberate cancel DISCARDS the staged chunks (the
+                    // sender quit on purpose — unlike a disconnection,
+                    // whose staging a later session adopts), frees the
+                    // session slot at once, and tells our own UI the
+                    // transfer is over (it previously kept showing it).
+                    session.abortStaging()
                     activeSession = null
+                    callbacks.onReceiveProgress(
+                        session.id,
+                        session.progress.values.map { progress ->
+                            if (progress.status == TransferStatus.DONE) {
+                                progress
+                            } else {
+                                progress.copy(status = TransferStatus.CANCELLED)
+                            }
+                        },
+                    )
+                    callbacks.onSessionFinished(session.id, session.peer)
                 }
                 if (sessionId != null) webSessions.remove(sessionId)
                 call.respond(HttpStatusCode.OK)

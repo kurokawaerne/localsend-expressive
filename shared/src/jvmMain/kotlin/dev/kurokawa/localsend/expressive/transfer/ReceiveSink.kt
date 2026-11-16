@@ -82,13 +82,24 @@ interface ChunkStaging {
 /** Directory chunk staging files live in (wiped when the server starts: sessions are in-memory). */
 expect fun chunkStagingDir(): java.io.File
 
-/** Create fresh staging for one file of one session (any previous file is discarded). */
-fun createChunkStaging(sessionId: String, fileId: String): ChunkStaging {
+/**
+ * Staging for one file of one peer, keyed by the PEER (not the session):
+ * when a send is interrupted and the sender opens a NEW session, the new
+ * session ADOPTS the bytes already staged for the same file instead of
+ * starting from byte 0 (the pre-v0.12.4 design named staging files by
+ * session and deleted them on re-prepare, so every hiccup restarted the
+ * file). Adoption is sound because the sender is strictly sequential:
+ * the staged file's length IS the contiguous frontier. A staged file
+ * longer than the file being received now (a different file reusing the
+ * id) is discarded.
+ */
+fun createChunkStaging(peerKey: String, fileId: String, expectedSize: Long): ChunkStaging {
     val dir = chunkStagingDir().apply { mkdirs() }
-    val safe = "$sessionId-$fileId".replace(Regex("[^A-Za-z0-9._-]"), "_")
+    val safe = "$peerKey-$fileId".replace(Regex("[^A-Za-z0-9._-]"), "_")
     val file = java.io.File(dir, "$safe.part")
-    file.delete()
-    return FileChunkStaging(file)
+    val adopted = if (file.exists() && file.length() in 0..expectedSize) file.length() else 0L
+    if (adopted == 0L) file.delete()
+    return FileChunkStaging(file, adopted)
 }
 
 /** Remove every staged chunk (called on server start; sessions never survive a restart). */
@@ -96,9 +107,12 @@ fun clearChunkStaging() {
     runCatching { chunkStagingDir().deleteRecursively() }
 }
 
-private class FileChunkStaging(private val file: java.io.File) : ChunkStaging {
+private class FileChunkStaging(
+    private val file: java.io.File,
+    adoptedContiguous: Long = 0L,
+) : ChunkStaging {
     private val raf = java.io.RandomAccessFile(file, "rw")
-    private var contiguous = 0L
+    private var contiguous = adoptedContiguous
     private var closed = false
 
     @Synchronized
