@@ -47,6 +47,16 @@ data class RegisterDto(
     val download: Boolean = false,
     /** Only meaningful in multicast messages: true = announcement, false = response. */
     val announce: Boolean? = null,
+    /**
+     * LSEx extension (official peers ignore unknown fields): a STABLE
+     * device id that never changes when the user edits the alias, model
+     * or type — identity (favorites, per-device data) keys on this, not
+     * on the display fields. Null from official peers (their identity
+     * stays the fingerprint).
+     */
+    val deviceId: String? = null,
+    /** LSEx extension: the sender's chosen avatar id (Settings picker). */
+    val avatar: String? = null,
 )
 
 /** Response of GET /info. */
@@ -58,6 +68,10 @@ data class InfoDto(
     val deviceType: DeviceType? = null,
     val fingerprint: String,
     val download: Boolean = false,
+    /** LSEx extension: see [RegisterDto.deviceId]. */
+    val deviceId: String? = null,
+    /** LSEx extension: see [RegisterDto.avatar]. */
+    val avatar: String? = null,
 )
 
 @Serializable
@@ -117,4 +131,11 @@ data class ChunkStatusDto(
     val received: Long,
     /** Total file size the receiver expects. */
     val size: Long,
+)
+
+/** LSEx extension: the receiver's desired send order for a session. */
+@Serializable
+data class ReceiveOrderDto(
+    /** File ids in the order the receiver wants them sent. */
+    val fileIds: List<String> = emptyList(),
 )
