@@ -57,10 +57,18 @@ actual fun rememberClipboardText(): () -> String? {
     }
 }
 
+// Process-wide cache (v0.12.2 verdict #1): the full PackageManager
+// scan + label resolution over ~300 apps took seconds and re-ran on
+// EVERY picker open (the browser's produceState restarts when the
+// tab's composition is disposed). Apps don't change mid-session in
+// any way that matters here; scan once per process.
+private var installedAppsCache: List<InstalledApp>? = null
+
 actual fun loadInstalledApps(): List<InstalledApp> {
+    installedAppsCache?.let { return it }
     val context = AppContextHolder.appContext ?: return emptyList()
     val pm = context.packageManager
-    return pm.getInstalledApplications(android.content.pm.PackageManager.GET_META_DATA)
+    val scanned = pm.getInstalledApplications(android.content.pm.PackageManager.GET_META_DATA)
         .filter { it.sourceDir != null }
         .mapNotNull { app ->
             val file = java.io.File(app.sourceDir)
@@ -79,6 +87,8 @@ actual fun loadInstalledApps(): List<InstalledApp> {
             )
         }
         .sortedBy { it.label.lowercase() }
+    installedAppsCache = scanned
+    return scanned
 }
 
 @Composable
@@ -146,9 +156,31 @@ actual fun stageAppBundle(app: InstalledApp): PickedFile? {
         val out = java.io.File(dir, "${app.packageName}-${base.lastModified()}.apks")
         if (!out.exists() || out.length() == 0L) {
             val tmp = java.io.File(dir, out.name + ".tmp")
+            // STORED, never deflated (Ernest, v0.12.2 verdict #6):
+            // APKs are already compressed, so deflating a base +
+            // splits bundle (often 100+ MB) bought ~nothing and
+            // took tens of seconds on-device — the "eternity
+            // loading" before a split app would select. Stored
+            // entries make bundling a plain copy, and the bundle's
+            // size lands within a few KB of the base + splits total
+            // the browser shows (verdict #5's grid/list mismatch).
             java.util.zip.ZipOutputStream(tmp.outputStream().buffered()).use { zip ->
                 fun add(file: java.io.File, entryName: String) {
-                    zip.putNextEntry(java.util.zip.ZipEntry(entryName))
+                    val crc = java.util.zip.CRC32()
+                    val buf = ByteArray(64 * 1024)
+                    file.inputStream().buffered().use { input ->
+                        while (true) {
+                            val n = input.read(buf)
+                            if (n < 0) break
+                            crc.update(buf, 0, n)
+                        }
+                    }
+                    val entry = java.util.zip.ZipEntry(entryName).apply {
+                        method = java.util.zip.ZipEntry.STORED
+                        size = file.length()
+                        this.crc = crc.value
+                    }
+                    zip.putNextEntry(entry)
                     file.inputStream().buffered().use { it.copyTo(zip) }
                     zip.closeEntry()
                 }
