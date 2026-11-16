@@ -145,7 +145,7 @@ actual suspend fun listBrowserFolder(path: String): List<BrowserItem> =
         val dir = File(path)
         val children = runCatching { dir.listFiles() }.getOrNull() ?: return@withContext emptyList()
         children
-            .filter { !it.isHidden }
+            .filter { BrowserPrefsHolder.showHiddenFiles || !it.isHidden }
             .sortedWith(compareByDescending<File> { it.isDirectory }.thenBy { it.name.lowercase() })
             .map { it.toBrowserItem() }
     }

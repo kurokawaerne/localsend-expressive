@@ -42,6 +42,20 @@ fun resolvePickedFile(context: Context, uri: Uri): PickedFile? {
             val size = if (sizeIndex >= 0) cursor.getLong(sizeIndex) else 0L
             if (name != null) name to size else null
         }
-    }.getOrNull() ?: return null
-    return PickedFile(handle = uri.toString(), name = nameAndSize.first, size = nameAndSize.second)
+    }.getOrNull()
+    if (nameAndSize != null) {
+        return PickedFile(handle = uri.toString(), name = nameAndSize.first, size = nameAndSize.second)
+    }
+    // Fallback (v0.12.4): some providers (photo-picker cloud items) answer
+    // no DISPLAY_NAME row — the old code dropped those files entirely
+    // ("media picks lose files / wrong name"). Derive a name from the URI
+    // and the size from the asset descriptor instead of dropping the pick.
+    val fallbackName = uri.lastPathSegment
+        ?.substringAfterLast('/')
+        ?.takeIf { it.isNotBlank() }
+        ?: "file"
+    val fallbackSize = runCatching {
+        context.contentResolver.openAssetFileDescriptor(uri, "r")?.use { it.length }
+    }.getOrNull()?.takeIf { it > 0 } ?: 0L
+    return PickedFile(handle = uri.toString(), name = fallbackName, size = fallbackSize)
 }

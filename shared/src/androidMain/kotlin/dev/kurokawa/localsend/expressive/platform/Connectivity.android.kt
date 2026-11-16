@@ -660,6 +660,20 @@ actual fun openUrl(url: String) {
     }
 }
 
+actual fun shareText(text: String) {
+    val context = AppContextHolder.appContext ?: return
+    runCatching {
+        val send = Intent(Intent.ACTION_SEND).apply {
+            type = "text/plain"
+            putExtra(Intent.EXTRA_TEXT, text)
+        }
+        context.startActivity(
+            Intent.createChooser(send, null)
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+        )
+    }
+}
+
 actual fun joinWifiNetwork(ssid: String, password: String?, security: String?): String {
     val context = AppContextHolder.appContext ?: return "Wi-Fi isn't available right now."
     val wifi = context.applicationContext
