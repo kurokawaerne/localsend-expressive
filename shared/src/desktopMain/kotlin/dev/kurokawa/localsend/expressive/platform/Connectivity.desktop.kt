@@ -206,6 +206,14 @@ actual fun openUrl(url: String) {
     }
 }
 
+actual fun shareText(text: String) {
+    // No share sheet on desktop: put the text on the clipboard.
+    runCatching {
+        val clipboard = java.awt.Toolkit.getDefaultToolkit().systemClipboard
+        clipboard.setContents(java.awt.datatransfer.StringSelection(text), null)
+    }
+}
+
 actual fun joinWifiNetwork(ssid: String, password: String?, security: String?): String {
     val command = mutableListOf("nmcli", "device", "wifi", "connect", ssid)
     if (!password.isNullOrEmpty() &&
