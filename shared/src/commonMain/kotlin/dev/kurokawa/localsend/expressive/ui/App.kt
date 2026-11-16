@@ -36,6 +36,9 @@ import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.border
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.animateTo
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -56,6 +59,7 @@ import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -69,6 +73,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.ButtonGroup
 import androidx.compose.material3.ButtonGroupDefaults
 import androidx.compose.material3.Card
@@ -83,6 +88,7 @@ import androidx.compose.material3.ExposedDropdownMenuDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.LinearWavyProgressIndicator
 import androidx.compose.material3.ListItemColors
@@ -107,6 +113,9 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.ToggleButton
 import androidx.compose.material3.ToggleButtonDefaults
@@ -127,6 +136,14 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.isCtrlPressed
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.lerp
 import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.pointer.pointerInput
@@ -149,8 +166,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.zIndex
 import dev.kurokawa.localsend.expressive.LocalDevice
 import dev.kurokawa.localsend.expressive.app.AppSettings
+import dev.kurokawa.localsend.expressive.app.FavoriteDevice
 import dev.kurokawa.localsend.expressive.app.FileProgress
 import dev.kurokawa.localsend.expressive.app.HistoryEntry
 import dev.kurokawa.localsend.expressive.app.IncomingOffer
@@ -176,6 +195,12 @@ import dev.kurokawa.localsend.expressive.platform.loadInstalledApps
 import dev.kurokawa.localsend.expressive.platform.deleteReceivedFile
 import dev.kurokawa.localsend.expressive.platform.openReceivedFile
 import dev.kurokawa.localsend.expressive.platform.openUrl
+import dev.kurokawa.localsend.expressive.platform.shareText
+import dev.kurokawa.localsend.expressive.platform.clipboardFilePaths
+import dev.kurokawa.localsend.expressive.platform.clipboardTextOrNull
+import dev.kurokawa.localsend.expressive.platform.fileDropTarget
+import dev.kurokawa.localsend.expressive.platform.pathIsDirectory
+import dev.kurokawa.localsend.expressive.platform.pickedFileFromPath
 import dev.kurokawa.localsend.expressive.platform.parseWifiQr
 import dev.kurokawa.localsend.expressive.platform.clearQuickShareRequest
 import dev.kurokawa.localsend.expressive.platform.clearSharedFiles
@@ -224,6 +249,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.gestures.AnchoredDraggableState
 import androidx.compose.foundation.gestures.DraggableAnchors
 import androidx.compose.foundation.gestures.Orientation
@@ -242,6 +268,7 @@ import dev.kurokawa.localsend.expressive.platform.BrowserThumbnail
 import dev.kurokawa.localsend.expressive.platform.MediaKind
 import dev.kurokawa.localsend.expressive.platform.expandBrowserFolder
 import dev.kurokawa.localsend.expressive.platform.listBrowserFolder
+import dev.kurokawa.localsend.expressive.platform.updateBrowserPrefs
 import dev.kurokawa.localsend.expressive.platform.loadMediaItems
 import androidx.compose.ui.ExperimentalComposeUiApi
 import androidx.compose.ui.backhandler.PredictiveBackHandler
@@ -436,6 +463,9 @@ internal fun AppScaffold(
     val connectivity = remember { ConnectivityController() }
     // The user's hotspot / Wi-Fi Direct preferences (Settings) reach the
     // platform radios through this holder.
+    LaunchedEffect(settings.showHiddenFiles) {
+        updateBrowserPrefs(settings.showHiddenFiles)
+    }
     LaunchedEffect(
         settings.hotspotSsid, settings.hotspotPassword, settings.hotspotBand,
         settings.p2pName, settings.p2pPassword, settings.p2pBand,
@@ -459,6 +489,17 @@ internal fun AppScaffold(
     var showIpDialog by remember { mutableStateOf(false) }
     var showLinkPage by remember { mutableStateOf(false) }
     var showTransfers by remember { mutableStateOf(false) }
+    /** Per-device transfer sheet target (identityKey to alias); null = unified. */
+    var sheetDevice by remember { mutableStateOf<Pair<String, String>?>(null) }
+    // Notification / Live Update tap (v0.12.4): open the WHOLE app
+    // with the unified sheet on top, not a blank sheet activity.
+    val openTransfersSignal by controller.openTransfersSignal.collectAsState()
+    LaunchedEffect(openTransfersSignal) {
+        if (openTransfersSignal > 0) {
+            sheetDevice = null
+            showTransfers = true
+        }
+    }
 
     // The global transfer pill lives in GlobalTransferPillHost below:
     // it collects the progress flows ITSELF (v0.9.0 perf pass). When the
@@ -548,7 +589,14 @@ internal fun AppScaffold(
                     selectedFingerprints = selectedFingerprints,
                     onSelectedChange = { selectedFingerprints = it },
                     onAddByIp = { showIpDialog = true },
-                    onShowTransfers = { showTransfers = true },
+                    onShowTransfers = {
+                        sheetDevice = null
+                        showTransfers = true
+                    },
+                    onShowDeviceTransfers = { device ->
+                        sheetDevice = device.identityKey to device.info.alias
+                        showTransfers = true
+                    },
                     onShareViaLink = {
                         controller.setWebShareFiles(stagedFiles(staged))
                         if (!settings.downloadApi) {
@@ -602,7 +650,15 @@ internal fun AppScaffold(
                         modifier = Modifier
                             .align(Alignment.BottomEnd)
                             .padding(20.dp),
-                    ) { showTransfers = true }
+                        onClick = {
+                            sheetDevice = null
+                            showTransfers = true
+                        },
+                        onResumeDevice = { identity, alias ->
+                            sheetDevice = identity to alias
+                            showTransfers = true
+                        },
+                    )
                 }
             }
         } else {
@@ -641,7 +697,15 @@ internal fun AppScaffold(
                         } else {
                             Modifier
                         },
-                    ) { showTransfers = true }
+                        onClick = {
+                            sheetDevice = null
+                            showTransfers = true
+                        },
+                        onResumeDevice = { identity, alias ->
+                            sheetDevice = identity to alias
+                            showTransfers = true
+                        },
+                    )
                     // The improvised navbar (Ernest, 2026-11-15 —
                     // UDYAT's design, replacing the
                     // ShortNavigationBar): the official
@@ -677,21 +741,20 @@ internal fun AppScaffold(
                     )
                 }
             },
-            title = { Text("Browser download request") },
+            title = { Text(strings.browserDownloadRequest) },
             text = {
                 Text(
-                    "${request.deviceInfo} · ${request.ip} wants to download " +
-                        "the files you are sharing via link.",
+                    strings.wantsToDownloadFiles.fill(request.deviceInfo, request.ip),
                 )
             },
             confirmButton = {
                 Button(onClick = { controller.answerWebDownload(request.id, true) }) {
-                    Text("Accept")
+                    Text(strings.accept)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { controller.answerWebDownload(request.id, false) }) {
-                    Text("Decline")
+                    Text(strings.decline)
                 }
             },
         )
@@ -711,7 +774,7 @@ internal fun AppScaffold(
                     )
                 }
             },
-            title = { Text("Message from ${message.peerAlias}") },
+            title = { Text(strings.messageFrom.fill(message.peerAlias)) },
             text = {
                 SelectionContainer {
                     Text(message.text)
@@ -726,12 +789,12 @@ internal fun AppScaffold(
                 ) {
                     Icon(MaterialSymbols.Outlined.Content_copy, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
-                    Text("Copy")
+                    Text(strings.copy)
                 }
             },
             dismissButton = {
                 TextButton(onClick = { controller.dismissIncomingText() }) {
-                    Text("Close")
+                    Text(strings.close)
                 }
             },
         )
@@ -759,11 +822,17 @@ internal fun AppScaffold(
         TransferSheet(
             controller = controller,
             settings = settings,
-            onDismiss = { showTransfers = false },
+            onDismiss = {
+                showTransfers = false
+                sheetDevice = null
+            },
             onGoToShare = {
                 showTransfers = false
+                sheetDevice = null
                 tab = MainTab.Share
             },
+            deviceIdentity = sheetDevice?.first,
+            deviceLabel = sheetDevice?.second,
         )
     }
 }
@@ -1103,12 +1172,14 @@ internal fun HomeScreen(
     onReceiveViaLink: () -> Unit,
     onGoToShare: () -> Unit,
 ) {
+    val strings = LocalStrings.current
     val connState by connectivity.state.collectAsState()
     val localIp by controller.localIpAddress.collectAsState()
     val history by controller.history.collectAsState()
     val devices by controller.devices.collectAsState()
     val outbox by controller.outbox.collectAsState()
     var historyExpanded by rememberSaveable { mutableStateOf(true) }
+    var confirmClearHistory by remember { mutableStateOf(false) }
     var connSettingsKind by remember { mutableStateOf<String?>(null) }
     var showScanner by remember { mutableStateOf(false) }
     var joinTarget by remember { mutableStateOf<WifiNetwork?>(null) }
@@ -1143,15 +1214,14 @@ internal fun HomeScreen(
         // ── Your device ──
         item {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Your device",
+                Text(strings.yourDevice,
                     style = MaterialTheme.typography.titleLarge,
                     modifier = Modifier.weight(1f),
                 )
                 OutlinedButton(onClick = onReceiveViaLink) {
                     Icon(MaterialSymbols.Outlined.Link, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
-                    Text("Receive via link")
+                    Text(strings.receiveViaLink)
                 }
             }
         }
@@ -1200,7 +1270,7 @@ internal fun HomeScreen(
 
         // ── Setup your connection ──
         item {
-            Text("Setup your connection", style = MaterialTheme.typography.titleLarge)
+            Text(strings.setupConnection, style = MaterialTheme.typography.titleLarge)
         }
         item {
             Surface(
@@ -1227,7 +1297,7 @@ internal fun HomeScreen(
                     when (mode) {
                         0 -> {
                             if (supportsWifiNetworkList()) {
-                            Text("Networks", style = MaterialTheme.typography.titleSmall)
+                            Text(strings.networks, style = MaterialTheme.typography.titleSmall)
     // Ernest's point 21 (v0.10.0): with Location off, Android
     // returns an empty scan list — say so, with the way out.
     if (connState.locationOff) {
@@ -1240,13 +1310,13 @@ internal fun HomeScreen(
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                "Location is off — Android hides nearby networks and can block Wi-Fi Direct while it's off.",
+                strings.locationOffNote,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
             TextButton(onClick = { connectivity.openLocationSettings() }) {
-                Text("Turn on")
+                Text(strings.turnOn)
             }
         }
     }
@@ -1275,8 +1345,7 @@ internal fun HomeScreen(
                                         },
                                         style = MaterialTheme.typography.bodyLarge,
                                     )
-                                    Text(
-                                        "Devices on the same network find each other automatically.",
+                                    Text(strings.devicesFindEachOther,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                     )
@@ -1303,7 +1372,7 @@ internal fun HomeScreen(
                             ) {
                                 Icon(MaterialSymbols.Outlined.Qr_code_scanner, contentDescription = null)
                                 Spacer(Modifier.width(8.dp))
-                                Text("Scan a code to join a network")
+                                Text(strings.scanCodeToJoin)
                             }
                             if (supportsWifiNetworkList() && connState.wifiNetworks.isEmpty()) {
                                 // Never leave this section silently empty
@@ -1325,13 +1394,13 @@ internal fun HomeScreen(
                                     )
                                     if (connState.wifiPermissionMissing) {
                                         Button(onClick = { connectivity.scanWifiNetworks() }) {
-                                            Text("Grant")
+                                            Text(strings.grant)
                                         }
                                     } else {
                                         IconButton(onClick = { connectivity.scanWifiNetworks() }) {
                                             Icon(
                                                 MaterialSymbols.Outlined.Refresh,
-                                                contentDescription = "Scan for networks",
+                                                contentDescription = strings.scanForNetworks,
                                             )
                                         }
                                     }
@@ -1339,15 +1408,14 @@ internal fun HomeScreen(
                             }
                             if (supportsWifiNetworkList() && connState.wifiNetworks.isNotEmpty()) {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        "Nearby networks",
+                                    Text(strings.nearbyNetworks,
                                         style = MaterialTheme.typography.titleSmall,
                                         modifier = Modifier.weight(1f),
                                     )
                                     IconButton(onClick = { connectivity.scanWifiNetworks() }) {
                                         Icon(
                                             MaterialSymbols.Outlined.Refresh,
-                                            contentDescription = "Scan again",
+                                            contentDescription = strings.scanAgain,
                                         )
                                     }
                                 }
@@ -1387,15 +1455,14 @@ internal fun HomeScreen(
                                         if (network.secured) {
                                             Icon(
                                                 MaterialSymbols.Outlined.Lock,
-                                                contentDescription = "Secured",
+                                                contentDescription = strings.secured,
                                                 tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                 modifier = Modifier.size(16.dp),
                                             )
                                             Spacer(Modifier.width(6.dp))
                                         }
                                         if (network.connected) {
-                                            Text(
-                                                "Connected",
+                                            Text(strings.connected,
                                                 style = MaterialTheme.typography.labelLarge,
                                                 color = MaterialTheme.colorScheme.primary,
                                             )
@@ -1408,7 +1475,7 @@ internal fun HomeScreen(
                                                         network.ssid, null, null,
                                                     )
                                                 }
-                                            }) { Text("Connect") }
+                                            }) { Text(strings.connectLabel) }
                                         }
                                     }
                                 }
@@ -1425,7 +1492,7 @@ internal fun HomeScreen(
                             val hotspot = connState.hotspot
                             if (hotspot == null) {
                                 Text(
-                                    "Start a hotspot on this device — other devices join it and find you, no router needed.",
+                                    strings.startHotspotNote,
                                     style = MaterialTheme.typography.bodyMedium,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
@@ -1433,25 +1500,24 @@ internal fun HomeScreen(
                                     Button(
                                         onClick = { connectivity.toggleHotspot() },
                                         modifier = Modifier.weight(1f),
-                                    ) { Text("Start hotspot") }
+                                    ) { Text(strings.startHotspot) }
                                     OutlinedButton(onClick = { connSettingsKind = "hotspot" }) {
-                                        Icon(MaterialSymbols.Outlined.Settings, contentDescription = "Hotspot settings")
+                                        Icon(MaterialSymbols.Outlined.Settings, contentDescription = strings.hotspotSettings)
                                     }
                                 }
                             } else {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        "Hotspot is on",
+                                    Text(strings.hotspotIsOn,
                                         style = MaterialTheme.typography.titleMedium,
                                         modifier = Modifier.weight(1f),
                                     )
                                     IconButton(onClick = { connSettingsKind = "hotspot" }) {
-                                        Icon(MaterialSymbols.Outlined.Settings, contentDescription = "Hotspot settings")
+                                        Icon(MaterialSymbols.Outlined.Settings, contentDescription = strings.hotspotSettings)
                                     }
                                 }
-                                Text("Network: ${hotspot.ssid}", style = MaterialTheme.typography.bodyLarge)
+                                Text(strings.networkName.fill(hotspot.ssid), style = MaterialTheme.typography.bodyLarge)
                                 if (hotspot.password.isNotEmpty()) {
-                                    Text("Password: ${hotspot.password}", style = MaterialTheme.typography.bodyLarge)
+                                    Text(strings.passwordValue.fill(hotspot.password), style = MaterialTheme.typography.bodyLarge)
                                 }
                                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                                     QrCode(wifiQrPayload(hotspot.ssid, hotspot.password))
@@ -1459,7 +1525,7 @@ internal fun HomeScreen(
                                 OutlinedButton(
                                     onClick = { connectivity.toggleHotspot() },
                                     modifier = Modifier.fillMaxWidth(),
-                                ) { Text("Stop hotspot") }
+                                ) { Text(strings.stopHotspot) }
                             }
                         }
                         else -> {
@@ -1477,13 +1543,13 @@ internal fun HomeScreen(
             )
             Spacer(Modifier.width(8.dp))
             Text(
-                "Location is off — Android hides nearby networks and can block Wi-Fi Direct while it's off.",
+                strings.locationOffNote,
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f),
             )
             TextButton(onClick = { connectivity.openLocationSettings() }) {
-                Text("Turn on")
+                Text(strings.turnOn)
             }
         }
     }
@@ -1496,25 +1562,24 @@ internal fun HomeScreen(
                                     Button(
                                         onClick = { connectivity.toggleWifiDirect() },
                                         modifier = Modifier.weight(1f),
-                                    ) { Text("Start Wi-Fi Direct") }
+                                    ) { Text(strings.startWifiDirect) }
                                     OutlinedButton(onClick = { connSettingsKind = "p2p" }) {
-                                        Icon(MaterialSymbols.Outlined.Settings, contentDescription = "Wi-Fi Direct settings")
+                                        Icon(MaterialSymbols.Outlined.Settings, contentDescription = strings.wifiDirectSettings)
                                     }
                                 }
                             } else {
                                 Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        "Wi-Fi Direct group is on",
+                                    Text(strings.wifiDirectGroupOn,
                                         style = MaterialTheme.typography.titleMedium,
                                         modifier = Modifier.weight(1f),
                                     )
                                     IconButton(onClick = { connSettingsKind = "p2p" }) {
-                                        Icon(MaterialSymbols.Outlined.Settings, contentDescription = "Wi-Fi Direct settings")
+                                        Icon(MaterialSymbols.Outlined.Settings, contentDescription = strings.wifiDirectSettings)
                                     }
                                 }
-                                Text("Network: ${direct.ssid}", style = MaterialTheme.typography.bodyLarge)
+                                Text(strings.networkName.fill(direct.ssid), style = MaterialTheme.typography.bodyLarge)
                                 if (direct.password.isNotEmpty()) {
-                                    Text("Password: ${direct.password}", style = MaterialTheme.typography.bodyLarge)
+                                    Text(strings.passwordValue.fill(direct.password), style = MaterialTheme.typography.bodyLarge)
                                 }
                                 Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                                     QrCode(wifiQrPayload(direct.ssid, direct.password))
@@ -1522,7 +1587,7 @@ internal fun HomeScreen(
                                 OutlinedButton(
                                     onClick = { connectivity.toggleWifiDirect() },
                                     modifier = Modifier.fillMaxWidth(),
-                                ) { Text("Stop Wi-Fi Direct") }
+                                ) { Text(strings.stopWifiDirect) }
                             }
                         }
                     }
@@ -1573,9 +1638,9 @@ internal fun HomeScreen(
                         ) {
                             if (history.isNotEmpty()) {
                                 TextButton(
-                                    onClick = { controller.clearHistory() },
+                                    onClick = { confirmClearHistory = true },
                                 ) {
-                                    Text("Clear")
+                                    Text(strings.clear)
                                 }
                             }
                             PillChevron(
@@ -1588,16 +1653,63 @@ internal fun HomeScreen(
                         }
                     },
                 ) {
-                    Text("History")
+                    Text(strings.historyLabel)
                 }
                 if (historyExpanded) {
                     if (history.isEmpty()) {
-                        Text(
-                            "Nothing yet — finished transfers land here.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp),
-                        )
+                        if (!settings.tourSeen) {
+                            // First-run tour placeholder (v0.12.4): a
+                            // fake row that peeks its swipe actions;
+                            // double-tap dismisses the tour for good.
+                            Column(
+                                verticalArrangement =
+                                    Arrangement.spacedBy(
+                                        ListItemDefaults.SegmentedGap,
+                                    ),
+                            ) {
+                                Box(
+                                    Modifier.pointerInput(Unit) {
+                                        detectTapGestures(
+                                            onDoubleTap = {
+                                                controller.updateSettings(
+                                                    settings.copy(tourSeen = true),
+                                                )
+                                            },
+                                        )
+                                    },
+                                ) {
+                                    HistoryRow(
+                                        entry = HistoryEntry(
+                                            timeMillis = 0,
+                                            peerAlias = "Pixel 9",
+                                            fileName = "IMG_2041.jpg",
+                                            size = 2_400_000,
+                                            incoming = true,
+                                            success = true,
+                                        ),
+                                        index = 1,
+                                        count = 2,
+                                        onRemove = {},
+                                        hintSwipe = true,
+                                    )
+                                }
+                                Text(
+                                    strings.tourHint,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme
+                                        .onSurfaceVariant,
+                                    modifier = Modifier.padding(
+                                        horizontal = 16.dp, vertical = 4.dp,
+                                    ),
+                                )
+                            }
+                        } else {
+                            Text(strings.nothingYetFinished,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier.padding(horizontal = 16.dp),
+                            )
+                        }
                     } else {
                         val clipboard = LocalClipboardManager.current
                         val shown = history.take(30)
@@ -1698,7 +1810,7 @@ internal fun HomeScreen(
     if (showScanner) {
         AlertDialog(
             onDismissRequest = { showScanner = false },
-            title = { Text("Scan a code") },
+            title = { Text(strings.scanCode) },
             text = {
                 Box(Modifier.fillMaxWidth().height(320.dp)) {
                     QrScannerView(modifier = Modifier.fillMaxSize(), onCode = { code ->
@@ -1718,7 +1830,7 @@ internal fun HomeScreen(
                 }
             },
             confirmButton = {
-                TextButton(onClick = { showScanner = false }) { Text("Close") }
+                TextButton(onClick = { showScanner = false }) { Text(strings.close) }
             },
         )
     }
@@ -1727,12 +1839,12 @@ internal fun HomeScreen(
         var password by remember(joining.ssid) { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { joinTarget = null },
-            title = { Text("Join “${joining.ssid}”") },
+            title = { Text(strings.joinNetwork.fill(joining.ssid)) },
             text = {
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("Password") },
+                    label = { Text(strings.password) },
                     singleLine = true,
                     visualTransformation = PasswordVisualTransformation(),
                     modifier = Modifier.fillMaxWidth(),
@@ -1746,11 +1858,23 @@ internal fun HomeScreen(
                             joinWifiNetwork(joining.ssid, password, "WPA")
                         }
                     }
-                }) { Text("Connect") }
+                }) { Text(strings.connectLabel) }
             },
             dismissButton = {
-                TextButton(onClick = { joinTarget = null }) { Text("Cancel") }
+                TextButton(onClick = { joinTarget = null }) { Text(strings.cancel) }
             },
+        )
+    }
+    if (confirmClearHistory) {
+        LsexConfirmDialog(
+            title = strings.clearHistoryTitle,
+            text = strings.clearHistoryText,
+            confirmLabel = strings.clear,
+            onConfirm = {
+                confirmClearHistory = false
+                controller.clearHistory()
+            },
+            onDismiss = { confirmClearHistory = false },
         )
     }
 }
@@ -1763,6 +1887,7 @@ private fun ConnectionSettingsDialog(
     kind: String,
     onDismiss: () -> Unit,
 ) {
+    val strings = LocalStrings.current
     val isHotspot = kind == "hotspot"
     var name by remember(settings) {
         mutableStateOf(if (isHotspot) settings.hotspotSsid else settings.p2pName)
@@ -1783,11 +1908,7 @@ private fun ConnectionSettingsDialog(
                     // apps: the system assigns them, and the running
                     // hotspot card shows what took effect.
                     Text(
-                        "Android assigns the hotspot's name and password " +
-                            "itself — regular apps can't choose them. " +
-                            "Start the hotspot and the connection card " +
-                            "shows the name and password that actually " +
-                            "took effect, with a QR code to join.",
+                        strings.hotspotAssignedNote,
                         style = MaterialTheme.typography.bodyMedium,
                     )
                 } else {
@@ -1801,11 +1922,11 @@ private fun ConnectionSettingsDialog(
                 OutlinedTextField(
                     value = password,
                     onValueChange = { password = it },
-                    label = { Text("Password (empty = none / system)") },
+                    label = { Text(strings.passwordHint) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Text("Band", style = MaterialTheme.typography.titleSmall)
+                Text(strings.band, style = MaterialTheme.typography.titleSmall)
                 ConnectedChoiceGroup(
                     options = listOf(
                         MaterialSymbols.Outlined.Wifi to "Auto",
@@ -1836,7 +1957,7 @@ private fun ConnectionSettingsDialog(
         },
         confirmButton = {
             if (isHotspot && !hotspotConfigEditable()) {
-                TextButton(onClick = onDismiss) { Text("OK") }
+                TextButton(onClick = onDismiss) { Text(strings.ok) }
             } else {
                 TextButton(onClick = {
                     controller.updateSettings(
@@ -1847,11 +1968,11 @@ private fun ConnectionSettingsDialog(
                         },
                     )
                     onDismiss()
-                }) { Text("Save") }
+                }) { Text(strings.save) }
             }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(strings.cancel) }
         },
     )
 }
@@ -1880,6 +2001,7 @@ private fun AppsBrowser(
     stagedIds: Set<String>,
     onToggleApp: (InstalledApp) -> Unit,
 ) {
+    val strings = LocalStrings.current
     val apps by produceState<List<InstalledApp>>(emptyList()) {
         value = withContext(Dispatchers.IO) { loadInstalledApps() }
     }
@@ -1943,14 +2065,14 @@ private fun AppsBrowser(
                     onSearch = {},
                     expanded = false,
                     onExpandedChange = {},
-                    placeholder = { Text("Search apps") },
+                    placeholder = { Text(strings.searchApps) },
                     leadingIcon = {
                         Icon(MaterialSymbols.Outlined.Search, contentDescription = null)
                     },
                     trailingIcon = {
                         if (query.isNotEmpty()) {
                             IconButton(onClick = { query = "" }) {
-                                Icon(MaterialSymbols.Outlined.Close, contentDescription = "Clear")
+                                Icon(MaterialSymbols.Outlined.Close, contentDescription = strings.clear)
                             }
                         }
                     },
@@ -1962,11 +2084,11 @@ private fun AppsBrowser(
         ) {}
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "My apps (${visible.size})",
+                strings.myAppsCount.fill(visible.size),
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.weight(1f),
             )
-            Text("Hide system", style = MaterialTheme.typography.bodyMedium)
+            Text(strings.hideSystem, style = MaterialTheme.typography.bodyMedium)
             Spacer(Modifier.width(8.dp))
             Switch(checked = settings.hideSystemApps, onCheckedChange = { onToggleHideSystem() })
         }
@@ -2093,10 +2215,11 @@ private fun FilterMenuButton(
     selectedIndex: Int,
     onSelect: (Int) -> Unit,
 ) {
+    val strings = LocalStrings.current
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }) {
-            Icon(MaterialSymbols.Outlined.Filter_alt, contentDescription = "Filter")
+            Icon(MaterialSymbols.Outlined.Filter_alt, contentDescription = strings.filter)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             options.forEachIndexed { index, label ->
@@ -2128,10 +2251,11 @@ private fun SortMenuButton(
     onlyThisFolder: Boolean? = null,
     onOnlyThisFolder: ((Boolean) -> Unit)? = null,
 ) {
+    val strings = LocalStrings.current
     var open by remember { mutableStateOf(false) }
     Box {
         IconButton(onClick = { open = true }) {
-            Icon(MaterialSymbols.Outlined.Sort, contentDescription = "Sort")
+            Icon(MaterialSymbols.Outlined.Sort, contentDescription = strings.sort)
         }
         DropdownMenu(expanded = open, onDismissRequest = { open = false }) {
             BrowseSort.entries.forEach { mode ->
@@ -2168,7 +2292,7 @@ private fun SortMenuButton(
             }
             HorizontalDivider()
             DropdownMenuItem(
-                text = { Text("Reverse order") },
+                text = { Text(strings.reverseOrder) },
                 onClick = { onState(state.copy(ascending = !state.ascending)) },
                 trailingIcon = {
                     Checkbox(
@@ -2179,7 +2303,7 @@ private fun SortMenuButton(
             )
             if (onlyThisFolder != null && onOnlyThisFolder != null) {
                 DropdownMenuItem(
-                    text = { Text("Only for this folder") },
+                    text = { Text(strings.onlyForThisFolder) },
                     onClick = { onOnlyThisFolder(!onlyThisFolder) },
                     trailingIcon = {
                         Checkbox(checked = onlyThisFolder, onCheckedChange = null)
@@ -2216,6 +2340,7 @@ internal fun AudioList(
     settings: AppSettings,
     onUpdateSettings: (AppSettings) -> Unit,
 ) {
+    val strings = LocalStrings.current
     var query by remember { mutableStateOf("") }
     // Saveable sort (v0.12.2 verdict #7): Music uses the shared
     // global sort state from settings — no per-folder overrides.
@@ -2234,7 +2359,7 @@ internal fun AudioList(
                     onSearch = {},
                     expanded = false,
                     onExpandedChange = {},
-                    placeholder = { Text("Search music") },
+                    placeholder = { Text(strings.searchMusic) },
                     leadingIcon = {
                         Icon(MaterialSymbols.Outlined.Search, contentDescription = null)
                     },
@@ -2243,7 +2368,7 @@ internal fun AudioList(
                             IconButton(onClick = { query = "" }) {
                                 Icon(
                                     MaterialSymbols.Outlined.Close,
-                                    contentDescription = "Clear",
+                                    contentDescription = strings.clear,
                                 )
                             }
                         }
@@ -2256,7 +2381,7 @@ internal fun AudioList(
         ) {}
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
-                "Music (${visible.size})",
+                strings.musicCount.fill(visible.size),
                 style = MaterialTheme.typography.titleSmall,
                 modifier = Modifier.weight(1f),
             )
@@ -2322,11 +2447,12 @@ private fun MediaBrowser(
     settings: AppSettings,
     onUpdateSettings: (AppSettings) -> Unit,
 ) {
+    val strings = LocalStrings.current
     val access = rememberStorageAccess()
     if (!access.mediaGranted) {
         GrantAccessCard(
             icon = MaterialSymbols.Outlined.Photo_library,
-            title = "Media access needed",
+            title = strings.mediaAccessNeeded,
             body = "To browse your photos, videos and music here, LSEx needs " +
                 "permission to read the media library.",
             actionLabel = "Grant access",
@@ -2349,8 +2475,7 @@ private fun MediaBrowser(
             LoadingIndicator(Modifier.size(44.dp))
         }
         loaded.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-            Text(
-                "Nothing here yet.",
+            Text(strings.nothingHereYet,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
@@ -2364,7 +2489,7 @@ private fun MediaBrowser(
         else -> Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "${loaded.size} items",
+                    strings.itemsCount.fill(loaded.size),
                     style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.weight(1f),
                 )
@@ -2411,7 +2536,7 @@ private fun MediaBrowser(
                                     IconButton(onClick = { preview = item }) {
                                         Icon(
                                             MaterialSymbols.Outlined.Open_in_full,
-                                            contentDescription = "Preview",
+                                            contentDescription = strings.preview,
                                         )
                                     }
                                     Checkbox(
@@ -2461,7 +2586,7 @@ private fun MediaBrowser(
                                     IconButton(onClick = { preview = item }) {
                                         Icon(
                                             MaterialSymbols.Outlined.Open_in_full,
-                                            contentDescription = "Preview",
+                                            contentDescription = strings.preview,
                                             modifier = Modifier.size(15.dp),
                                         )
                                     }
@@ -2485,7 +2610,7 @@ private fun MediaBrowser(
                                 ) {
                                     Icon(
                                         MaterialSymbols.Outlined.Check,
-                                        contentDescription = "Selected",
+                                        contentDescription = strings.selected,
                                         tint = MaterialTheme.colorScheme.onPrimary,
                                         modifier = Modifier.padding(3.dp),
                                     )
@@ -2522,6 +2647,7 @@ private fun FullscreenMediaPreview(
     onToggle: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val strings = LocalStrings.current
     var scale by remember { mutableFloatStateOf(1f) }
     // Animated opening/closing (Ernest, 2026-11-15): the preview
     // fades/scales in, and dismissals play the exit before the
@@ -2588,7 +2714,7 @@ private fun FullscreenMediaPreview(
                     ) {
                         Icon(
                             MaterialSymbols.Outlined.Play_arrow,
-                            contentDescription = "Play in the system player",
+                            contentDescription = strings.playInSystemPlayer,
                             tint = Color.White,
                             modifier = Modifier.size(40.dp),
                         )
@@ -2608,7 +2734,7 @@ private fun FullscreenMediaPreview(
                 IconButton(onClick = dismiss) {
                     Icon(
                         MaterialSymbols.Outlined.Close,
-                        contentDescription = "Close",
+                        contentDescription = strings.close,
                         tint = Color.White,
                     )
                 }
@@ -2638,7 +2764,7 @@ private fun FullscreenMediaPreview(
                     modifier = Modifier.weight(1f),
                 )
                 TextButton(onClick = { openReceivedFile(item.handle, item.name) }) {
-                    Text("Open", color = Color.White)
+                    Text(strings.open, color = Color.White)
                 }
                 Spacer(Modifier.width(8.dp))
                 Button(onClick = { onToggle(); dismiss() }) {
@@ -2664,6 +2790,7 @@ private fun FileBrowser(
     settings: AppSettings,
     onUpdateSettings: (AppSettings) -> Unit,
 ) {
+    val strings = LocalStrings.current
     val access = rememberStorageAccess()
     val pickFiles = rememberFilePickerLauncher { picked ->
         picked.forEach { onStageFile(it) }
@@ -2672,7 +2799,7 @@ private fun FileBrowser(
         Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
             GrantAccessCard(
                 icon = MaterialSymbols.Outlined.Folder,
-                title = "Browse your storage",
+                title = strings.browseStorage,
                 body = "With All files access, this tab becomes a file manager: " +
                     "drill into folders and pick anything, like Zapya. Without it, " +
                     "use the system picker.",
@@ -2686,7 +2813,7 @@ private fun FileBrowser(
             ) {
                 Icon(MaterialSymbols.Outlined.Attach_file, contentDescription = null)
                 Spacer(Modifier.width(8.dp))
-                Text("Pick files with the system picker")
+                Text(strings.pickFilesSystemPicker)
             }
         }
         return
@@ -2753,7 +2880,7 @@ private fun FileBrowser(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             TextButton(onClick = { pathStack = emptyList() }) {
-                Text("Storage")
+                Text(strings.storage)
             }
             pathStack.forEachIndexed { index, path ->
                 Text("/", color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -2771,7 +2898,7 @@ private fun FileBrowser(
                         onSearch = {},
                         expanded = false,
                         onExpandedChange = {},
-                        placeholder = { Text("Search this folder") },
+                        placeholder = { Text(strings.searchThisFolder) },
                         leadingIcon = {
                             Icon(
                                 MaterialSymbols.Outlined.Search,
@@ -2783,7 +2910,7 @@ private fun FileBrowser(
                                 IconButton(onClick = { query = "" }) {
                                     Icon(
                                         MaterialSymbols.Outlined.Close,
-                                        contentDescription = "Clear",
+                                        contentDescription = strings.clear,
                                     )
                                 }
                             }
@@ -2834,8 +2961,7 @@ private fun FileBrowser(
                 Modifier.fillMaxSize(),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(
-                    "This folder is empty.",
+                Text(strings.folderEmpty,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
@@ -2864,7 +2990,7 @@ private fun FileBrowser(
                             // itemCount is -1 when unknown (storage
                             // roots) — v0.6.0 printed it literally.
                             if (item.itemCount >= 0) {
-                                "${item.itemCount} items"
+                                strings.itemsCount.fill(item.itemCount)
                             } else {
                                 "Folder"
                             }
@@ -2961,6 +3087,7 @@ private fun GrantAccessCard(
     onAction: () -> Unit,
     onRecheck: () -> Unit,
 ) {
+    val strings = LocalStrings.current
     Column(
         Modifier.fillMaxSize().padding(16.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
@@ -2983,19 +3110,20 @@ private fun GrantAccessCard(
         )
         Spacer(Modifier.height(14.dp))
         Button(onClick = onAction) { Text(actionLabel) }
-        TextButton(onClick = onRecheck) { Text("Recheck") }
+        TextButton(onClick = onRecheck) { Text(strings.recheck) }
     }
 }
 
 @Composable
 private fun TextComposer(onStageText: (String) -> Unit) {
+    val strings = LocalStrings.current
     var text by remember { mutableStateOf("") }
     val clipboard = rememberClipboardText()
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         OutlinedTextField(
             value = text,
             onValueChange = { text = it },
-            label = { Text("Write a message") },
+            label = { Text(strings.writeMessage) },
             minLines = 4,
             modifier = Modifier.fillMaxWidth(),
         )
@@ -3006,7 +3134,7 @@ private fun TextComposer(onStageText: (String) -> Unit) {
             ) {
                 Icon(MaterialSymbols.Outlined.Content_paste, contentDescription = null)
                 Spacer(Modifier.width(6.dp))
-                Text("Paste")
+                Text(strings.paste)
             }
             Button(
                 onClick = {
@@ -3018,11 +3146,10 @@ private fun TextComposer(onStageText: (String) -> Unit) {
             ) {
                 Icon(MaterialSymbols.Outlined.Add, contentDescription = null)
                 Spacer(Modifier.width(6.dp))
-                Text("Add text")
+                Text(strings.addText)
             }
         }
-        Text(
-            "Text is staged like a file — pick the devices above, then send to all of them.",
+        Text(strings.textStagedNote,
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
@@ -3043,6 +3170,7 @@ private fun StagedItemCard(
     onOpen: () -> Unit,
     onEdit: () -> Unit,
     onDiscard: () -> Unit,
+    hintSwipe: Boolean = false,
 ) {
     if (!prefersSwipeActions()) {
         // Desktop (pointer): actions stay visible.
@@ -3086,6 +3214,19 @@ private fun StagedItemCard(
                 0 at 0f
                 1 at -(revealWidthPx + with(density) { 2.dp.toPx() })
             })
+        }
+    }
+    if (hintSwipe) {
+        // First-run tour: the row peeks its actions open and shut
+        // until the user double-taps the placeholder away.
+        LaunchedEffect(Unit) {
+            while (true) {
+                delay(900)
+                state.animateTo(1, tween(550))
+                delay(1200)
+                state.animateTo(0, tween(550))
+                delay(600)
+            }
         }
     }
     val scope = rememberCoroutineScope()
@@ -3174,6 +3315,7 @@ private fun StagedItemRow(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
 ) {
+    val strings = LocalStrings.current
     LsexSegmentedItem(
         index = index,
         count = count,
@@ -3210,7 +3352,7 @@ private fun StagedItemRow(
                     is StagedItem.FileItem -> formatSize(item.file.size)
                     is StagedItem.FolderItem ->
                         if (item.folder.itemCount >= 0) {
-                            "Folder · ${item.folder.itemCount} items"
+                            strings.folderItems.fill(item.folder.itemCount)
                         } else {
                             "Folder"
                         }
@@ -3233,7 +3375,7 @@ private fun StagedItemRow(
                             ) {
                                 Icon(
                                     MaterialSymbols.Outlined.Edit,
-                                    contentDescription = "Rename / edit",
+                                    contentDescription = strings.renameEdit,
                                     modifier = Modifier.size(18.dp),
                                 )
                             }
@@ -3250,7 +3392,7 @@ private fun StagedItemRow(
                         ) {
                             Icon(
                                 MaterialSymbols.Outlined.Close,
-                                contentDescription = "Discard",
+                                contentDescription = strings.discard,
                                 modifier = Modifier.size(18.dp),
                             )
                         }
@@ -3281,6 +3423,7 @@ private fun StagedEditDialog(
     onDismiss: () -> Unit,
     onSave: (String) -> Unit,
 ) {
+    val strings = LocalStrings.current
     var text by remember { mutableStateOf(initial) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -3298,10 +3441,10 @@ private fun StagedEditDialog(
             Button(
                 onClick = { onSave(text) },
                 enabled = text.isNotBlank(),
-            ) { Text("Save") }
+            ) { Text(strings.save) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(strings.cancel) }
         },
     )
 }
@@ -3323,6 +3466,7 @@ private fun DeviceCard(
     /** Live transfer progress with this device (0..1), null when idle. */
     transferFraction: Float? = null,
 ) {
+    val strings = LocalStrings.current
     val scheme = MaterialTheme.colorScheme
     val shape by androidx.compose.animation.core.animateDpAsState(
         targetValue = if (isSelected) 50.dp else 28.dp,
@@ -3367,7 +3511,10 @@ private fun DeviceCard(
             ) {
                 Box(contentAlignment = Alignment.Center) {
                     Icon(
-                        deviceIcon(device.info.deviceType),
+                        // A peer's custom avatar (LSEx-only field) wins
+                        // over the generic type glyph.
+                        avatarIcon(device.avatar)
+                            ?: deviceIcon(device.info.deviceType),
                         contentDescription = null,
                         tint = if (isSelected) scheme.primary else scheme.onPrimary,
                     )
@@ -3419,14 +3566,14 @@ private fun DeviceCard(
             IconButton(onClick = onInfo) {
                 Icon(
                     MaterialSymbols.Outlined.Info,
-                    contentDescription = "Device info",
+                    contentDescription = strings.deviceInfo,
                     tint = subdued,
                 )
             }
             IconButton(onClick = onToggleFavorite) {
                 Icon(
                     if (isFavorite) MaterialSymbols.OutlinedFilled.Star else MaterialSymbols.Outlined.Star,
-                    contentDescription = "Favorite",
+                    contentDescription = strings.favorite,
                     tint = if (isFavorite && !isSelected) scheme.primary else subdued,
                 )
             }
@@ -3454,8 +3601,10 @@ private fun WebSharePanel(
     local: LocalDevice,
     localIp: String?,
 ) {
+    val strings = LocalStrings.current
     val webShareFiles by controller.webShareFiles.collectAsState()
     val webSharePicker = rememberFilePickerLauncher { controller.setWebShareFiles(it) }
+    var confirmClearWebShare by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Icon(
@@ -3464,24 +3613,22 @@ private fun WebSharePanel(
                 tint = MaterialTheme.colorScheme.primary,
             )
             Spacer(Modifier.width(8.dp))
-            Text("Share via link", style = MaterialTheme.typography.titleSmall)
+            Text(strings.shareViaLink, style = MaterialTheme.typography.titleSmall)
         }
         if (!settings.downloadApi) {
             Text(
-                "Serve files to any browser on this network — no app needed " +
-                    "on the other side.",
+                strings.serveFilesNote,
                 style = MaterialTheme.typography.bodyMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Button(
                 onClick = { controller.updateSettings(settings.copy(downloadApi = true)) },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Turn on web sharing") }
+            ) { Text(strings.turnOnWebSharing) }
         } else {
             val scheme = if (settings.https) "https" else "http"
             val url = "$scheme://${localIp ?: "this-device"}:${local.port}/"
-            Text(
-                "Browsers on your network can open:",
+            Text(strings.browsersCanOpen,
                 style = MaterialTheme.typography.bodyMedium,
             )
             Text(url, style = MaterialTheme.typography.titleMedium)
@@ -3489,8 +3636,7 @@ private fun WebSharePanel(
                 QrCode(url)
             }
             if (webShareFiles.isEmpty()) {
-                Text(
-                    "No files are being shared yet.",
+                Text(strings.noFilesSharedYet,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -3503,18 +3649,17 @@ private fun WebSharePanel(
                 }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = { webSharePicker() }) { Text("Choose files") }
+                Button(onClick = { webSharePicker() }) { Text(strings.chooseFiles) }
                 if (webShareFiles.isNotEmpty()) {
                     OutlinedButton(
-                        onClick = { controller.setWebShareFiles(emptyList()) },
-                    ) { Text("Clear") }
+                        onClick = { confirmClearWebShare = true },
+                    ) { Text(strings.clear) }
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("Auto-accept web uploads", style = MaterialTheme.typography.bodyLarge)
-                    Text(
-                        "Skip the prompt for files uploaded from the web page",
+                    Text(strings.autoAcceptWebUploads, style = MaterialTheme.typography.bodyLarge)
+                    Text(strings.skipPromptWebUploads,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -3529,8 +3674,20 @@ private fun WebSharePanel(
             OutlinedButton(
                 onClick = { controller.updateSettings(settings.copy(downloadApi = false)) },
                 modifier = Modifier.fillMaxWidth(),
-            ) { Text("Turn web sharing off") }
+            ) { Text(strings.turnWebSharingOff) }
         }
+    }
+    if (confirmClearWebShare) {
+        LsexConfirmDialog(
+            title = strings.clearWebShareTitle,
+            text = strings.clearWebShareText,
+            confirmLabel = strings.clear,
+            onConfirm = {
+                confirmClearWebShare = false
+                controller.setWebShareFiles(emptyList())
+            },
+            onDismiss = { confirmClearWebShare = false },
+        )
     }
 }
 
@@ -3970,6 +4127,7 @@ private fun MinusSelectableRow(
     selected: Boolean,
     onClick: () -> Unit,
 ) {
+    val strings = LocalStrings.current
     val scheme = MaterialTheme.colorScheme
     Surface(
         shape = if (selected) RoundedCornerShape(16.dp) else shape,
@@ -3999,7 +4157,7 @@ private fun MinusSelectableRow(
             if (selected) {
                 Icon(
                     MaterialSymbols.Outlined.Check,
-                    contentDescription = "Selected",
+                    contentDescription = strings.selected,
                     tint = scheme.primary,
                 )
             }
@@ -4182,6 +4340,7 @@ private fun MinusThemeModeGroup(
 /** Copy-to-clipboard button with a brief check-mark confirmation. */
 @Composable
 private fun CopyButton(text: String) {
+    val strings = LocalStrings.current
     val scheme = MaterialTheme.colorScheme
     val clipboard = LocalClipboardManager.current
     var copied by remember { mutableStateOf(false) }
@@ -4203,7 +4362,7 @@ private fun CopyButton(text: String) {
             } else {
                 MaterialSymbols.Outlined.Content_copy
             },
-            contentDescription = "Copy address",
+            contentDescription = strings.copyAddress,
             tint = if (copied) scheme.primary else scheme.onSurfaceVariant,
         )
     }
@@ -4284,9 +4443,102 @@ private fun DonatePage(onDismiss: () -> Unit) {
     }
 }
 
+/** Where LSEx releases live — the link the Share page hands out. */
+private const val LSEX_RELEASES_URL =
+    "https://github.com/kurokawaerne/localsend-expressive/releases"
+
+/** Share LSEx with someone nearby (Settings root → Share LSEx). */
+@Composable
+private fun ShareAppPage(onDismiss: () -> Unit) {
+    AnimatedPageDialog(onDismiss = onDismiss) { requestDismiss ->
+        ShareAppContent(requestDismiss)
+    }
+}
+
+@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@Composable
+private fun ShareAppContent(onDismiss: () -> Unit) {
+    val strings = LocalStrings.current
+    val scheme = MaterialTheme.colorScheme
+    val clipboard = LocalClipboardManager.current
+    var copied by remember { mutableStateOf(false) }
+    Surface(Modifier.fillMaxSize(), color = scheme.background) {
+        Column(
+            Modifier
+                .fillMaxSize()
+                .navigationBarsPadding()
+                .padding(16.dp),
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton(onClick = onDismiss) {
+                    Icon(
+                        MaterialSymbols.Outlined.Arrow_back,
+                        contentDescription = strings.back,
+                    )
+                }
+                Spacer(Modifier.width(4.dp))
+                Text(strings.shareLsex,
+                    style = MaterialTheme.typography.headlineSmall,
+                )
+            }
+            Spacer(Modifier.height(16.dp))
+            Text(
+                strings.shareAppIntro,
+                style = MaterialTheme.typography.bodyMedium,
+                color = scheme.onSurfaceVariant,
+            )
+            Spacer(Modifier.height(20.dp))
+            LazyColumn(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                item {
+                    MinusNavRow(
+                        shape = RoundedCornerShape(16.dp),
+                        icon = MaterialSymbols.OutlinedFilled.Link,
+                        title = strings.copyDownloadLink,
+                        subtitle = if (copied) "Copied" else LSEX_RELEASES_URL,
+                        onClick = {
+                            clipboard.setText(AnnotatedString(LSEX_RELEASES_URL))
+                            copied = true
+                        },
+                    )
+                }
+                item {
+                    MinusNavRow(
+                        shape = RoundedCornerShape(16.dp),
+                        icon = MaterialSymbols.OutlinedFilled.Bluetooth,
+                        title = strings.shareViaBluetooth,
+                        subtitle = strings.opensShareSheetBluetooth,
+                        onClick = { shareText(LSEX_RELEASES_URL) },
+                    )
+                }
+                item {
+                    MinusNavRow(
+                        shape = RoundedCornerShape(16.dp),
+                        icon = MaterialSymbols.OutlinedFilled.Open_in_new,
+                        title = strings.openReleasesPage,
+                        subtitle = strings.everyVersionWithNotes,
+                        onClick = { openUrl(LSEX_RELEASES_URL) },
+                    )
+                }
+                item {
+                    // Quick Share joins when the protocol lands (its own
+                    // release after v0.12.4 — see the research notes).
+                    MinusNavRow(
+                        shape = RoundedCornerShape(16.dp),
+                        icon = MaterialSymbols.OutlinedFilled.Share,
+                        title = strings.quickShare,
+                        subtitle = strings.comingInFutureUpdate,
+                        onClick = {},
+                    )
+                }
+            }
+        }
+    }
+}
+
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 internal fun DonateContent(onDismiss: () -> Unit) {
+    val strings = LocalStrings.current
     val scheme = MaterialTheme.colorScheme
     val ltcAddress = "ltc1q2t7pg8xyyqvu2cm2jxpxtqcxr5layxztf32q5g"
     val wallets = listOf(
@@ -4312,11 +4564,10 @@ internal fun DonateContent(onDismiss: () -> Unit) {
                 IconButton(onClick = onDismiss) {
                     Icon(
                         MaterialSymbols.Outlined.Arrow_back,
-                        contentDescription = "Back",
+                        contentDescription = strings.back,
                     )
                 }
-                Text(
-                    "Donate",
+                Text(strings.donate,
                     style = MaterialTheme.typography.titleLarge,
                 )
             }
@@ -4343,8 +4594,7 @@ internal fun DonateContent(onDismiss: () -> Unit) {
                             textAlign = TextAlign.Center,
                         )
                         QrCode(ltcAddress)
-                        Text(
-                            "Litecoin (LTC)",
+                        Text(strings.litecoin,
                             style = MaterialTheme.typography
                                 .bodyMediumEmphasized,
                         )
@@ -4411,7 +4661,7 @@ internal fun DonateContent(onDismiss: () -> Unit) {
     }
 }
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalComposeUiApi::class)
 @Composable
 internal fun SettingsScreen(
     controller: LocalSendController,
@@ -4451,11 +4701,25 @@ internal fun SettingsScreen(
     }
     var showAvatarPicker by remember { mutableStateOf(false) }
     var showDonate by remember { mutableStateOf(false) }
+    var showShareApp by remember { mutableStateOf(false) }
     var connDialog by remember { mutableStateOf<String?>(null) }
     // Which inline picker/editor is expanded (accordion pattern, Minus).
     var expandedPicker by rememberSaveable { mutableStateOf<String?>(null) }
     fun togglePicker(key: String) {
         expandedPicker = if (expandedPicker == key) null else key
+    }
+    // Settings subpages (v0.12.4, UDYAT-style): the root lists the
+    // sections; each opens as its own page inside the tab.
+    var subpage by rememberSaveable { mutableStateOf<String?>(null) }
+    var favoritesExpanded by rememberSaveable { mutableStateOf(true) }
+    var favoriteDetail by remember { mutableStateOf<FavoriteDevice?>(null) }
+    PredictiveBackHandler(enabled = subpage != null) { progress ->
+        try {
+            progress.collect { }
+            subpage = null
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        }
     }
 
     // Every language the official LocalSend ships (UiStrings.kt).
@@ -4484,14 +4748,43 @@ internal fun SettingsScreen(
         verticalArrangement = Arrangement.spacedBy(0.dp),
     ) {
         item {
-            Text(
-                strings.settings,
-                style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.padding(bottom = 22.dp),
-            )
+            if (subpage == null) {
+                Text(
+                    strings.settings,
+                    style = MaterialTheme.typography.headlineMedium,
+                    modifier = Modifier.padding(bottom = 22.dp),
+                )
+            } else {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.padding(bottom = 22.dp),
+                ) {
+                    IconButton(onClick = { subpage = null }) {
+                        Icon(
+                            MaterialSymbols.Outlined.Arrow_back,
+                            contentDescription = strings.back,
+                        )
+                    }
+                    Spacer(Modifier.width(4.dp))
+                    Text(
+                        when (subpage) {
+                            "general" -> strings.general
+                            "receive" -> strings.receive
+                            "sending" -> strings.sending
+                            "connection" -> strings.connection
+                            "network" -> strings.network
+                            "favorites" -> strings.favorites
+                            "desktop" -> strings.desktop
+                            else -> strings.settings
+                        },
+                        style = MaterialTheme.typography.headlineMedium,
+                    )
+                }
+            }
         }
 
         // ── Profile: avatar + name + device info, edited in place ──
+        if (subpage == null) {
         minusGroupItems(
                 title = null,
                 rows = buildList {
@@ -4513,7 +4806,7 @@ internal fun SettingsScreen(
                                         Icon(
                                             avatarIcon(settings.avatar)
                                                 ?: deviceIcon(local.deviceType),
-                                            contentDescription = "Change avatar",
+                                            contentDescription = strings.changeAvatar,
                                             tint = MaterialTheme.colorScheme.onPrimary,
                                             modifier = Modifier.size(30.dp),
                                         )
@@ -4528,8 +4821,8 @@ internal fun SettingsScreen(
                                         overflow = TextOverflow.Ellipsis,
                                     )
                                     Text(
-                                        "${local.deviceModel ?: "This device"} · " +
-                                            "tap the avatar to change it",
+                                        "${local.deviceModel ?: strings.thisDevice} · " +
+                                            strings.tapAvatarToChange,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme
                                             .onSurfaceVariant,
@@ -4542,7 +4835,7 @@ internal fun SettingsScreen(
                         MinusNavRow(
                             shape = shape,
                             icon = MaterialSymbols.OutlinedFilled.Badge,
-                            title = "Device name",
+                            title = strings.deviceName,
                             value = settings.alias.ifEmpty { local.alias },
                             expanded = expandedPicker == "name",
                             onClick = { togglePicker("name") },
@@ -4558,7 +4851,7 @@ internal fun SettingsScreen(
                                     OutlinedTextField(
                                         value = aliasText,
                                         onValueChange = { aliasText = it },
-                                        label = { Text("Device name (alias)") },
+                                        label = { Text(strings.deviceNameAlias) },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
                                     )
@@ -4572,7 +4865,7 @@ internal fun SettingsScreen(
                                             expandedPicker = null
                                         },
                                         modifier = Modifier.fillMaxWidth(),
-                                    ) { Text("Save name") }
+                                    ) { Text(strings.saveName) }
                                 }
                             }
                         }
@@ -4581,7 +4874,7 @@ internal fun SettingsScreen(
                         MinusNavRow(
                             shape = shape,
                             icon = MaterialSymbols.OutlinedFilled.Smartphone,
-                            title = "Device model",
+                            title = strings.deviceModel,
                             value = settings.deviceModel
                                 .ifEmpty { platformDeviceModel() ?: "—" },
                             expanded = expandedPicker == "model",
@@ -4599,7 +4892,7 @@ internal fun SettingsScreen(
                                         value = modelText,
                                         onValueChange = { modelText = it },
                                         label = {
-                                            Text("Device model (empty = automatic)")
+                                            Text(strings.deviceModelHint)
                                         },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
@@ -4614,7 +4907,7 @@ internal fun SettingsScreen(
                                             expandedPicker = null
                                         },
                                         modifier = Modifier.fillMaxWidth(),
-                                    ) { Text("Save model") }
+                                    ) { Text(strings.saveModel) }
                                 }
                             }
                         }
@@ -4623,7 +4916,7 @@ internal fun SettingsScreen(
                         MinusNavRow(
                             shape = shape,
                             icon = MaterialSymbols.OutlinedFilled.Info,
-                            title = "Device type",
+                            title = strings.deviceType,
                             value = deviceTypeOptions
                                 .firstOrNull { it.first == settings.deviceType }
                                 ?.second ?: "Automatic",
@@ -4648,13 +4941,131 @@ internal fun SettingsScreen(
                             }
                         }
                     }
+                    // Identity edits only take effect when the server
+                    // restarts (peers keep seeing the announced values).
+                    val identityDirty =
+                        (settings.alias.isNotBlank() &&
+                            settings.alias != local.alias) ||
+                            settings.deviceModel.ifEmpty {
+                                platformDeviceModel() ?: ""
+                            } != (local.deviceModel ?: "") ||
+                            settings.deviceType.ifEmpty {
+                                platformDeviceType().name
+                            } != (local.deviceType?.name ?: "")
+                    if (identityDirty) {
+                        add { _, _, shape ->
+                            MinusTile(shape) {
+                                Row(
+                                    Modifier.padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    MinusLeadingIcon(
+                                        MaterialSymbols.OutlinedFilled.Restart_alt,
+                                        true,
+                                    )
+                                    Spacer(Modifier.width(16.dp))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(strings.restartServerToApply,
+                                            style = MaterialTheme.typography
+                                                .bodyMedium,
+                                        )
+                                        Text(
+                                            strings.identityAnnouncedNote,
+                                            style = MaterialTheme.typography
+                                                .bodySmall,
+                                            color = MaterialTheme.colorScheme
+                                                .onSurfaceVariant,
+                                        )
+                                    }
+                                    Spacer(Modifier.width(12.dp))
+                                    Button(
+                                        onClick = { controller.restartServer() },
+                                    ) { Text(strings.restart) }
+                                }
+                            }
+                        }
+                    }
                 },
                 keyPrefix = "s1",
             )
+        }
+        if (subpage == null) {
+            minusGroupItems(
+                title = null,
+                rows = buildList {
+                    add { _, _, shape ->
+                        MinusNavRow(
+                            shape = shape,
+                            icon = MaterialSymbols.OutlinedFilled.Tune,
+                            title = strings.general,
+                            onClick = { subpage = "general" },
+                        )
+                    }
+                    add { _, _, shape ->
+                        MinusNavRow(
+                            shape = shape,
+                            icon = MaterialSymbols.OutlinedFilled.Download,
+                            title = strings.receive,
+                            onClick = { subpage = "receive" },
+                        )
+                    }
+                    if (advanced) {
+                        add { _, _, shape ->
+                            MinusNavRow(
+                                shape = shape,
+                                icon = MaterialSymbols.OutlinedFilled.Upload,
+                                title = strings.sending,
+                                onClick = { subpage = "sending" },
+                            )
+                        }
+                    }
+                    add { _, _, shape ->
+                        MinusNavRow(
+                            shape = shape,
+                            icon = MaterialSymbols.OutlinedFilled.Hub,
+                            title = strings.connection,
+                            onClick = { subpage = "connection" },
+                        )
+                    }
+                    add { _, _, shape ->
+                        MinusNavRow(
+                            shape = shape,
+                            icon = MaterialSymbols.OutlinedFilled.Language,
+                            title = strings.network,
+                            onClick = { subpage = "network" },
+                        )
+                    }
+                    if (settings.favorites.isNotEmpty() ||
+                        settings.favoriteDevices.isNotEmpty()
+                    ) {
+                        add { _, _, shape ->
+                            MinusNavRow(
+                                shape = shape,
+                                icon = MaterialSymbols.OutlinedFilled.Star,
+                                title = strings.favorites,
+                                onClick = { subpage = "favorites" },
+                            )
+                        }
+                    }
+                    if (platformDeviceType() == DeviceType.desktop) {
+                        add { _, _, shape ->
+                            MinusNavRow(
+                                shape = shape,
+                                icon = MaterialSymbols.OutlinedFilled.Desktop_windows,
+                                title = strings.desktop,
+                                onClick = { subpage = "desktop" },
+                            )
+                        }
+                    }
+                },
+                keyPrefix = "snav",
+            )
+        }
 
         // ── General ──
+        if (subpage == "general") {
         minusGroupItems(
-                title = "General",
+                title = strings.general,
                 rows = buildList {
                     add { _, _, shape ->
                         // Appearance, laid out like Minus's appearance
@@ -4677,8 +5088,7 @@ internal fun SettingsScreen(
                                         false,
                                     )
                                     Spacer(Modifier.width(16.dp))
-                                    Text(
-                                        "Appearance",
+                                    Text(strings.appearance,
                                         style = MaterialTheme.typography
                                             .bodyMediumEmphasized,
                                     )
@@ -4710,8 +5120,7 @@ internal fun SettingsScreen(
                                     verticalArrangement =
                                         Arrangement.spacedBy(8.dp),
                                 ) {
-                                    Text(
-                                        "Color scheme",
+                                    Text(strings.colorScheme,
                                         style = MaterialTheme.typography
                                             .labelMedium,
                                         color = MaterialTheme.colorScheme
@@ -4788,9 +5197,8 @@ internal fun SettingsScreen(
                             index = index,
                             count = count,
                             icon = MaterialSymbols.OutlinedFilled.Palette,
-                            title = "Material You",
-                            subtitle =
-                                "Wallpaper colors for the brand theme",
+                            title = strings.materialYou,
+                            subtitle = strings.wallpaperColorsNote,
                             checked = settings.dynamicColor ||
                                 settings.colorMode == "dynamic",
                             onCheckedChange = { on ->
@@ -4809,11 +5217,26 @@ internal fun SettingsScreen(
                             },
                         )
                     }
+                    add { index, count, _ ->
+                        MinusSwitchRow(
+                            index = index,
+                            count = count,
+                            icon = MaterialSymbols.OutlinedFilled.Visibility,
+                            title = strings.showHiddenFilesLabel,
+                            subtitle = strings.inFileBrowser,
+                            checked = settings.showHiddenFiles,
+                            onCheckedChange = { on ->
+                                controller.updateSettings(
+                                    settings.copy(showHiddenFiles = on),
+                                )
+                            },
+                        )
+                    }
                     add { _, _, shape ->
                         MinusNavRow(
                             shape = shape,
                             icon = MaterialSymbols.OutlinedFilled.Language,
-                            title = "Language",
+                            title = strings.language,
                             value = languageOptions
                                 .firstOrNull { it.first == settings.language }
                                 ?.second ?: "System",
@@ -4843,8 +5266,8 @@ internal fun SettingsScreen(
                             index = index,
                             count = count,
                             icon = MaterialSymbols.OutlinedFilled.Animation,
-                            title = "Animations",
-                            subtitle = "Splash and expressive motion",
+                            title = strings.animations,
+                            subtitle = strings.splashAndMotion,
                             checked = settings.enableAnimations,
                             onCheckedChange = {
                                 controller.updateSettings(
@@ -4868,15 +5291,12 @@ internal fun SettingsScreen(
                                     )
                                     Spacer(Modifier.width(16.dp))
                                     Column(Modifier.weight(1f)) {
-                                        Text(
-                                            "Quick share tile",
+                                        Text(strings.quickShareTile,
                                             style = MaterialTheme.typography
                                                 .bodyMediumEmphasized,
                                         )
                                         Text(
-                                            "Add the LSEx tile from your Quick " +
-                                                "Settings panel editor to start " +
-                                                "a share in one tap.",
+                                            strings.quickTileNote,
                                             style = MaterialTheme.typography
                                                 .bodySmall,
                                             color = MaterialTheme.colorScheme
@@ -4892,9 +5312,8 @@ internal fun SettingsScreen(
                             index = index,
                             count = count,
                             icon = MaterialSymbols.OutlinedFilled.Tune,
-                            title = "Advanced settings",
-                            subtitle = "Show the advanced sections, " +
-                                "like the official app",
+                            title = strings.advancedSettings,
+                            subtitle = strings.advancedSectionsNote,
                             checked = advanced,
                             onCheckedChange = { advanced = it },
                         )
@@ -4902,18 +5321,19 @@ internal fun SettingsScreen(
                 },
                 keyPrefix = "s2",
             )
+        }
 
         // ── Desktop (window behaviour) ──
-        if (platformDeviceType() == DeviceType.desktop) {
+        if (platformDeviceType() == DeviceType.desktop && subpage == "desktop") {
             minusGroupItems(
-                    title = "Desktop",
+                    title = strings.desktop,
                     rows = listOf(
                         { index: Int, count: Int, _: RoundedCornerShape ->
                             MinusSwitchRow(
                                 index = index,
                                 count = count,
                                 icon = MaterialSymbols.OutlinedFilled.Push_pin,
-                                title = "Always on top",
+                                title = strings.alwaysOnTop,
                                 checked = settings.alwaysOnTop,
                                 onCheckedChange = {
                                     controller.updateSettings(
@@ -4927,7 +5347,7 @@ internal fun SettingsScreen(
                                 index = index,
                                 count = count,
                                 icon = MaterialSymbols.OutlinedFilled.Save,
-                                title = "Save window placement",
+                                title = strings.saveWindowPlacement,
                                 checked = settings.saveWindowPlacement,
                                 onCheckedChange = {
                                     controller.updateSettings(
@@ -4941,7 +5361,7 @@ internal fun SettingsScreen(
                                 index = index,
                                 count = count,
                                 icon = MaterialSymbols.OutlinedFilled.Web_asset,
-                                title = "Minimize to tray",
+                                title = strings.minimizeToTray,
                                 checked = settings.minimizeToTray,
                                 onCheckedChange = {
                                     controller.updateSettings(
@@ -4956,6 +5376,7 @@ internal fun SettingsScreen(
         }
 
         // ── Receive ──
+        if (subpage == "receive") {
         minusGroupItems(
                 title = strings.receive,
                 rows = buildList {
@@ -4965,14 +5386,12 @@ internal fun SettingsScreen(
                                 Modifier.padding(16.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Text(
-                                    "Quick Save",
+                                Text(strings.quickSave,
                                     style = MaterialTheme.typography
                                         .bodyMediumEmphasized,
                                 )
                                 Text(
-                                    "Skip the accept prompt — for everyone, " +
-                                        "or only for favorites.",
+                                    strings.quickSaveNote,
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme
                                         .onSurfaceVariant,
@@ -5001,11 +5420,11 @@ internal fun SettingsScreen(
                             index = index,
                             count = count,
                             icon = MaterialSymbols.OutlinedFilled.Pin,
-                            title = "Require PIN",
+                            title = strings.requirePin,
                             subtitle = if (settings.pin.isNotEmpty()) {
                                 "Senders must enter your PIN (set in Network)"
                             } else {
-                                "Anyone on the network can offer files"
+                                strings.anyoneCanOffer
                             },
                             checked = settings.pin.isNotEmpty(),
                             onCheckedChange = { enabled ->
@@ -5026,8 +5445,8 @@ internal fun SettingsScreen(
                             index = index,
                             count = count,
                             icon = MaterialSymbols.OutlinedFilled.Photo_library,
-                            title = "Save to Gallery",
-                            subtitle = "Photos and videos go to Pictures / Movies",
+                            title = strings.saveToGallery,
+                            subtitle = strings.photosVideosGalleryNote,
                             checked = settings.saveToGallery,
                             onCheckedChange = {
                                 controller.updateSettings(
@@ -5041,9 +5460,8 @@ internal fun SettingsScreen(
                             index = index,
                             count = count,
                             icon = MaterialSymbols.OutlinedFilled.Done_all,
-                            title = "Auto Finish",
-                            subtitle = "Close the receive progress " +
-                                "when a transfer ends",
+                            title = strings.autoFinish,
+                            subtitle = strings.autoFinishNote,
                             checked = settings.autoFinish,
                             onCheckedChange = {
                                 controller.updateSettings(
@@ -5057,7 +5475,7 @@ internal fun SettingsScreen(
                             index = index,
                             count = count,
                             icon = MaterialSymbols.OutlinedFilled.History,
-                            title = "Save to History",
+                            title = strings.saveToHistory,
                             checked = settings.saveToHistory,
                             onCheckedChange = {
                                 controller.updateSettings(
@@ -5072,9 +5490,8 @@ internal fun SettingsScreen(
                                 index = index,
                                 count = count,
                                 icon = MaterialSymbols.OutlinedFilled.Verified,
-                                title = "Verify checksums",
-                                subtitle = "Reject files whose SHA-256 " +
-                                    "doesn't match",
+                                title = strings.verifyChecksums,
+                                subtitle = strings.verifyChecksumsNote,
                                 checked = settings.verifyChecksums,
                                 onCheckedChange = {
                                     controller.updateSettings(
@@ -5090,8 +5507,7 @@ internal fun SettingsScreen(
                                 Modifier.padding(16.dp),
                                 verticalArrangement = Arrangement.spacedBy(8.dp),
                             ) {
-                                Text(
-                                    "Destination folder",
+                                Text(strings.destinationFolder,
                                     style = MaterialTheme.typography
                                         .bodyMediumEmphasized,
                                 )
@@ -5112,7 +5528,7 @@ internal fun SettingsScreen(
                                             Arrangement.spacedBy(8.dp),
                                     ) {
                                         Button(onClick = destinationPicker) {
-                                            Text("Choose folder")
+                                            Text(strings.chooseFolder)
                                         }
                                         if (settings.destinationTreeUri
                                                 .isNotEmpty()
@@ -5125,14 +5541,14 @@ internal fun SettingsScreen(
                                                         ),
                                                     )
                                                 },
-                                            ) { Text("Use Downloads") }
+                                            ) { Text(strings.useDownloads) }
                                         }
                                     }
                                 } else {
                                     OutlinedTextField(
                                         value = destinationText,
                                         onValueChange = { destinationText = it },
-                                        label = { Text("Destination folder path") },
+                                        label = { Text(strings.destinationFolderPath) },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
                                     )
@@ -5141,7 +5557,7 @@ internal fun SettingsScreen(
                                             Arrangement.spacedBy(8.dp),
                                     ) {
                                         OutlinedButton(onClick = destinationPicker) {
-                                            Text("Browse…")
+                                            Text(strings.browseEllipsis)
                                         }
                                         Button(
                                             onClick = {
@@ -5152,7 +5568,7 @@ internal fun SettingsScreen(
                                                     ),
                                                 )
                                             },
-                                        ) { Text("Save destination") }
+                                        ) { Text(strings.saveDestination) }
                                     }
                                 }
                             }
@@ -5161,20 +5577,20 @@ internal fun SettingsScreen(
                 },
                 keyPrefix = "s4",
             )
+        }
 
         // ── Sending (advanced) ──
-        if (advanced) {
+        if (advanced && subpage == "sending") {
             minusGroupItems(
-                    title = "Sending",
+                    title = strings.sending,
                     rows = listOf(
                         { index: Int, count: Int, _: RoundedCornerShape ->
                             MinusSwitchRow(
                                 index = index,
                                 count = count,
                                 icon = MaterialSymbols.OutlinedFilled.Link,
-                                title = "Auto-accept web uploads",
-                                subtitle = "Receive-via-link uploads " +
-                                    "skip the prompt",
+                                title = strings.autoAcceptWebUploads,
+                                subtitle = strings.shareViaLinkAutoAcceptNote,
                                 checked = settings.shareViaLinkAutoAccept,
                                 onCheckedChange = {
                                     controller.updateSettings(
@@ -5190,9 +5606,8 @@ internal fun SettingsScreen(
                                 index = index,
                                 count = count,
                                 icon = MaterialSymbols.OutlinedFilled.Fingerprint,
-                                title = "Create checksums",
-                                subtitle = "SHA-256 for every file sent " +
-                                    "(slower on huge files)",
+                                title = strings.createChecksums,
+                                subtitle = strings.createChecksumsNote,
                                 checked = settings.createChecksums,
                                 onCheckedChange = {
                                     controller.updateSettings(
@@ -5206,9 +5621,8 @@ internal fun SettingsScreen(
                                 index = index,
                                 count = count,
                                 icon = MaterialSymbols.OutlinedFilled.Replay,
-                                title = "Retry automatically",
-                                subtitle = "Failed sends back off and " +
-                                    "retry on their own",
+                                title = strings.retryAutomatically,
+                                subtitle = strings.autoRetryNote,
                                 checked = settings.autoRetry,
                                 onCheckedChange = {
                                     controller.updateSettings(
@@ -5222,9 +5636,8 @@ internal fun SettingsScreen(
                                 index = index,
                                 count = count,
                                 icon = MaterialSymbols.OutlinedFilled.Bolt,
-                                title = "Chunked transfers",
-                                subtitle = "Resumable 1 MiB chunks " +
-                                    "between LSEx devices",
+                                title = strings.chunkedTransfers,
+                                subtitle = strings.chunkedNote,
                                 checked = settings.chunkedTransfers,
                                 onCheckedChange = {
                                     controller.updateSettings(
@@ -5239,15 +5652,16 @@ internal fun SettingsScreen(
         }
 
         // ── Connection ──
+        if (subpage == "connection") {
         minusGroupItems(
-                title = "Connection",
+                title = strings.connection,
                 rows = buildList {
                     add { _, _, shape ->
                         MinusNavRow(
                             shape = shape,
                             icon = MaterialSymbols.OutlinedFilled.Wifi_tethering,
-                            title = "Hotspot",
-                            subtitle = "Name, password and band for your hotspot",
+                            title = strings.hotspot,
+                            subtitle = strings.hotspotGroupSubtitle,
                             onClick = { connDialog = "hotspot" },
                         )
                     }
@@ -5255,8 +5669,8 @@ internal fun SettingsScreen(
                         MinusNavRow(
                             shape = shape,
                             icon = MaterialSymbols.OutlinedFilled.Router,
-                            title = "Wi-Fi Direct",
-                            subtitle = "Group name, password and band",
+                            title = strings.wifiDirect,
+                            subtitle = strings.groupNamePasswordBand,
                             onClick = { connDialog = "p2p" },
                         )
                     }
@@ -5264,7 +5678,7 @@ internal fun SettingsScreen(
                         MinusNavRow(
                             shape = shape,
                             icon = MaterialSymbols.OutlinedFilled.Sort,
-                            title = "Receive queue order",
+                            title = strings.receiveQueueOrder,
                             value = orderOptions
                                 .firstOrNull { it.first == settings.receiveOrder }
                                 ?.second ?: "Smallest files first",
@@ -5292,18 +5706,20 @@ internal fun SettingsScreen(
                 },
                 keyPrefix = "s6",
             )
+        }
 
         // ── Network ──
+        if (subpage == "network") {
         minusGroupItems(
-                title = "Network",
+                title = strings.network,
                 rows = buildList {
                     add { index, count, _ ->
                         MinusSwitchRow(
                             index = index,
                             count = count,
                             icon = MaterialSymbols.OutlinedFilled.Dns,
-                            title = "Server",
-                            subtitle = "Other devices can find and send to you",
+                            title = strings.server,
+                            subtitle = strings.otherDevicesCanFind,
                             checked = settings.serverEnabled,
                             onCheckedChange = {
                                 controller.updateSettings(
@@ -5323,14 +5739,14 @@ internal fun SettingsScreen(
                                     onValueChange = {
                                         portText = it.filter { c -> c.isDigit() }
                                     },
-                                    label = { Text("Port") },
+                                    label = { Text(strings.port) },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
                                 OutlinedTextField(
                                     value = pinText,
                                     onValueChange = { pinText = it },
-                                    label = { Text("PIN (empty = no PIN)") },
+                                    label = { Text(strings.pinHint) },
                                     singleLine = true,
                                     modifier = Modifier.fillMaxWidth(),
                                 )
@@ -5346,7 +5762,7 @@ internal fun SettingsScreen(
                                         )
                                     },
                                     modifier = Modifier.fillMaxWidth(),
-                                ) { Text("Save port and PIN") }
+                                ) { Text(strings.savePortAndPin) }
                             }
                         }
                     }
@@ -5355,9 +5771,8 @@ internal fun SettingsScreen(
                             index = index,
                             count = count,
                             icon = MaterialSymbols.OutlinedFilled.Lock,
-                            title = "Encryption (HTTPS)",
-                            subtitle = "Self-signed certificate, " +
-                                "fingerprint-verified",
+                            title = strings.encryptionHttps,
+                            subtitle = strings.httpsNote,
                             checked = settings.https,
                             onCheckedChange = {
                                 controller.updateSettings(
@@ -5371,8 +5786,8 @@ internal fun SettingsScreen(
                             index = index,
                             count = count,
                             icon = MaterialSymbols.OutlinedFilled.Language,
-                            title = "Download API",
-                            subtitle = "Share-via-link web page and uploads",
+                            title = strings.downloadApi,
+                            subtitle = strings.shareViaLinkWebNote,
                             checked = settings.downloadApi,
                             onCheckedChange = {
                                 controller.updateSettings(
@@ -5388,16 +5803,13 @@ internal fun SettingsScreen(
                                     Modifier.padding(16.dp),
                                     verticalArrangement = Arrangement.spacedBy(4.dp),
                                 ) {
-                                    InfoRow(
-                                        "Device model",
+                                    InfoRow(strings.deviceModel,
                                         local.deviceModel ?: "—",
                                     )
-                                    InfoRow(
-                                        "Device type",
+                                    InfoRow(strings.deviceType,
                                         local.deviceType.name.lowercase(),
                                     )
-                                    InfoRow(
-                                        "Fingerprint",
+                                    InfoRow(strings.fingerprint,
                                         local.fingerprint.take(24) + "…",
                                     )
                                     InfoRow(
@@ -5425,7 +5837,7 @@ internal fun SettingsScreen(
                                                 it.filter { c -> c.isDigit() }
                                         },
                                         label = {
-                                            Text("Discovery timeout (seconds)")
+                                            Text(strings.discoveryTimeout)
                                         },
                                         singleLine = true,
                                         modifier = Modifier.fillMaxWidth(),
@@ -5435,8 +5847,7 @@ internal fun SettingsScreen(
                                         onValueChange = { multicastText = it },
                                         label = {
                                             Text(
-                                                "Multicast group " +
-                                                    "(empty = 224.0.0.167)",
+                                                strings.multicastGroupLabel,
                                             )
                                         },
                                         singleLine = true,
@@ -5483,7 +5894,7 @@ internal fun SettingsScreen(
                                             )
                                         },
                                         modifier = Modifier.fillMaxWidth(),
-                                    ) { Text("Save advanced network settings") }
+                                    ) { Text(strings.saveAdvancedNetwork) }
                                 }
                             }
                         }
@@ -5491,18 +5902,27 @@ internal fun SettingsScreen(
                 },
                 keyPrefix = "s7",
             )
+        }
 
         // ── Favorites ──
-        if (settings.favorites.isNotEmpty()) {
+        if ((settings.favorites.isNotEmpty() || settings.favoriteDevices.isNotEmpty()) && subpage == "favorites") {
+            val legacyFavorites = settings.favorites.filter { fp ->
+                settings.favoriteDevices.none { it.fingerprint == fp }
+            }
+            val favoriteCount = settings.favoriteDevices.size + legacyFavorites.size
             minusGroupItems(
-                    title = "Favorites",
-                    rows = settings.favorites.map { fingerprint ->
-                        { _: Int, _: Int, shape: RoundedCornerShape ->
+                    title = null,
+                    rows = buildList {
+                        add { _, _, shape ->
                             MinusTile(shape) {
                                 Row(
-                                    Modifier.padding(
-                                        horizontal = 16.dp, vertical = 10.dp,
-                                    ),
+                                    Modifier
+                                        .clickable {
+                                            favoritesExpanded = !favoritesExpanded
+                                        }
+                                        .padding(
+                                            horizontal = 16.dp, vertical = 12.dp,
+                                        ),
                                     verticalAlignment = Alignment.CenterVertically,
                                 ) {
                                     MinusLeadingIcon(
@@ -5510,20 +5930,169 @@ internal fun SettingsScreen(
                                         false,
                                     )
                                     Spacer(Modifier.width(16.dp))
-                                    Text(
-                                        fingerprint.take(20) + "…",
-                                        style = MaterialTheme.typography.bodyMedium,
-                                        modifier = Modifier.weight(1f),
-                                    )
-                                    IconButton(
-                                        onClick = {
-                                            controller.toggleFavorite(fingerprint)
-                                        },
-                                    ) {
-                                        Icon(
-                                            MaterialSymbols.OutlinedFilled.Close,
-                                            contentDescription = "Remove favorite",
+                                    Column(Modifier.weight(1f)) {
+                                        Text(strings.favoriteDevices,
+                                            style = MaterialTheme.typography
+                                                .bodyMediumEmphasized,
                                         )
+                                        Text(
+                                            strings.savedCount.fill(favoriteCount),
+                                            style = MaterialTheme.typography
+                                                .bodySmall,
+                                            color = MaterialTheme.colorScheme
+                                                .onSurfaceVariant,
+                                        )
+                                    }
+                                    PillChevron(
+                                        icon = if (favoritesExpanded) {
+                                            MaterialSymbols.Outlined.Expand_less
+                                        } else {
+                                            MaterialSymbols.Outlined.Expand_more
+                                        },
+                                    )
+                                }
+                            }
+                        }
+                        if (favoritesExpanded) {
+                            settings.favoriteDevices.forEach { fav ->
+                                add { _, _, shape ->
+                                    MinusTile(shape) {
+                                        Row(
+                                            Modifier.padding(
+                                                horizontal = 16.dp,
+                                                vertical = 10.dp,
+                                            ),
+                                            verticalAlignment =
+                                                Alignment.CenterVertically,
+                                        ) {
+                                            Surface(
+                                                shape = CircleShape,
+                                                color = MaterialTheme.colorScheme
+                                                    .secondaryContainer,
+                                                modifier = Modifier.size(40.dp),
+                                            ) {
+                                                Box(
+                                                    contentAlignment =
+                                                        Alignment.Center,
+                                                ) {
+                                                    Icon(
+                                                        avatarIcon(fav.avatar)
+                                                            ?: deviceIcon(
+                                                                fav.deviceType
+                                                                    ?.let { n ->
+                                                                        DeviceType
+                                                                            .entries
+                                                                            .firstOrNull {
+                                                                                it.name == n
+                                                                            }
+                                                                    },
+                                                            ),
+                                                        contentDescription = null,
+                                                        tint = MaterialTheme
+                                                            .colorScheme
+                                                            .onSecondaryContainer,
+                                                        modifier = Modifier
+                                                            .size(20.dp),
+                                                    )
+                                                }
+                                            }
+                                            Spacer(Modifier.width(12.dp))
+                                            Column(Modifier.weight(1f)) {
+                                                Text(
+                                                    fav.alias,
+                                                    style = MaterialTheme
+                                                        .typography.bodyMedium,
+                                                    maxLines = 1,
+                                                    overflow =
+                                                        TextOverflow.Ellipsis,
+                                                )
+                                                Text(
+                                                    listOfNotNull(
+                                                        fav.deviceModel
+                                                            ?.takeIf { it.isNotBlank() },
+                                                        fav.deviceType,
+                                                    ).joinToString(" · ")
+                                                        .ifEmpty { "—" },
+                                                    style = MaterialTheme
+                                                        .typography.bodySmall,
+                                                    color = MaterialTheme
+                                                        .colorScheme
+                                                        .onSurfaceVariant,
+                                                    maxLines = 1,
+                                                    overflow =
+                                                        TextOverflow.Ellipsis,
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = { favoriteDetail = fav },
+                                            ) {
+                                                Icon(
+                                                    MaterialSymbols.Outlined.Info,
+                                                    contentDescription = strings.details,
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    controller.toggleFavorite(
+                                                        fav.fingerprint,
+                                                    )
+                                                },
+                                            ) {
+                                                Icon(
+                                                    MaterialSymbols.OutlinedFilled
+                                                        .Close,
+                                                    contentDescription = strings.removeFavorite,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            legacyFavorites.forEach { fingerprint ->
+                                add { _, _, shape ->
+                                    MinusTile(shape) {
+                                        Row(
+                                            Modifier.padding(
+                                                horizontal = 16.dp,
+                                                vertical = 10.dp,
+                                            ),
+                                            verticalAlignment =
+                                                Alignment.CenterVertically,
+                                        ) {
+                                            MinusLeadingIcon(
+                                                MaterialSymbols.OutlinedFilled
+                                                    .Star,
+                                                false,
+                                            )
+                                            Spacer(Modifier.width(16.dp))
+                                            Column(Modifier.weight(1f)) {
+                                                Text(strings.unknownDevice,
+                                                    style = MaterialTheme
+                                                        .typography.bodyMedium,
+                                                )
+                                                Text(
+                                                    fingerprint.take(20) + "…",
+                                                    style = MaterialTheme
+                                                        .typography.bodySmall,
+                                                    color = MaterialTheme
+                                                        .colorScheme
+                                                        .onSurfaceVariant,
+                                                )
+                                            }
+                                            IconButton(
+                                                onClick = {
+                                                    controller.toggleFavorite(
+                                                        fingerprint,
+                                                    )
+                                                },
+                                            ) {
+                                                Icon(
+                                                    MaterialSymbols.OutlinedFilled
+                                                        .Close,
+                                                    contentDescription = strings.removeFavorite,
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -5537,6 +6106,7 @@ internal fun SettingsScreen(
         // Ernest (2026-11-13): ONE section inside Settings that
         // opens its own page — not nine tiles spread down the
         // settings list.
+        if (subpage == null) {
         minusGroupItems(
                 title = null,
                 rows = listOf { _, _, shape ->
@@ -5544,13 +6114,31 @@ internal fun SettingsScreen(
                         shape = shape,
                         icon = MaterialSymbols.OutlinedFilled
                             .Volunteer_activism,
-                        title = "Donate",
-                        subtitle = "Support the project",
+                        title = strings.donate,
+                        subtitle = strings.supportProject,
                         onClick = { showDonate = true },
                     )
                 },
                 keyPrefix = "s9",
             )
+        }
+
+        // ── Share LSEx ──
+        if (subpage == null) {
+            minusGroupItems(
+                title = null,
+                rows = listOf { _, _, shape ->
+                    MinusNavRow(
+                        shape = shape,
+                        icon = MaterialSymbols.OutlinedFilled.Share,
+                        title = strings.shareLsex,
+                        subtitle = strings.shareAppSubtitle,
+                        onClick = { showShareApp = true },
+                    )
+                },
+                keyPrefix = "s10",
+            )
+        }
 
         item {
             val ltcAddress = "ltc1q2t7pg8xyyqvu2cm2jxpxtqcxr5layxztf32q5g"
@@ -5570,6 +6158,9 @@ internal fun SettingsScreen(
     if (showDonate) {
         DonatePage(onDismiss = { showDonate = false })
     }
+    if (showShareApp) {
+        ShareAppPage(onDismiss = { showShareApp = false })
+    }
     connDialog?.let { kind ->
         ConnectionSettingsDialog(
             controller = controller,
@@ -5578,6 +6169,97 @@ internal fun SettingsScreen(
             onDismiss = { connDialog = null },
         )
     }
+    favoriteDetail?.let { fav ->
+        FavoriteDetailDialog(
+            favorite = fav,
+            onUnfavorite = {
+                controller.toggleFavorite(fav.fingerprint)
+                favoriteDetail = null
+            },
+            onDismiss = { favoriteDetail = null },
+        )
+    }
+}
+
+/** One confirmation dialog for every destructive clear action. */
+@Composable
+private fun LsexConfirmDialog(
+    title: String,
+    text: String,
+    confirmLabel: String,
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val strings = LocalStrings.current
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { Text(text) },
+        confirmButton = {
+            Button(
+                onClick = onConfirm,
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = MaterialTheme.colorScheme.error,
+                    contentColor = MaterialTheme.colorScheme.onError,
+                ),
+            ) { Text(confirmLabel) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(strings.cancel) }
+        },
+    )
+}
+
+/** Details for a remembered favorite (Settings → Favorites). */
+@Composable
+private fun FavoriteDetailDialog(
+    favorite: FavoriteDevice,
+    onUnfavorite: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    val strings = LocalStrings.current
+    val info = favorite
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        icon = {
+            Icon(
+                avatarIcon(info.avatar) ?: deviceIcon(
+                    info.deviceType?.let { n ->
+                        DeviceType.entries.firstOrNull { it.name == n }
+                    },
+                ),
+                contentDescription = null,
+            )
+        },
+        title = { Text(info.alias) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                info.deviceModel?.takeIf { it.isNotBlank() }?.let {
+                    InfoRow(strings.model, it)
+                }
+                info.deviceType?.let { InfoRow(strings.type, it) }
+                Column {
+                    Text(strings.fingerprint,
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Text(
+                        info.fingerprint.chunked(16).joinToString(" "),
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+                if (info.lastSeenMillis > 0) {
+                    InfoRow(strings.lastSeen, formatDate(info.lastSeenMillis))
+                }
+            }
+        },
+        confirmButton = {
+            Button(onClick = onDismiss) { Text(strings.done) }
+        },
+        dismissButton = {
+            TextButton(onClick = onUnfavorite) { Text(strings.unfavorite) }
+        },
+    )
 }
 @Composable
 private fun InfoChip(text: String) {
@@ -5661,6 +6343,7 @@ private fun HistoryRow(
     onCopy: (() -> Unit)? = null,
     onRemove: () -> Unit,
     onDeleteFile: (() -> Unit)? = null,
+    hintSwipe: Boolean = false,
 ) {
     if (!prefersSwipeActions()) {
         // Pointer platforms: actions stay visible on the tile, and
@@ -5710,6 +6393,19 @@ private fun HistoryRow(
                 0 at 0f
                 1 at -(revealWidthPx + with(density) { 2.dp.toPx() })
             })
+        }
+    }
+    if (hintSwipe) {
+        // First-run tour: the row peeks its actions open and shut
+        // until the user double-taps the placeholder away.
+        LaunchedEffect(Unit) {
+            while (true) {
+                delay(900)
+                state.animateTo(1, tween(550))
+                delay(1200)
+                state.animateTo(0, tween(550))
+                delay(600)
+            }
         }
     }
     val scope = rememberCoroutineScope()
@@ -5819,6 +6515,7 @@ private fun HistoryRowItem(
     modifier: Modifier = Modifier,
     onClick: (() -> Unit)? = null,
 ) {
+    val strings = LocalStrings.current
     LsexSegmentedItem(
         index = index,
         count = count,
@@ -5848,7 +6545,7 @@ private fun HistoryRowItem(
                         IconButton(onClick = onInstall) {
                             Icon(
                                 MaterialSymbols.Outlined.System_update,
-                                contentDescription = "Install this package",
+                                contentDescription = strings.installPackage,
                                 tint = MaterialTheme.colorScheme.primary,
                             )
                         }
@@ -5857,7 +6554,7 @@ private fun HistoryRowItem(
                         IconButton(onClick = onOpen) {
                             Icon(
                                 MaterialSymbols.Outlined.Open_in_new,
-                                contentDescription = "Open file",
+                                contentDescription = strings.openFile,
                                 tint = MaterialTheme.colorScheme.primary,
                             )
                         }
@@ -5866,7 +6563,7 @@ private fun HistoryRowItem(
                         IconButton(onClick = onResend) {
                             Icon(
                                 MaterialSymbols.Outlined.Send,
-                                contentDescription = "Stage for resending",
+                                contentDescription = strings.stageForResending,
                                 tint = MaterialTheme.colorScheme.primary,
                             )
                         }
@@ -5875,7 +6572,7 @@ private fun HistoryRowItem(
                         IconButton(onClick = onCopy) {
                             Icon(
                                 MaterialSymbols.Outlined.Content_copy,
-                                contentDescription = "Copy text",
+                                contentDescription = strings.copyText,
                                 tint = MaterialTheme.colorScheme.primary,
                             )
                         }
@@ -5883,7 +6580,7 @@ private fun HistoryRowItem(
                     IconButton(onClick = onRemove) {
                         Icon(
                             MaterialSymbols.Outlined.Close,
-                            contentDescription = "Remove from history",
+                            contentDescription = strings.removeFromHistory,
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
@@ -5925,6 +6622,7 @@ private fun OutboxJobCard(
     job: OutboxJob,
     grouped: Boolean = false,
 ) {
+    val strings = LocalStrings.current
     var pin by remember(job.id) { mutableStateOf("") }
     val isActiveJob = job.files.any { it.status == TransferStatus.ACTIVE }
     val doneCount = job.files.count { it.status == TransferStatus.DONE }
@@ -5949,7 +6647,7 @@ private fun OutboxJobCard(
                 Column(Modifier.weight(1f)) {
                     if (!grouped) {
                         Text(
-                            "To ${job.targetAlias}",
+                            strings.toDevice.fill(job.targetAlias),
                             style = MaterialTheme.typography.titleMedium,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
@@ -5970,19 +6668,19 @@ private fun OutboxJobCard(
                 OutlinedTextField(
                     value = pin,
                     onValueChange = { pin = it },
-                    label = { Text("PIN") },
+                    label = { Text(strings.pin) },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 Button(
                     onClick = { controller.retryOutboxJob(job.id, pin) },
                     modifier = Modifier.fillMaxWidth(),
-                ) { Text("Retry with PIN") }
+                ) { Text(strings.retryWithPin) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (isActiveJob) {
                     OutlinedButton(onClick = { controller.cancelSend() }) {
-                        Text("Cancel send")
+                        Text(strings.cancelSend)
                     }
                 } else {
                     if (!job.finished &&
@@ -5991,7 +6689,7 @@ private fun OutboxJobCard(
                         OutlinedButton(onClick = { controller.retryOutboxJob(job.id) }) {
                             Icon(MaterialSymbols.Outlined.Replay, contentDescription = null)
                             Spacer(Modifier.width(6.dp))
-                            Text("Retry")
+                            Text(strings.retry)
                         }
                     }
                     TextButton(onClick = { controller.dismissOutboxJob(job.id) }) {
@@ -6015,6 +6713,7 @@ private fun OutboxFileRow(
     file: OutboxFile,
     enabled: Boolean,
 ) {
+    val strings = LocalStrings.current
     Surface(
         shape = RoundedCornerShape(14.dp),
         color = MaterialTheme.colorScheme.surfaceContainerLow,
@@ -6046,7 +6745,7 @@ private fun OutboxFileRow(
                 when (file.status) {
                     TransferStatus.DONE -> Icon(
                         MaterialSymbols.Outlined.Check_circle,
-                        contentDescription = "Done",
+                        contentDescription = strings.done,
                         tint = MaterialTheme.colorScheme.primary,
                     )
                     TransferStatus.FAILED -> if (enabled) {
@@ -6055,14 +6754,14 @@ private fun OutboxFileRow(
                         ) {
                             Icon(
                                 MaterialSymbols.Outlined.Replay,
-                                contentDescription = "Retry this file",
+                                contentDescription = strings.retryThisFile,
                                 tint = MaterialTheme.colorScheme.error,
                             )
                         }
                     } else {
                         Icon(
                             MaterialSymbols.Outlined.Error,
-                            contentDescription = "Failed",
+                            contentDescription = strings.failed,
                             tint = MaterialTheme.colorScheme.error,
                         )
                     }
@@ -6071,7 +6770,7 @@ private fun OutboxFileRow(
                         IconButton(onClick = { controller.cancelSend() }) {
                             Icon(
                                 MaterialSymbols.Outlined.Close,
-                                contentDescription = "Cancel this send",
+                                contentDescription = strings.cancelThisSend,
                                 tint = MaterialTheme.colorScheme.error,
                             )
                         }
@@ -6140,6 +6839,7 @@ private fun QrCode(content: String) {
 }
 @Composable
 private fun IncomingOfferDialog(controller: LocalSendController, offer: IncomingOffer) {
+    val strings = LocalStrings.current
     var checked by remember(offer.sessionId) {
         mutableStateOf(offer.files.map { it.id }.toSet())
     }
@@ -6155,7 +6855,7 @@ private fun IncomingOfferDialog(controller: LocalSendController, offer: Incoming
                 )
             }
         },
-        title = { Text("${offer.peer.alias} wants to send") },
+        title = { Text(strings.wantsToSend.fill(offer.peer.alias)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 offer.files.forEach { file ->
@@ -6183,7 +6883,7 @@ private fun IncomingOfferDialog(controller: LocalSendController, offer: Incoming
                 }
                 Spacer(Modifier.height(8.dp))
                 Text(
-                    "Total ${formatSize(offer.totalSize)} · from ${offer.peerIp}",
+                    strings.totalFrom.fill(formatSize(offer.totalSize), offer.peerIp),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -6193,10 +6893,10 @@ private fun IncomingOfferDialog(controller: LocalSendController, offer: Incoming
             Button(
                 onClick = { controller.respondOffer(checked) },
                 enabled = checked.isNotEmpty(),
-            ) { Text("Accept") }
+            ) { Text(strings.accept) }
         },
         dismissButton = {
-            TextButton(onClick = { controller.respondOffer(null) }) { Text("Decline") }
+            TextButton(onClick = { controller.respondOffer(null) }) { Text(strings.decline) }
         },
     )
 }
@@ -6207,6 +6907,7 @@ private fun TextMessageDialog(
     onDismiss: () -> Unit,
     onSend: (String) -> Unit,
 ) {
+    val strings = LocalStrings.current
     var text by remember { mutableStateOf(initialText) }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -6220,19 +6921,18 @@ private fun TextMessageDialog(
                 )
             }
         },
-        title = { Text("Send a text") },
+        title = { Text(strings.sendText) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = text,
                     onValueChange = { text = it },
-                    label = { Text("Message") },
+                    label = { Text(strings.message) },
                     minLines = 3,
                     modifier = Modifier.fillMaxWidth(),
                 )
                 if (target == null) {
-                    Text(
-                        "Pick a device first — the text goes to the selected device.",
+                    Text(strings.pickDeviceFirst,
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.error,
                     )
@@ -6243,10 +6943,10 @@ private fun TextMessageDialog(
             Button(
                 onClick = { onSend(text) },
                 enabled = target != null && text.isNotBlank(),
-            ) { Text("Send") }
+            ) { Text(strings.sendLabel) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(strings.cancel) }
         },
     )
 }
@@ -6255,6 +6955,7 @@ private fun IpAddressDialog(
     onDismiss: () -> Unit,
     onProbe: (String) -> Unit,
 ) {
+    val strings = LocalStrings.current
     var ip by remember { mutableStateOf("") }
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -6268,19 +6969,18 @@ private fun IpAddressDialog(
                 )
             }
         },
-        title = { Text("Add IP address") },
+        title = { Text(strings.addIpAddress) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = ip,
                     onValueChange = { ip = it },
-                    label = { Text("IP address (optionally IP:port)") },
+                    label = { Text(strings.ipAddressHint) },
                     placeholder = { Text("192.168.1.50") },
                     singleLine = true,
                     modifier = Modifier.fillMaxWidth(),
                 )
-                Text(
-                    "The device appears in the list once it answers.",
+                Text(strings.deviceAppearsNote,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -6290,10 +6990,10 @@ private fun IpAddressDialog(
             Button(
                 onClick = { onProbe(ip.trim()) },
                 enabled = ip.isNotBlank(),
-            ) { Text("Add") }
+            ) { Text(strings.add) }
         },
         dismissButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(strings.cancel) }
         },
     )
 }
@@ -6304,6 +7004,7 @@ private fun DeviceInfoDialog(
     onToggleFavorite: () -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val strings = LocalStrings.current
     val info = device.info
     AlertDialog(
         onDismissRequest = onDismiss,
@@ -6320,13 +7021,12 @@ private fun DeviceInfoDialog(
         title = { Text(info.alias) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                InfoRow("Model", info.deviceModel ?: "—")
-                InfoRow("Type", info.deviceType?.name ?: "—")
-                InfoRow("Address", "${device.ip}:${info.port}")
+                InfoRow(strings.model, info.deviceModel ?: "—")
+                InfoRow(strings.type, info.deviceType?.name ?: "—")
+                InfoRow(strings.address, "${device.ip}:${info.port}")
                 InfoRow("Protocol", "${info.version} (${info.protocol})")
                 InfoRow("Web share", if (info.download) "Available" else "Off")
-                Text(
-                    "Fingerprint",
+                Text(strings.fingerprint,
                     style = MaterialTheme.typography.labelLarge,
                     color = MaterialTheme.colorScheme.primary,
                 )
@@ -6337,7 +7037,7 @@ private fun DeviceInfoDialog(
             }
         },
         confirmButton = {
-            Button(onClick = onDismiss) { Text("Done") }
+            Button(onClick = onDismiss) { Text(strings.done) }
         },
         dismissButton = {
             TextButton(onClick = onToggleFavorite) {
@@ -6361,20 +7061,21 @@ private fun InfoRow(label: String, value: String) {
 }
 @Composable
 private fun TroubleshootDialog(onDismiss: () -> Unit) {
+    val strings = LocalStrings.current
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Troubleshoot discovery") },
+        title = { Text(strings.troubleshootDiscovery) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Text("• Both devices must be on the same Wi-Fi / LAN (not a guest network).")
+                Text(strings.bulletSameWifi)
                 Text("• Allow LSEx through the firewall: UDP 224.0.0.167:53317 for discovery and TCP 53317 for transfers.")
-                Text("• Turn off VPNs and \"AP isolation\" on the router — they block local discovery.")
-                Text("• Keep the other device awake with LocalSend open, then hit the refresh button.")
+                Text(strings.bulletVpn)
+                Text(strings.bulletKeepAwake)
                 Text("• As a fallback, add the device by IP address (its address is shown on its Receive screen).")
             }
         },
         confirmButton = {
-            Button(onClick = onDismiss) { Text("OK") }
+            Button(onClick = onDismiss) { Text(strings.ok) }
         },
     )
 }
@@ -6403,6 +7104,7 @@ internal fun TransferProgressBar(progress: FileProgress, modifier: Modifier = Mo
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun FileProgressRow(progress: FileProgress) {
+    val strings = LocalStrings.current
     Column(Modifier.fillMaxWidth()) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
@@ -6415,12 +7117,12 @@ private fun FileProgressRow(progress: FileProgress) {
             when (progress.status) {
                 TransferStatus.DONE -> Icon(
                     MaterialSymbols.Outlined.Check_circle,
-                    contentDescription = "Done",
+                    contentDescription = strings.done,
                     tint = MaterialTheme.colorScheme.primary,
                 )
                 TransferStatus.FAILED, TransferStatus.CANCELLED -> Icon(
                     MaterialSymbols.Outlined.Error,
-                    contentDescription = "Failed",
+                    contentDescription = strings.failed,
                     tint = MaterialTheme.colorScheme.error,
                 )
                 else -> Text(
@@ -6487,7 +7189,7 @@ private fun ConnectivityTile(
 
 // ── Avatars (Settings picker; default = the device-type glyph) ────────────
 
-private fun avatarIcon(id: String): ImageVector? = when (id) {
+private fun avatarIcon(id: String?): ImageVector? = when (id) {
     "person" -> MaterialSymbols.Outlined.Person
     "rocket" -> MaterialSymbols.Outlined.Rocket_launch
     "pets" -> MaterialSymbols.Outlined.Pets
@@ -6525,7 +7227,7 @@ private val AvatarOptions: List<Pair<String, String>> = listOf(
 
 // ── Share page (Ernest's mockup): devices, split Send, picker grid ────────
 
-@OptIn(ExperimentalMaterial3ExpressiveApi::class)
+@OptIn(ExperimentalMaterial3ExpressiveApi::class, ExperimentalMaterial3Api::class)
 @Composable
 internal fun ShareScreen(
     controller: LocalSendController,
@@ -6536,6 +7238,7 @@ internal fun ShareScreen(
     onSelectedChange: (Set<String>) -> Unit,
     onAddByIp: () -> Unit,
     onShowTransfers: () -> Unit,
+    onShowDeviceTransfers: (DiscoveredDevice) -> Unit = {},
     onShareViaLink: () -> Unit,
 ) {
     val strings = LocalStrings.current
@@ -6547,9 +7250,11 @@ internal fun ShareScreen(
     val scope = rememberCoroutineScope()
     var infoDevice by remember { mutableStateOf<DiscoveredDevice?>(null) }
     var editIndex by remember { mutableStateOf(-1) }
+    var folderDetail by remember { mutableStateOf<StagedItem.FolderItem?>(null) }
     var pickerTab by remember { mutableStateOf<ContentTab?>(null) }
     var showTextComposer by remember { mutableStateOf(false) }
     var selectionExpanded by rememberSaveable { mutableStateOf(true) }
+    var confirmClearSelection by remember { mutableStateOf(false) }
     var sendMenuOpen by remember { mutableStateOf(false) }
     val clipboard = rememberClipboardText()
 
@@ -6572,6 +7277,37 @@ internal fun ShareScreen(
                 staged + StagedItem.FileItem(file)
             },
         )
+    }
+
+    /**
+     * Open a staged file: packages go to the built-in installer — an
+     * Apps-tile pick is a cache-dir .apks path, and a plain VIEW intent
+     * on a file:// path dies with FileUriExposedException (Ernest's
+     * "the APK I selected from Apps can't open" report). Everything else
+     * opens through the normal viewer.
+     */
+    fun openStagedFile(file: PickedFile) {
+        if (isInstallablePackage(file.name) && installerSupported()) {
+            installPackage(file.handle, file.name)
+        } else {
+            openReceivedFile(file.handle, file.name)
+        }
+    }
+
+    /**
+     * Add a whole picker result at once (v0.12.4): toggling file-by-file
+     * rebuilt the list from the SAME stale snapshot for every item, so a
+     * multi-pick collapsed to just the last file — Ernest's "media
+     * selection returns only one file / selecting another replaces the
+     * whole selection" report. Picker results are additive, deduped by
+     * handle.
+     */
+    fun addPicked(picked: List<PickedFile>) {
+        val additions = picked
+            .distinctBy { it.handle }
+            .filter { "file:${it.handle}" !in stagedIds }
+            .map { StagedItem.FileItem(it) }
+        if (additions.isNotEmpty()) onStagedChange(staged + additions)
     }
 
     fun toggleFolder(folder: BrowserItem) {
@@ -6618,20 +7354,90 @@ internal fun ShareScreen(
                 }
             }
             onStagedChange(emptyList())
-            onShowTransfers()
+            if (targets.size == 1) {
+                onShowDeviceTransfers(targets[0])
+            } else {
+                onShowTransfers()
+            }
         }
     }
 
     val systemFilePicker = rememberFilePickerLauncher { picked ->
-        picked.forEach { toggleFile(it) }
+        addPicked(picked)
     }
     val systemFolderPicker = rememberFolderPickerLauncher { picked ->
-        picked.forEach { toggleFile(it) }
+        addPicked(picked)
     }
     val mediaPicker = rememberMediaPickerLauncher { picked ->
-        picked.forEach { toggleFile(it) }
+        addPicked(picked)
     }
 
+    // Desktop drop + paste (v0.12.4): files/folders dragged from the
+    // OS or pasted with Ctrl+V land in the selection; pasted text with
+    // no files in the clipboard stages as a text item instead.
+    fun stageDroppedPaths(paths: List<String>) {
+        val files = mutableListOf<PickedFile>()
+        for (path in paths) {
+            if (pathIsDirectory(path)) {
+                toggleFolder(
+                    BrowserItem(
+                        id = "file:$path",
+                        name = path.substringAfterLast('/'),
+                        isFolder = true,
+                        handle = path,
+                    ),
+                )
+            } else {
+                pickedFileFromPath(path)?.let { files.add(it) }
+            }
+        }
+        if (files.isNotEmpty()) addPicked(files)
+    }
+    val pageFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { pageFocusRequester.requestFocus() }
+
+    // Pull-to-refresh (v0.12.4): pull the page to re-scan for devices,
+    // with the official indicator, UDYAT-style.
+    val ptrState = rememberPullToRefreshState()
+    PullToRefreshBox(
+        modifier = Modifier
+            .focusRequester(pageFocusRequester)
+            .focusable()
+            .fileDropTarget { paths -> stageDroppedPaths(paths) }
+            .onKeyEvent { event ->
+                if (event.type == KeyEventType.KeyDown &&
+                    event.isCtrlPressed && event.key == Key.V
+                ) {
+                    val paths = clipboardFilePaths()
+                    if (paths.isNotEmpty()) {
+                        stageDroppedPaths(paths)
+                        true
+                    } else {
+                        val text = clipboardTextOrNull()?.trim().orEmpty()
+                        if (text.isNotEmpty()) {
+                            onStagedChange(
+                                staged + StagedItem.TextItem(text),
+                            )
+                            true
+                        } else {
+                            false
+                        }
+                    }
+                } else {
+                    false
+                }
+            },
+        isRefreshing = scanning,
+        onRefresh = { controller.refreshDiscovery() },
+        state = ptrState,
+        indicator = {
+            PullToRefreshDefaults.Indicator(
+                state = ptrState,
+                isRefreshing = scanning,
+                modifier = Modifier.align(Alignment.TopCenter),
+            )
+        },
+    ) {
     LazyColumn(
         Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 16.dp, bottom = 140.dp),
@@ -6659,7 +7465,7 @@ internal fun ShareScreen(
                             ) {
                                 Icon(MaterialSymbols.Outlined.Send, contentDescription = null)
                                 Spacer(Modifier.width(6.dp))
-                                Text("Send")
+                                Text(strings.sendLabel)
                             }
                         },
                         trailingButton = {
@@ -6672,7 +7478,7 @@ internal fun ShareScreen(
                                 )
                                 Icon(
                                     MaterialSymbols.Outlined.Expand_more,
-                                    contentDescription = "More send options",
+                                    contentDescription = strings.moreSendOptions,
                                     modifier = Modifier.graphicsLayer {
                                         rotationZ = chevronRotation
                                     },
@@ -6685,7 +7491,7 @@ internal fun ShareScreen(
                         onDismissRequest = { sendMenuOpen = false },
                     ) {
                             DropdownMenuItem(
-                                text = { Text("Send to multiple devices") },
+                                text = { Text(strings.sendToMultiple) },
                                 leadingIcon = {
                                     Icon(MaterialSymbols.Outlined.Devices, contentDescription = null)
                                 },
@@ -6693,7 +7499,7 @@ internal fun ShareScreen(
                                     if (settings.multiDeviceSend) {
                                         Icon(
                                             MaterialSymbols.Outlined.Check,
-                                            contentDescription = "On",
+                                            contentDescription = strings.on,
                                             tint = MaterialTheme.colorScheme.primary,
                                         )
                                     }
@@ -6711,7 +7517,7 @@ internal fun ShareScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("Send via link") },
+                                text = { Text(strings.sendViaLink) },
                                 leadingIcon = {
                                     Icon(MaterialSymbols.Outlined.Link, contentDescription = null)
                                 },
@@ -6721,7 +7527,7 @@ internal fun ShareScreen(
                                 },
                             )
                             DropdownMenuItem(
-                                text = { Text("Add device by IP") },
+                                text = { Text(strings.addDeviceByIp) },
                                 leadingIcon = {
                                     Icon(MaterialSymbols.Outlined.Lan, contentDescription = null)
                                 },
@@ -6759,7 +7565,7 @@ internal fun ShareScreen(
                 OutlinedButton(onClick = { controller.refreshDiscovery() }) {
                     Icon(MaterialSymbols.Outlined.Refresh, contentDescription = null)
                     Spacer(Modifier.width(6.dp))
-                    Text("Search again")
+                    Text(strings.searchAgain)
                 }
             }
         }
@@ -6830,34 +7636,40 @@ internal fun ShareScreen(
                     isFavorite = device.info.fingerprint in settings.favorites,
                     transferFraction = transferFraction,
                     onClick = {
-                        when {
-                            hasActiveTransfer -> {
-                                // Already transferring with this device: queue the
-                                // staged files to it, then open the transfer view.
-                                if (staged.isNotEmpty()) {
-                                    scope.launch {
-                                        val (files, _) = expandStaged()
-                                        if (files.isNotEmpty()) {
-                                            controller.sendFiles(device, files)
-                                        }
-                                        onStagedChange(emptyList())
-                                    }
-                                }
-                                onShowTransfers()
+                        val hasTransferData = hasActiveTransfer || failedJob != null ||
+                            outbox.any {
+                                it.targetFingerprint == device.info.fingerprint && !it.finished
                             }
-                            settings.multiDeviceSend -> onSelectedChange(
-                                if (isSelected) {
-                                    selectedFingerprints - device.info.fingerprint
+                        when {
+                            // A selection is staged: the tap SELECTS the
+                            // device as a target (Ernest, v0.12.4) — it
+                            // must not open the transfer sheet.
+                            staged.isNotEmpty() || !hasTransferData -> {
+                                if (settings.multiDeviceSend) {
+                                    onSelectedChange(
+                                        if (isSelected) {
+                                            selectedFingerprints - device.info.fingerprint
+                                        } else {
+                                            selectedFingerprints + device.info.fingerprint
+                                        },
+                                    )
                                 } else {
-                                    selectedFingerprints + device.info.fingerprint
-                                },
-                            )
-                            else -> onSelectedChange(
-                                if (isSelected) emptySet() else setOf(device.info.fingerprint),
-                            )
+                                    onSelectedChange(
+                                        if (isSelected) {
+                                            emptySet()
+                                        } else {
+                                            setOf(device.info.fingerprint)
+                                        },
+                                    )
+                                }
+                            }
+                            // Nothing staged and this device has transfers:
+                            // open ITS sheet (the unified sheet is only
+                            // reachable through the transfer pill).
+                            else -> onShowDeviceTransfers(device)
                         }
                     },
-                    onToggleFavorite = { controller.toggleFavorite(device.info.fingerprint) },
+                    onToggleFavorite = { controller.toggleFavorite(device) },
                     onInfo = { infoDevice = device },
                 )
                 if (failedJob != null) {
@@ -6865,7 +7677,7 @@ internal fun ShareScreen(
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
-                            .clickable { onShowTransfers() }
+                            .clickable { onShowDeviceTransfers(device) }
                             .padding(horizontal = 12.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -6876,8 +7688,7 @@ internal fun ShareScreen(
                             modifier = Modifier.size(18.dp),
                         )
                         Spacer(Modifier.width(8.dp))
-                        Text(
-                            "Some files need attention — tap to review",
+                        Text(strings.someFilesNeedAttention,
                             style = MaterialTheme.typography.bodyMedium,
                             color = MaterialTheme.colorScheme.error,
                         )
@@ -6888,7 +7699,7 @@ internal fun ShareScreen(
 
         // ── Share: picker grid (Ernest's mockup tiles) ──
         item {
-            Text("Share", style = MaterialTheme.typography.titleLarge)
+            Text(strings.share, style = MaterialTheme.typography.titleLarge)
         }
         item {
             val tiles: List<Triple<String, ImageVector, () -> Unit>> = listOf(
@@ -6936,7 +7747,7 @@ internal fun ShareScreen(
                 ) {
                     Icon(MaterialSymbols.Outlined.Content_paste, contentDescription = null)
                     Spacer(Modifier.width(8.dp))
-                    Text("Paste from clipboard")
+                    Text(strings.pasteFromClipboard)
                 }
             }
         }
@@ -6967,9 +7778,9 @@ internal fun ShareScreen(
                                     Alignment.CenterVertically,
                             ) {
                                 TextButton(
-                                    onClick = { onStagedChange(emptyList()) },
+                                    onClick = { confirmClearSelection = true },
                                 ) {
-                                    Text("Clear")
+                                    Text(strings.clear)
                                 }
                                 PillChevron(
                                     icon = if (selectionExpanded) {
@@ -6998,9 +7809,9 @@ internal fun ShareScreen(
                                         onOpen = {
                                             when (item) {
                                                 is StagedItem.FileItem ->
-                                                    openReceivedFile(item.file.handle, item.file.name)
+                                                    openStagedFile(item.file)
                                                 is StagedItem.TextItem -> editIndex = index
-                                                is StagedItem.FolderItem -> Unit
+                                                is StagedItem.FolderItem -> folderDetail = item
                                             }
                                         },
                                         onEdit = { editIndex = index },
@@ -7011,25 +7822,99 @@ internal fun ShareScreen(
                                         },
                                     )
                             }
+                            if (staged.isEmpty() && !settings.tourSeen) {
+                                // First-run tour placeholder (v0.12.4),
+                                // mirroring the History one.
+                                Box(
+                                    Modifier.pointerInput(Unit) {
+                                        detectTapGestures(
+                                            onDoubleTap = {
+                                                controller.updateSettings(
+                                                    settings.copy(tourSeen = true),
+                                                )
+                                            },
+                                        )
+                                    },
+                                ) {
+                                    StagedItemCard(
+                                        item = StagedItem.FileItem(
+                                            PickedFile(
+                                                handle = "tour",
+                                                name = "IMG_2041.jpg",
+                                                size = 2_400_000,
+                                            ),
+                                        ),
+                                        index = 1,
+                                        count = 2,
+                                        onOpen = {},
+                                        onEdit = {},
+                                        onDiscard = {},
+                                        hintSwipe = true,
+                                    )
+                                }
+                                Text(
+                                    strings.tourHint,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme
+                                        .onSurfaceVariant,
+                                    modifier = Modifier.padding(
+                                        horizontal = 16.dp, vertical = 4.dp,
+                                    ),
+                                )
+                            }
                         }
                     }
                 }
             }
         }
     }
+    }
+    if (confirmClearSelection) {
+        LsexConfirmDialog(
+            title = strings.clearSelectionTitle,
+            text = strings.clearSelectionText,
+            confirmLabel = strings.clear,
+            onConfirm = {
+                confirmClearSelection = false
+                onStagedChange(emptyList())
+            },
+            onDismiss = { confirmClearSelection = false },
+        )
+    }
 
     infoDevice?.let { device ->
         DeviceInfoDialog(
             device = device,
             isFavorite = device.info.fingerprint in settings.favorites,
-            onToggleFavorite = { controller.toggleFavorite(device.info.fingerprint) },
+            onToggleFavorite = { controller.toggleFavorite(device) },
             onDismiss = { infoDevice = null },
+        )
+    }
+    folderDetail?.let { folderItem ->
+        FolderContentsDialog(
+            folder = folderItem,
+            onOpenFile = { openStagedFile(it) },
+            onDismiss = { folderDetail = null },
+            onCommit = { remaining ->
+                // Replace the folder with its remaining files (or drop
+                // it entirely when every file was discarded).
+                val idx = staged.indexOf(folderItem)
+                if (idx >= 0) {
+                    onStagedChange(
+                        staged.toMutableList().also { list ->
+                            list.removeAt(idx)
+                            list.addAll(idx, remaining.map { StagedItem.FileItem(it) })
+                        },
+                    )
+                }
+                folderDetail = null
+            },
         )
     }
     if (showTextComposer) {
         AlertDialog(
             onDismissRequest = { showTextComposer = false },
-            title = { Text("Send a text") },
+            title = { Text(strings.sendText) },
             text = {
                 TextComposer(onStageText = { text ->
                     onStagedChange(staged + StagedItem.TextItem(text))
@@ -7038,7 +7923,7 @@ internal fun ShareScreen(
             },
             confirmButton = {},
             dismissButton = {
-                TextButton(onClick = { showTextComposer = false }) { Text("Close") }
+                TextButton(onClick = { showTextComposer = false }) { Text(strings.close) }
             },
         )
     }
@@ -7046,7 +7931,7 @@ internal fun ShareScreen(
         val item = staged[editIndex]
         when (item) {
             is StagedItem.FileItem -> StagedEditDialog(
-                title = "Rename file",
+                title = strings.renameFile,
                 initial = item.file.name,
                 onDismiss = { editIndex = -1 },
                 onSave = { newName ->
@@ -7063,7 +7948,7 @@ internal fun ShareScreen(
                 },
             )
             is StagedItem.TextItem -> StagedEditDialog(
-                title = "Edit text",
+                title = strings.editText,
                 initial = item.text,
                 multiline = true,
                 onDismiss = { editIndex = -1 },
@@ -7109,6 +7994,7 @@ internal fun PickerScreen(
     stagedCount: Int,
     onDismiss: () -> Unit,
 ) {
+    val strings = LocalStrings.current
     var tab by remember { mutableStateOf(initialTab) }
     val tabs = listOf(
         ContentTab.Apps, ContentTab.Photos, ContentTab.Videos,
@@ -7130,14 +8016,13 @@ internal fun PickerScreen(
                     modifier = Modifier.padding(vertical = 6.dp),
                 ) {
                     IconButton(onClick = requestDismiss) {
-                        Icon(MaterialSymbols.Outlined.Arrow_back, contentDescription = "Back")
+                        Icon(MaterialSymbols.Outlined.Arrow_back, contentDescription = strings.back)
                     }
-                    Text(
-                        "Add files",
+                    Text(strings.addFiles,
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f),
                     )
-                    Button(onClick = requestDismiss) { Text("Done · $stagedCount") }
+                    Button(onClick = requestDismiss) { Text(strings.doneCount.fill(stagedCount)) }
                 }
                 // Ernest (v0.10.0): NO tabs — the content sections
                 // switch through the same connected ToggleButton
@@ -7236,6 +8121,110 @@ internal fun PickerScreen(
 
 // ── Transfers: the bottom sheet + the global pill (Ernest's mockups) ──────
 
+/**
+ * A staged folder's contents (Ernest, v0.12.4): tapping a folder in the
+ * selection opens this sublist, whose files carry the same operations
+ * as top-level staged files — open, rename, discard. Discards/renames
+ * are staged locally and committed on Done (the folder is replaced by
+ * its remaining files).
+ */
+@Composable
+private fun FolderContentsDialog(
+    folder: StagedItem.FolderItem,
+    onOpenFile: (PickedFile) -> Unit,
+    onDismiss: () -> Unit,
+    onCommit: (List<PickedFile>) -> Unit,
+) {
+    val strings = LocalStrings.current
+    var files by remember { mutableStateOf<List<PickedFile>?>(null) }
+    var editing by remember { mutableStateOf<PickedFile?>(null) }
+    LaunchedEffect(folder) { files = expandBrowserFolder(folder.folder) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(folder.folder.name) },
+        text = {
+            val current = files
+            when {
+                current == null -> Row(verticalAlignment = Alignment.CenterVertically) {
+                    CircularProgressIndicator(Modifier.size(20.dp))
+                    Spacer(Modifier.width(12.dp))
+                    Text(strings.loading)
+                }
+                current.isEmpty() -> Text(strings.folderNoFiles)
+                else -> LazyColumn(Modifier.heightIn(max = 420.dp)) {
+                    items(current, key = { it.handle }) { file ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        ) {
+                            Column(Modifier.weight(1f)) {
+                                Text(
+                                    file.displayPath ?: file.name,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    formatSize(file.size),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            IconButton(onClick = { onOpenFile(file) }) {
+                                Icon(
+                                    MaterialSymbols.Outlined.Open_in_new,
+                                    contentDescription = strings.open,
+                                )
+                            }
+                            IconButton(onClick = { editing = file }) {
+                                Icon(
+                                    MaterialSymbols.Outlined.Edit,
+                                    contentDescription = strings.rename,
+                                )
+                            }
+                            IconButton(onClick = { files = current - file }) {
+                                Icon(
+                                    MaterialSymbols.Outlined.Close,
+                                    contentDescription = strings.discard,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = { onCommit(files ?: emptyList()) }) { Text(strings.done) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(strings.cancel) }
+        },
+    )
+    editing?.let { file ->
+        StagedEditDialog(
+            title = strings.renameFile,
+            initial = file.name,
+            onDismiss = { editing = null },
+            onSave = { newName ->
+                files = files?.map { current ->
+                    if (current.handle == file.handle) {
+                        current.copy(
+                            name = newName,
+                            displayPath = current.displayPath?.let { path ->
+                                path.substringBeforeLast('/', "") +
+                                    (if ('/' in path) "/" else "") + newName
+                            },
+                        )
+                    } else {
+                        current
+                    }
+                }
+                editing = null
+            },
+        )
+    }
+}
+
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun TransferSheet(
@@ -7243,26 +8232,58 @@ fun TransferSheet(
     settings: AppSettings,
     onDismiss: () -> Unit,
     onGoToShare: () -> Unit,
+    /**
+     * Per-device sheet (v0.12.4): when set, only this device's transfers
+     * show and the title is its name. Null = the unified sheet, which is
+     * reached ONLY through the transfer pill and — Ernest's rule — does
+     * not list resumable jobs for devices that aren't connected.
+     */
+    deviceIdentity: String? = null,
+    deviceLabel: String? = null,
 ) {
+    val strings = LocalStrings.current
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val incoming by controller.incomingProgress.collectAsState()
+    val incomingPeer by controller.incomingPeer.collectAsState()
     val outbox by controller.outbox.collectAsState()
     val sendState by controller.sendState.collectAsState()
     val queuedOffers by controller.queuedOfferCount.collectAsState()
+    val devices by controller.devices.collectAsState()
 
-    val activeJobs = outbox.filter { !it.finished }
-    val finishedJobs = outbox.filter { it.finished }
-    val receiving = incoming.isNotEmpty()
-    val textSend = sendState?.takeIf { it.jobId == null }
+    val peerIdentity = incomingPeer?.let { fp ->
+        devices.firstOrNull { it.fingerprint == fp }?.identityKey ?: fp
+    }
+    val scopedJobs = if (deviceIdentity == null) {
+        outbox
+    } else {
+        outbox.filter { it.targetIdentity == deviceIdentity }
+    }
+    val onlineIdentities = devices.map { it.identityKey }.toSet()
+    val activeJobs = scopedJobs.filter { job ->
+        !job.finished && (
+            deviceIdentity != null ||
+                job.files.any { it.status == TransferStatus.ACTIVE } ||
+                job.targetIdentity in onlineIdentities
+            )
+    }
+    val finishedJobs = scopedJobs.filter { it.finished }
+    val receiving = incoming.isNotEmpty() &&
+        (deviceIdentity == null || peerIdentity == deviceIdentity)
+    val textSend = sendState?.takeIf {
+        it.jobId == null &&
+            (deviceIdentity == null ||
+                it.target.identityKey == deviceIdentity)
+    }
 
     // Aggregate for the summary pill at the sheet's bottom (mockup):
     // "Transfer · N/M files · speed · ETA" over everything in flight.
+    val scopedIncoming = if (receiving) incoming else emptyList()
     val sendFiles = activeJobs.flatMap { it.files }
-    val totalFiles = sendFiles.size + incoming.size
+    val totalFiles = sendFiles.size + scopedIncoming.size
     val doneFiles = sendFiles.count { it.status == TransferStatus.DONE } +
-        incoming.count { it.status == TransferStatus.DONE }
-    val totalBytes = sendFiles.sumOf { it.size } + incoming.sumOf { it.total }
-    val doneBytes = sendFiles.sumOf { it.confirmedBytes } + incoming.sumOf { it.done }
+        scopedIncoming.count { it.status == TransferStatus.DONE }
+    val totalBytes = sendFiles.sumOf { it.size } + scopedIncoming.sumOf { it.total }
+    val doneBytes = sendFiles.sumOf { it.confirmedBytes } + scopedIncoming.sumOf { it.done }
     val rate = rememberTransferRate(doneBytes)
     val etaSeconds = if (rate > 1 && totalBytes > doneBytes) {
         ((totalBytes - doneBytes) / rate).toLong()
@@ -7271,15 +8292,16 @@ fun TransferSheet(
     }
 
     ModalBottomSheet(onDismissRequest = onDismiss, sheetState = sheetState) {
+        Column(Modifier.fillMaxWidth()) {
         LazyColumn(
-            Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 28.dp),
+            Modifier.fillMaxWidth().weight(1f),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             item {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(
-                        "Transfers",
+                        deviceLabel ?: strings.transfers,
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f),
                     )
@@ -7290,25 +8312,25 @@ fun TransferSheet(
             }
             if (!receiving && activeJobs.isEmpty() && textSend == null && finishedJobs.isEmpty()) {
                 item {
-                    Text(
-                        "Nothing is transferring right now.",
+                    Text(strings.nothingTransferring,
                         style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Button(onClick = onGoToShare) { Text("Pick files to send") }
+                    Button(onClick = onGoToShare) { Text(strings.pickFilesToSend) }
                 }
             }
             if (receiving) {
-                item { SectionTitle("Receiving") }
+                item { SectionTitle(strings.receive) }
                 item {
                     ReceiveQueueList(
-                        files = incoming,
+                        files = scopedIncoming,
                         defaultOrder = settings.receiveOrder,
+                        onOrderChange = { controller.setReceiveOrder(it) },
                     )
                 }
             }
             if (textSend != null) {
-                item { SectionTitle("Sending") }
+                item { SectionTitle(strings.sending) }
                 item {
                     Surface(
                         shape = MaterialTheme.shapes.large,
@@ -7317,7 +8339,7 @@ fun TransferSheet(
                     ) {
                         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                             Text(
-                                "Text to ${textSend.target.info.alias}",
+                                strings.textTo.fill(textSend.target.info.alias),
                                 style = MaterialTheme.typography.titleMedium,
                             )
                             if (textSend.active) {
@@ -7333,11 +8355,11 @@ fun TransferSheet(
                             Row {
                                 if (textSend.active) {
                                     OutlinedButton(onClick = { controller.cancelSend() }) {
-                                        Text("Cancel")
+                                        Text(strings.cancel)
                                     }
                                 } else {
                                     TextButton(onClick = { controller.clearSendState() }) {
-                                        Text("Dismiss")
+                                        Text(strings.dismiss)
                                     }
                                 }
                             }
@@ -7346,28 +8368,30 @@ fun TransferSheet(
                 }
             }
             if (activeJobs.isNotEmpty() || finishedJobs.isNotEmpty()) {
-                item { SectionTitle("Sending") }
+                item { SectionTitle(strings.sending) }
                 items(activeJobs + finishedJobs, key = { it.id }) { job ->
                     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         OutboxJobCard(controller, job)
                         if (!job.finished) {
                             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                if (job.paused) {
+                                val stalled = !job.paused &&
+                                    job.files.none { it.status == TransferStatus.ACTIVE } &&
+                                    job.files.any { it.status == TransferStatus.WAITING }
+                                if (job.paused || stalled) {
                                     Button(onClick = { controller.resumeOutboxJob(job.id) }) {
                                         Icon(MaterialSymbols.Outlined.Play_arrow, contentDescription = null)
                                         Spacer(Modifier.width(6.dp))
-                                        Text("Resume")
+                                        Text(strings.resume)
                                     }
                                 } else if (job.files.any { it.status == TransferStatus.ACTIVE }) {
                                     OutlinedButton(onClick = { controller.pauseOutboxJob(job.id) }) {
                                         Icon(MaterialSymbols.Outlined.Pause, contentDescription = null)
                                         Spacer(Modifier.width(6.dp))
-                                        Text("Pause")
+                                        Text(strings.pause)
                                     }
                                 }
                                 if (job.paused) {
-                                    Text(
-                                        "Paused — chunked files continue where they stopped.",
+                                    Text(strings.pausedChunkedNote,
                                         style = MaterialTheme.typography.bodySmall,
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(top = 8.dp),
@@ -7378,79 +8402,86 @@ fun TransferSheet(
                     }
                 }
             }
-            if (totalFiles > 0) {
-                item {
-                    // The mockup's summary bar: label + chips + overall progress.
-                    Surface(
-                        shape = MaterialTheme.shapes.extraLarge,
-                        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                        modifier = Modifier.fillMaxWidth(),
+        }
+        if (totalFiles > 0) {
+            // The summary bar is FIXED at the sheet's bottom (v0.12.4,
+            // Ernest: it must not change size and must be visible without
+            // scrolling to the end of the list). Same content as the old
+            // last lazy item: label + chips + overall progress.
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 28.dp),
+            ) {
+                Surface(
+                    shape = MaterialTheme.shapes.extraLarge,
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Column(
+                        Modifier.padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Column(
-                            Modifier.padding(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(10.dp),
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            Text(strings.transfer,
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.weight(1f),
+                            )
+                            Surface(
+                                shape = CircleShape,
+                                color = MaterialTheme.colorScheme.primary,
                             ) {
                                 Text(
-                                    "Transfer",
-                                    style = MaterialTheme.typography.titleMedium,
-                                    modifier = Modifier.weight(1f),
+                                    strings.filesProgress.fill(doneFiles, totalFiles),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onPrimary,
+                                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                 )
+                            }
+                            if (rate > 1) {
                                 Surface(
                                     shape = CircleShape,
-                                    color = MaterialTheme.colorScheme.primary,
+                                    color = MaterialTheme.colorScheme.secondaryContainer,
                                 ) {
                                     Text(
-                                        "$doneFiles/$totalFiles files",
+                                        "${formatSize(rate.toLong())}/s",
                                         style = MaterialTheme.typography.labelLarge,
-                                        color = MaterialTheme.colorScheme.onPrimary,
+                                        color = MaterialTheme.colorScheme.onSecondaryContainer,
                                         modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
                                     )
                                 }
-                                if (rate > 1) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = MaterialTheme.colorScheme.secondaryContainer,
-                                    ) {
-                                        Text(
-                                            "${formatSize(rate.toLong())}/s",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = MaterialTheme.colorScheme.onSecondaryContainer,
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                        )
-                                    }
-                                }
-                                if (etaSeconds != null) {
-                                    Surface(
-                                        shape = CircleShape,
-                                        color = MaterialTheme.colorScheme.tertiaryContainer,
-                                    ) {
-                                        Text(
-                                            "ETA ${formatEta(etaSeconds)}",
-                                            style = MaterialTheme.typography.labelLarge,
-                                            color = MaterialTheme.colorScheme.onTertiaryContainer,
-                                            modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                                        )
-                                    }
+                            }
+                            if (etaSeconds != null) {
+                                Surface(
+                                    shape = CircleShape,
+                                    color = MaterialTheme.colorScheme.tertiaryContainer,
+                                ) {
+                                    Text(
+                                        strings.etaLabel.fill(formatEta(etaSeconds)),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onTertiaryContainer,
+                                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
+                                    )
                                 }
                             }
-                            LinearProgressIndicator(
-                                progress = {
-                                    if (totalBytes > 0) {
-                                        (doneBytes.toFloat() / totalBytes).coerceIn(0f, 1f)
-                                    } else {
-                                        0f
-                                    }
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
                         }
+                        LinearProgressIndicator(
+                            progress = {
+                                if (totalBytes > 0) {
+                                    (doneBytes.toFloat() / totalBytes).coerceIn(0f, 1f)
+                                } else {
+                                    0f
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             }
+        }
         }
     }
 }
@@ -7484,13 +8515,21 @@ private fun formatEta(seconds: Long): String = when {
 }
 
 /**
- * The receive queue (Ernest's spec): files of the incoming session in a
- * user-reorderable list. Default order comes from Settings (smallest
- * first unless changed); the arrows set a manual order for this session.
+ * The receive queue (Ernest's spec): the incoming session's files in
+ * Active / Queued / Done sections (UDYAT's design). Queued files carry a
+ * drag handle — long-press and drag to reorder; the effective order is
+ * published through [onOrderChange] and an LSEx sender follows it
+ * between files (the priority sync). Default order comes from Settings
+ * (smallest first unless changed).
  */
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
-private fun ReceiveQueueList(files: List<FileProgress>, defaultOrder: String) {
+private fun ReceiveQueueList(
+    files: List<FileProgress>,
+    defaultOrder: String,
+    onOrderChange: (List<String>) -> Unit,
+) {
+    val strings = LocalStrings.current
     var manualOrder by remember { mutableStateOf<List<String>?>(null) }
     val sortedDefault = remember(files, defaultOrder) {
         when (defaultOrder) {
@@ -7504,95 +8543,213 @@ private fun ReceiveQueueList(files: List<FileProgress>, defaultOrder: String) {
         ids.mapNotNull { id -> files.firstOrNull { it.fileId == id } } +
             files.filter { it.fileId !in ids }
     } ?: sortedDefault
+    val displayIds = display.map { it.fileId }
+    LaunchedEffect(displayIds) { onOrderChange(displayIds) }
+
+    val active = display.filter {
+        it.status == TransferStatus.ACTIVE || it.status == TransferStatus.VERIFYING
+    }
+    val queued = display.filter { it.status == TransferStatus.WAITING }
+    val done = display.filter {
+        it.status == TransferStatus.DONE || it.status == TransferStatus.FAILED ||
+            it.status == TransferStatus.CANCELLED
+    }
 
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-        display.forEachIndexed { index, file ->
-            Surface(
-                shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerHigh,
-                modifier = Modifier.fillMaxWidth(),
-            ) {
-                Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Surface(
-                            shape = CircleShape,
-                            color = MaterialTheme.colorScheme.secondaryContainer,
-                            modifier = Modifier.size(36.dp),
-                        ) {
-                            Box(contentAlignment = Alignment.Center) {
-                                Icon(
-                                    fileTypeIcon(file.fileName),
-                                    contentDescription = null,
-                                    tint = MaterialTheme.colorScheme.onSecondaryContainer,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                        }
-                        Spacer(Modifier.width(12.dp))
-                        Column(Modifier.weight(1f)) {
-                            Text(
-                                file.fileName,
-                                style = MaterialTheme.typography.bodyLarge,
-                                maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
-                            )
-                            Text(
-                                when (file.status) {
-                                    TransferStatus.DONE -> formatSize(file.total)
-                                    TransferStatus.ACTIVE ->
-                                        "${formatSize(file.done)} / ${formatSize(file.total)}"
-                                    TransferStatus.FAILED -> "Failed · ${formatSize(file.total)}"
-                                    else -> "Waiting · ${formatSize(file.total)}"
-                                },
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                        }
-                        when (file.status) {
-                            TransferStatus.DONE -> Icon(
-                                MaterialSymbols.Outlined.Check_circle,
-                                contentDescription = "Done",
-                                tint = MaterialTheme.colorScheme.primary,
-                            )
-                            TransferStatus.FAILED -> Icon(
-                                MaterialSymbols.Outlined.Error,
-                                contentDescription = "Failed",
-                                tint = MaterialTheme.colorScheme.error,
-                            )
-                            TransferStatus.ACTIVE -> Text(
-                                "${(file.fraction * 100).toInt()}%",
-                                style = MaterialTheme.typography.labelLarge,
-                            )
-                            else -> {
-                                // Reorder the waiting queue (manual order).
-                                if (index > 0 && display.getOrNull(index - 1)?.status ==
-                                    TransferStatus.WAITING
-                                ) {
-                                    IconButton(
-                                        onClick = {
-                                            val ids = display.map { it.fileId }.toMutableList()
-                                            val from = ids.indexOf(file.fileId)
-                                            ids.removeAt(from)
-                                            ids.add(from - 1, file.fileId)
-                                            manualOrder = ids
-                                        },
-                                    ) {
-                                        Icon(
-                                            MaterialSymbols.Outlined.Arrow_upward,
-                                            contentDescription = "Move earlier",
-                                        )
-                                    }
-                                }
-                            }
+        if (active.isNotEmpty()) {
+            QueueSectionHeader(strings.active, active.size)
+            active.forEach { file -> ReceiveQueueRow(file) }
+        }
+        if (queued.isNotEmpty()) {
+            QueueSectionHeader(strings.queued, queued.size)
+            DraggableQueueRows(
+                queued = queued,
+                onReorder = { newQueuedIds ->
+                    // Splice the reordered queue back into the full order.
+                    val ids = display.map { it.fileId }.toMutableList()
+                    val positions = display.indices.filter {
+                        display[it].status == TransferStatus.WAITING
+                    }
+                    positions.forEachIndexed { i, pos ->
+                        newQueuedIds.getOrNull(i)?.let { ids[pos] = it }
+                    }
+                    manualOrder = ids
+                },
+            )
+        }
+        if (done.isNotEmpty()) {
+            QueueSectionHeader(strings.done, done.size)
+            done.forEach { file -> ReceiveQueueRow(file) }
+        }
+    }
+}
+
+@Composable
+private fun QueueSectionHeader(label: String, count: Int) {
+    Text(
+        "$label · $count",
+        style = MaterialTheme.typography.labelLarge,
+        color = MaterialTheme.colorScheme.primary,
+        modifier = Modifier.padding(top = 4.dp),
+    )
+}
+
+/** The queued rows with long-press drag reordering (drag by the handle). */
+@Composable
+private fun DraggableQueueRows(
+    queued: List<FileProgress>,
+    onReorder: (List<String>) -> Unit,
+) {
+    val strings = LocalStrings.current
+    var rowStridePx by remember { mutableIntStateOf(0) }
+    var draggingId by remember { mutableStateOf<String?>(null) }
+    var dragBaseIndex by remember { mutableIntStateOf(0) }
+    var dragDelta by remember { mutableFloatStateOf(0f) }
+    val density = LocalDensity.current
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        queued.forEachIndexed { index, file ->
+            val dragging = draggingId == file.fileId
+            Box(
+                Modifier
+                    .fillMaxWidth()
+                    .onSizeChanged { size ->
+                        if (size.height > 0) {
+                            rowStridePx = size.height +
+                                with(density) { 8.dp.roundToPx() }
                         }
                     }
-                    if (file.status == TransferStatus.ACTIVE ||
-                        file.status == TransferStatus.VERIFYING
-                    ) {
-                        Spacer(Modifier.height(6.dp))
-                        TransferProgressBar(file, Modifier.fillMaxWidth())
+                    .zIndex(if (dragging) 1f else 0f)
+                    .graphicsLayer {
+                        translationY = if (dragging) dragDelta else 0f
+                    },
+            ) {
+                ReceiveQueueRow(
+                    file = file,
+                    dragHandle = {
+                        Icon(
+                            MaterialSymbols.Outlined.Drag_indicator,
+                            contentDescription = strings.reorder,
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier
+                                .size(28.dp)
+                                .pointerInput(file.fileId) {
+                                    detectDragGesturesAfterLongPress(
+                                        onDragStart = {
+                                            draggingId = file.fileId
+                                            dragBaseIndex = index
+                                            dragDelta = 0f
+                                        },
+                                        onDragEnd = {
+                                            draggingId = null
+                                            dragDelta = 0f
+                                        },
+                                        onDragCancel = {
+                                            draggingId = null
+                                            dragDelta = 0f
+                                        },
+                                        onDrag = { change, amount ->
+                                            change.consume()
+                                            dragDelta += amount.y
+                                            if (rowStridePx > 0) {
+                                                val current = queued.indexOfFirst {
+                                                    it.fileId == draggingId
+                                                }
+                                                val target = (
+                                                    dragBaseIndex +
+                                                        (dragDelta / rowStridePx)
+                                                            .roundToInt()
+                                                    ).coerceIn(0, queued.lastIndex)
+                                                if (current >= 0 && target != current) {
+                                                    val ids = queued
+                                                        .map { it.fileId }
+                                                        .toMutableList()
+                                                    ids.removeAt(current)
+                                                    ids.add(target, draggingId!!)
+                                                    onReorder(ids)
+                                                }
+                                            }
+                                        },
+                                    )
+                                },
+                        )
+                    },
+                )
+            }
+        }
+    }
+}
+
+/** One receive-queue row (icon, name, status; optional drag handle). */
+@Composable
+private fun ReceiveQueueRow(
+    file: FileProgress,
+    dragHandle: (@Composable () -> Unit)? = null,
+) {
+    val strings = LocalStrings.current
+    Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth(),
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.secondaryContainer,
+                    modifier = Modifier.size(36.dp),
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Icon(
+                            fileTypeIcon(file.fileName),
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onSecondaryContainer,
+                            modifier = Modifier.size(18.dp),
+                        )
                     }
                 }
+                Spacer(Modifier.width(12.dp))
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        file.fileName,
+                        style = MaterialTheme.typography.bodyLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Text(
+                        when (file.status) {
+                            TransferStatus.DONE -> formatSize(file.total)
+                            TransferStatus.ACTIVE ->
+                                "${formatSize(file.done)} / ${formatSize(file.total)}"
+                            TransferStatus.FAILED -> "Failed · ${formatSize(file.total)}"
+                            else -> "Waiting · ${formatSize(file.total)}"
+                        },
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                when (file.status) {
+                    TransferStatus.DONE -> Icon(
+                        MaterialSymbols.Outlined.Check_circle,
+                        contentDescription = strings.done,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    TransferStatus.FAILED -> Icon(
+                        MaterialSymbols.Outlined.Error,
+                        contentDescription = strings.failed,
+                        tint = MaterialTheme.colorScheme.error,
+                    )
+                    TransferStatus.ACTIVE -> Text(
+                        "${(file.fraction * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelLarge,
+                    )
+                    else -> dragHandle?.invoke()
+                }
+            }
+            if (file.status == TransferStatus.ACTIVE ||
+                file.status == TransferStatus.VERIFYING
+            ) {
+                Spacer(Modifier.height(6.dp))
+                TransferProgressBar(file, Modifier.fillMaxWidth())
             }
         }
     }
@@ -7628,15 +8785,35 @@ private fun GlobalTransferPillHost(
     controller: LocalSendController,
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
+    onResumeDevice: (identityKey: String, alias: String) -> Unit,
 ) {
+    val strings = LocalStrings.current
     val outbox by controller.outbox.collectAsState()
     val sendState by controller.sendState.collectAsState()
     val incomingProgress by controller.incomingProgress.collectAsState()
+    val devices by controller.devices.collectAsState()
     val sending = outbox.any { job ->
         !job.paused && job.files.any { it.status == TransferStatus.ACTIVE }
     } || (sendState?.active == true)
     val receiving = incomingProgress.any {
         it.status == TransferStatus.ACTIVE || it.status == TransferStatus.VERIFYING
+    }
+    // Resume pill (Ernest, v0.12.4): pending unsent files for a device
+    // surface as a pill when that device RECONNECTS — tapping opens its
+    // sheet, where Resume/Retry continues them. Only when nothing is
+    // actively transferring (the live pill takes precedence).
+    val onlineIdentities = devices.map { it.identityKey }.toSet()
+    val resumable = if (!sending && !receiving) {
+        outbox.firstOrNull { job ->
+            !job.finished && job.targetIdentity in onlineIdentities &&
+                job.files.none { it.status == TransferStatus.ACTIVE } &&
+                job.files.any {
+                    it.status == TransferStatus.WAITING ||
+                        it.status == TransferStatus.FAILED
+                }
+        }
+    } else {
+        null
     }
     AnimatedVisibility(
         visible = sending || receiving,
@@ -7657,6 +8834,43 @@ private fun GlobalTransferPillHost(
             onClick = onClick,
         )
     }
+    AnimatedVisibility(
+        visible = resumable != null,
+        modifier = modifier,
+        enter =
+            scaleIn(animationSpec = bouncyFloatSpring(), initialScale = 0.7f) +
+                fadeIn(tween(160)) +
+                slideInVertically(
+                    animationSpec = bouncyOffsetSpring(),
+                    initialOffsetY = { it / 2 },
+                ),
+        exit = scaleOut(tween(160)) + fadeOut(tween(160)),
+    ) {
+        val job = resumable ?: return@AnimatedVisibility
+        Surface(
+            onClick = { onResumeDevice(job.targetIdentity, job.targetAlias) },
+            shape = CircleShape,
+            color = MaterialTheme.colorScheme.tertiaryContainer,
+            contentColor = MaterialTheme.colorScheme.onTertiaryContainer,
+            shadowElevation = 6.dp,
+        ) {
+            Row(
+                Modifier.padding(horizontal = 18.dp, vertical = 14.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(
+                    MaterialSymbols.Outlined.Play_arrow,
+                    contentDescription = null,
+                    modifier = Modifier.size(22.dp),
+                )
+                Text(
+                    strings.resumeTo.fill(job.pendingCount, job.targetAlias),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+            }
+        }
+    }
 }
 
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
@@ -7668,6 +8882,7 @@ private fun GlobalTransferPill(
     modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
+    val strings = LocalStrings.current
     val incoming by controller.incomingProgress.collectAsState()
     val outbox by controller.outbox.collectAsState()
     val sendFiles = outbox.filter { !it.finished && !it.paused }.flatMap { it.files }
@@ -7683,8 +8898,8 @@ private fun GlobalTransferPill(
     val doneBytes = sendFiles.sumOf { it.confirmedBytes } + incoming.sumOf { it.done }
     val label = when {
         sending && receiving -> "Sending + receiving"
-        receiving -> "Receiving"
-        else -> "Sending"
+        receiving -> strings.receivingLabel
+        else -> strings.sending
     }
     Surface(
         onClick = onClick,
@@ -7713,7 +8928,7 @@ private fun GlobalTransferPill(
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 Text(
-                    "$label · ${doneCount + activeReceiveCount + sendFiles.count { it.status == TransferStatus.ACTIVE }}/${activeSendCount + activeReceiveCount + doneCount} files",
+                    "$label · " + strings.filesProgress.fill(doneCount + activeReceiveCount + sendFiles.count { it.status == TransferStatus.ACTIVE }, activeSendCount + activeReceiveCount + doneCount),
                     style = MaterialTheme.typography.titleSmall,
                 )
                 LinearProgressIndicator(
@@ -7741,6 +8956,7 @@ private fun LinkPage(
     localIp: String?,
     onDismiss: () -> Unit,
 ) {
+    val strings = LocalStrings.current
     AnimatedPageDialog(onDismiss = onDismiss) { requestDismiss ->
         Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
             Column(
@@ -7754,10 +8970,9 @@ private fun LinkPage(
                     modifier = Modifier.padding(vertical = 8.dp),
                 ) {
                     IconButton(onClick = requestDismiss) {
-                        Icon(MaterialSymbols.Outlined.Arrow_back, contentDescription = "Back")
+                        Icon(MaterialSymbols.Outlined.Arrow_back, contentDescription = strings.back)
                     }
-                    Text(
-                        "Link sharing",
+                    Text(strings.linkSharing,
                         style = MaterialTheme.typography.titleLarge,
                         modifier = Modifier.weight(1f),
                     )
@@ -7788,9 +9003,10 @@ private fun AvatarPickerDialog(
     onDismiss: () -> Unit,
     onPick: (String) -> Unit,
 ) {
+    val strings = LocalStrings.current
     AlertDialog(
         onDismissRequest = onDismiss,
-        title = { Text("Choose your avatar") },
+        title = { Text(strings.chooseYourAvatar) },
         text = {
             LazyVerticalGrid(
                 columns = GridCells.Adaptive(minSize = 76.dp),
@@ -7840,7 +9056,7 @@ private fun AvatarPickerDialog(
             }
         },
         confirmButton = {
-            TextButton(onClick = onDismiss) { Text("Cancel") }
+            TextButton(onClick = onDismiss) { Text(strings.cancel) }
         },
     )
 }

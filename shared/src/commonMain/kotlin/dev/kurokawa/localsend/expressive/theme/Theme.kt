@@ -186,23 +186,50 @@ private fun expressiveTypography(): Typography {
     val text = textFamily()
     val base = Typography()
     return remember(display, text) {
-    Typography(
-        displayLarge = base.displayLarge.copy(fontFamily = display, fontWeight = FontWeight.Bold),
-        displayMedium = base.displayMedium.copy(fontFamily = display, fontWeight = FontWeight.Bold),
-        displaySmall = base.displaySmall.copy(fontFamily = display, fontWeight = FontWeight.SemiBold),
-        headlineLarge = base.headlineLarge.copy(fontFamily = display, fontWeight = FontWeight.SemiBold),
-        headlineMedium = base.headlineMedium.copy(fontFamily = display, fontWeight = FontWeight.SemiBold),
-        headlineSmall = base.headlineSmall.copy(fontFamily = display, fontWeight = FontWeight.SemiBold),
-        titleLarge = base.titleLarge.copy(fontFamily = display, fontWeight = FontWeight.SemiBold),
-        titleMedium = base.titleMedium.copy(fontFamily = text, fontWeight = FontWeight.Medium),
-        titleSmall = base.titleSmall.copy(fontFamily = text, fontWeight = FontWeight.Medium),
-        bodyLarge = base.bodyLarge.copy(fontFamily = text),
-        bodyMedium = base.bodyMedium.copy(fontFamily = text),
-        bodySmall = base.bodySmall.copy(fontFamily = text),
-        labelLarge = base.labelLarge.copy(fontFamily = text, fontWeight = FontWeight.Medium),
-        labelMedium = base.labelMedium.copy(fontFamily = text, fontWeight = FontWeight.Medium),
-        labelSmall = base.labelSmall.copy(fontFamily = text, fontWeight = FontWeight.Medium),
-    )
+        // UDYAT-style styled typography (v0.12.4): EVERY style — base
+        // and emphasized — is deliberately set in a Google Sans Flex
+        // cut. Before, only the 15 base styles were mapped, so every
+        // *Emphasized style (group headers, nav rows, emphasized
+        // buttons) silently fell back to the platform font. Display
+        // sizes use the display optical cut; emphasized = the same
+        // cut one weight step stronger.
+        fun styled(
+            style: androidx.compose.ui.text.TextStyle,
+            family: FontFamily,
+            weight: FontWeight,
+        ) = style.copy(fontFamily = family, fontWeight = weight)
+        Typography(
+            displayLarge = styled(base.displayLarge, display, FontWeight.Bold),
+            displayMedium = styled(base.displayMedium, display, FontWeight.Bold),
+            displaySmall = styled(base.displaySmall, display, FontWeight.SemiBold),
+            displayLargeEmphasized = styled(base.displayLargeEmphasized, display, FontWeight.ExtraBold),
+            displayMediumEmphasized = styled(base.displayMediumEmphasized, display, FontWeight.ExtraBold),
+            displaySmallEmphasized = styled(base.displaySmallEmphasized, display, FontWeight.Bold),
+            headlineLarge = styled(base.headlineLarge, display, FontWeight.SemiBold),
+            headlineMedium = styled(base.headlineMedium, display, FontWeight.SemiBold),
+            headlineSmall = styled(base.headlineSmall, display, FontWeight.SemiBold),
+            headlineLargeEmphasized = styled(base.headlineLargeEmphasized, display, FontWeight.Bold),
+            headlineMediumEmphasized = styled(base.headlineMediumEmphasized, display, FontWeight.Bold),
+            headlineSmallEmphasized = styled(base.headlineSmallEmphasized, display, FontWeight.Bold),
+            titleLarge = styled(base.titleLarge, display, FontWeight.SemiBold),
+            titleMedium = styled(base.titleMedium, text, FontWeight.Medium),
+            titleSmall = styled(base.titleSmall, text, FontWeight.Medium),
+            titleLargeEmphasized = styled(base.titleLargeEmphasized, display, FontWeight.Bold),
+            titleMediumEmphasized = styled(base.titleMediumEmphasized, text, FontWeight.SemiBold),
+            titleSmallEmphasized = styled(base.titleSmallEmphasized, text, FontWeight.SemiBold),
+            bodyLarge = styled(base.bodyLarge, text, FontWeight.Normal),
+            bodyMedium = styled(base.bodyMedium, text, FontWeight.Normal),
+            bodySmall = styled(base.bodySmall, text, FontWeight.Normal),
+            bodyLargeEmphasized = styled(base.bodyLargeEmphasized, text, FontWeight.Medium),
+            bodyMediumEmphasized = styled(base.bodyMediumEmphasized, text, FontWeight.Medium),
+            bodySmallEmphasized = styled(base.bodySmallEmphasized, text, FontWeight.Medium),
+            labelLarge = styled(base.labelLarge, text, FontWeight.Medium),
+            labelMedium = styled(base.labelMedium, text, FontWeight.Medium),
+            labelSmall = styled(base.labelSmall, text, FontWeight.Medium),
+            labelLargeEmphasized = styled(base.labelLargeEmphasized, text, FontWeight.SemiBold),
+            labelMediumEmphasized = styled(base.labelMediumEmphasized, text, FontWeight.SemiBold),
+            labelSmallEmphasized = styled(base.labelSmallEmphasized, text, FontWeight.SemiBold),
+        )
     }
 }
 

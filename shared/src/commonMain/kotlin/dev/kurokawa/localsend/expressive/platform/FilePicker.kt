@@ -51,3 +51,23 @@ expect fun rememberDestinationPickerLauncher(onPicked: (String) -> Unit): () -> 
 expect fun sharedFilesFlow(): kotlinx.coroutines.flow.StateFlow<List<PickedFile>>
 
 expect fun clearSharedFiles()
+
+/** A [PickedFile] for a filesystem path (desktop drag & drop / paste); null elsewhere. */
+expect fun pickedFileFromPath(path: String): PickedFile?
+
+/** Whether [path] is a directory (desktop drop/paste folder staging). */
+expect fun pathIsDirectory(path: String): Boolean
+
+/** File paths currently on the system clipboard (desktop); empty elsewhere. */
+expect fun clipboardFilePaths(): List<String>
+
+/** Plain text currently on the system clipboard; null when there is none. */
+expect fun clipboardTextOrNull(): String?
+
+/**
+ * Drag & drop target for files dragged from the OS (desktop); a no-op
+ * modifier elsewhere. Dropped paths (files and folders) go to [onFiles].
+ */
+expect fun androidx.compose.ui.Modifier.fileDropTarget(
+    onFiles: (List<String>) -> Unit,
+): androidx.compose.ui.Modifier

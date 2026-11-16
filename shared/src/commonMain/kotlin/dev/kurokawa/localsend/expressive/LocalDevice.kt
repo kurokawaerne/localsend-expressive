@@ -16,6 +16,10 @@ data class LocalDevice(
     val port: Int = ProtocolConstants.DEFAULT_PORT,
     val protocol: String = "https",
     val download: Boolean = false,
+    /** Stable LSEx device id (persisted; survives alias/model/type edits). */
+    val deviceId: String = "",
+    /** Chosen avatar id from the Settings picker ("" = default). */
+    val avatar: String = "",
 ) {
     fun toRegisterDto(announce: Boolean? = null): RegisterDto = RegisterDto(
         alias = alias,
@@ -26,6 +30,8 @@ data class LocalDevice(
         protocol = protocol,
         download = download,
         announce = announce,
+        deviceId = deviceId.ifEmpty { null },
+        avatar = avatar.ifEmpty { null },
     )
 
     fun toInfoDto(): InfoDto = InfoDto(
@@ -34,6 +40,8 @@ data class LocalDevice(
         deviceType = deviceType,
         fingerprint = fingerprint,
         download = download,
+        deviceId = deviceId.ifEmpty { null },
+        avatar = avatar.ifEmpty { null },
     )
 
     companion object {

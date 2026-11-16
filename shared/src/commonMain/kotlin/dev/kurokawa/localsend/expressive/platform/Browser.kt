@@ -39,6 +39,19 @@ expect suspend fun listBrowserFolder(path: String): List<BrowserItem>
 /** Walk a folder into sendable files, keeping the folder structure as display paths. */
 expect suspend fun expandBrowserFolder(folder: BrowserItem): List<PickedFile>
 
+/**
+ * File-browser display prefs, pushed from Settings through a holder
+ * (the ConnectivityPrefs pattern) because the platform listers have no
+ * settings parameter.
+ */
+object BrowserPrefsHolder {
+    var showHiddenFiles: Boolean = false
+}
+
+fun updateBrowserPrefs(showHiddenFiles: Boolean) {
+    BrowserPrefsHolder.showHiddenFiles = showHiddenFiles
+}
+
 /** Access state for the browser tabs, with request actions (Android runtime permissions). */
 data class StorageAccess(
     /** Can read the media library (photos / videos / audio). */

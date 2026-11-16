@@ -13,6 +13,7 @@ import android.os.Build
 import android.os.IBinder
 import android.os.PowerManager
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 
 /**
  * Keeps LSEx alive and reachable while transfers run — the official app
@@ -57,12 +58,14 @@ class LsexForegroundService : Service() {
             Intent(this, LsexForegroundService::class.java).setAction(ACTION_STOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
+        val ns = dev.kurokawa.localsend.expressive.ui
+            .notifStringsFor(Engine.service.settings.value.language)
         val notification: Notification = Notification.Builder(this, CHANNEL_ID)
             .setSmallIcon(R.drawable.ic_launcher_monochrome)
-            .setContentTitle("LSEx is running")
-            .setContentText("Ready to send and receive files on this network")
+            .setContentTitle(ns.serviceTitle)
+            .setContentText(ns.serviceText)
             .setContentIntent(openApp)
-            .addAction(0, "Stop", stopIntent)
+            .addAction(0, ns.stop, stopIntent)
             .setOngoing(true)
             .build()
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -71,19 +74,54 @@ class LsexForegroundService : Service() {
             startForeground(NOTIFICATION_ID, notification)
         }
 
-        val power = getSystemService(PowerManager::class.java)
-        wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lsex:transfer").apply {
-            setReferenceCounted(false)
-            acquire(WAKELOCK_TIMEOUT_MS)
+        armLocks()
+        val notifier = TransferNotifier(applicationContext)
+        notifier.language = Engine.service.settings.value.language
+        notifier.start(notifierScope)
+        notifierScope.launch {
+            Engine.service.settings.collect { notifier.language = it.language }
         }
-        TransferNotifier(applicationContext).start(notifierScope)
 
-        val wifi = getSystemService(WifiManager::class.java)
-        @Suppress("DEPRECATION")
-        wifiLock = wifi.createWifiLock(WifiManager.WIFI_MODE_FULL, "lsex:wifi").apply {
-            setReferenceCounted(false)
-            acquire()
+        // Screen-off pause fix (v0.12.4): the locks used to be armed ONCE
+        // here — the WakeLock's 4-hour timeout lapses while this sticky
+        // service lives on, and later transfers ran lockless into doze
+        // (the chunk loop's request-per-MiB pattern stalls first, which
+        // is why only chunked transfers "paused" with the screen off).
+        // Re-arm whenever transfer activity exists, in either direction.
+        notifierScope.launch {
+            Engine.service.outbox.collect { jobs ->
+                if (jobs.any { !it.finished && !it.paused }) armLocks()
+            }
         }
+        notifierScope.launch {
+            Engine.service.incomingProgress.collect { files ->
+                if (files.isNotEmpty()) armLocks()
+            }
+        }
+    }
+
+    /** (Re-)arm the CPU + Wi-Fi locks; safe to call repeatedly. */
+    private fun armLocks() {
+        val power = getSystemService(PowerManager::class.java)
+        if (wakeLock == null) {
+            wakeLock = power.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "lsex:transfer").apply {
+                setReferenceCounted(false)
+            }
+        }
+        runCatching { wakeLock?.acquire(WAKELOCK_TIMEOUT_MS) }
+        val wifi = getSystemService(WifiManager::class.java)
+        if (wifiLock == null) {
+            @Suppress("DEPRECATION")
+            val mode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                WifiManager.WIFI_MODE_FULL_LOW_LATENCY
+            } else {
+                WifiManager.WIFI_MODE_FULL
+            }
+            wifiLock = wifi.createWifiLock(mode, "lsex:wifi").apply {
+                setReferenceCounted(false)
+            }
+        }
+        runCatching { if (wifiLock?.isHeld != true) wifiLock?.acquire() }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {

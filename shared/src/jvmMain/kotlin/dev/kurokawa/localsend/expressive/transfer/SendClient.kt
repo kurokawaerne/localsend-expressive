@@ -102,10 +102,12 @@ class SendClient(
     }
 
     private fun pinFingerprint(peer: DiscoveredDevice) {
-        // An empty fingerprint means "unknown peer" (manual IP probe):
-        // accept the certificate and learn the fingerprint from /info.
-        trustManager.expected =
-            if (peer.fingerprint.isEmpty()) emptySet() else setOf(peer.fingerprint)
+        // Register the peer's announced fingerprint in the trust registry
+        // (it accumulates — concurrent discovery traffic must never narrow
+        // what an in-flight transfer's handshake accepts). An empty
+        // fingerprint means "unknown peer" (manual IP probe): nothing to
+        // register; /info teaches us the fingerprint afterwards.
+        trustManager.notePeer(peer.fingerprint)
     }
 
     /**
@@ -214,21 +216,32 @@ class SendClient(
             if (!response.status.isSuccess()) null else response.body<LsexCapabilitiesDto>()
         }.getOrNull()
 
-    /** Bytes of [fileId] the receiver has safely staged (resume point). */
+    /**
+     * Bytes of [fileId] the receiver has safely staged (resume point).
+     *
+     * Throws [SendException] on a protocol answer (403 = the session is
+     * gone) and lets transport failures surface as their own exception —
+     * the pre-v0.12.4 version swallowed EVERYTHING into null, so a Wi-Fi
+     * blip or a TLS hiccup was indistinguishable from a dead session and
+     * the sender needlessly re-prepared (wiping the receiver's staging).
+     */
     suspend fun chunkStatus(
         peer: DiscoveredDevice,
         sessionId: String,
         fileId: String,
         token: String,
-    ): Long? = runCatching {
+    ): Long {
         pinFingerprint(peer)
         val response = client.get("${base(peer)}${ProtocolConstants.PATH_LSEX_UPLOAD_STATUS}") {
             parameter("sessionId", sessionId)
             parameter("fileId", fileId)
             parameter("token", token)
         }
-        if (!response.status.isSuccess()) null else response.body<ChunkStatusDto>().received
-    }.getOrNull()
+        if (!response.status.isSuccess()) {
+            throw SendException(response.status, "chunk status failed: ${response.status}")
+        }
+        return response.body<ChunkStatusDto>().received
+    }
 
     /**
      * PUT one chunk at [offset]. Returns the receiver's new confirmed byte
@@ -278,6 +291,31 @@ class SendClient(
             throw SendException(response.status, "finish-file failed: ${response.status}")
         }
     }
+
+    /**
+     * GET the receiver's desired send order for this session (its user
+     * may have drag-reordered the incoming queue). Advisory: null on any
+     * failure or when the peer has no preference.
+     */
+    suspend fun fetchReceiveOrder(
+        peer: DiscoveredDevice,
+        sessionId: String,
+        fileId: String,
+        token: String,
+    ): List<String>? = runCatching {
+        pinFingerprint(peer)
+        val response = client.get("${base(peer)}${ProtocolConstants.PATH_LSEX_ORDER}") {
+            parameter("sessionId", sessionId)
+            parameter("fileId", fileId)
+            parameter("token", token)
+        }
+        if (!response.status.isSuccess()) {
+            null
+        } else {
+            response.body<dev.kurokawa.localsend.expressive.protocol.ReceiveOrderDto>()
+                .fileIds.takeIf { it.isNotEmpty() }
+        }
+    }.getOrNull()
 
     /** POST /cancel for an in-flight session (best effort). */
     suspend fun cancel(peer: DiscoveredDevice, sessionId: String) {

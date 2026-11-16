@@ -185,30 +185,33 @@ jobs:
           prerelease: true
           files: release-assets/*
           body: |
-            The verdict batch: Ernest's v0.12.2 review, plus a performance pass, in one release.
+            The mega-batch: Ernest's 32-item v0.12.3 review, in one release.
 
-            **Desktop crash fixed**
-            - v0.12.2's Linux builds died on launch: Skiko's native library ships as a loose file next to the jars, and the slim launcher's classpath only matched jars, so the runtime could not find it. The launcher now puts the lib/app directory itself on the classpath. Desktop starts again.
+            **Transfer engine, rebuilt where it hurt**
+            - LSEx-to-LSEx stalls are fixed at the root: the TLS fingerprint pin is now a registry (a transfer can no longer be validated against the wrong device mid-flight), failed chunk probes no longer wipe the receiver's staged bytes, and received chunks survive a reconnect — sends resume from the confirmed frontier instead of restarting from zero.
+            - Chunked sends are much faster: the sender trusts each chunk's confirmed count instead of re-asking after every megabyte, and the outbox is no longer rewritten to disk per chunk.
+            - Cancelling a send now tells the other device, which frees its session slot and clears the transfer immediately. Giving up after a lost connection shows a clear failed state with a working retry instead of a silent "0 of x sent".
+            - Screen-off no longer strangles chunked transfers: the wake and Wi-Fi locks are held while a transfer is active (low-latency Wi-Fi mode) and released when idle.
 
-            **Performance**
-            - Page sliding now uses a real pager: pages follow your finger and fling, instead of a crossfade that only fired after the swipe ended.
-            - Settings scrolling is smooth: every row is now its own lazy item, so rows compose one at a time as they arrive instead of a whole settings group in a single frame.
-            - The installed-apps list is cached instead of rescanning every installed package each time the picker opens.
-            - Settings keeps its scroll position when you switch tabs and come back.
+            **Transfers UI**
+            - Tapping a device selects it; each device gets its own transfer sheet, and the pill opens the unified one. A resume pill appears when a device with pending files comes back online.
+            - The receiving list is grouped Active / Queued / Done (UDYAT-style) and can be reordered by long-press drag — the receiving order syncs to the sender between files.
+            - The sheet's summary pill is pinned at the bottom of the sheet, always visible.
+            - Tapping the transfer Live Update now opens the whole app with the sheet on top, not a blank sheet alone.
 
-            **Split APKs**
-            - Selecting split apps no longer hangs: the .apks bundle is stored uncompressed (the files inside are already compressed), so bundling is near-instant.
-            - Tapping other split apps while one bundles no longer drops the taps, and leaving the tab no longer cancels a bundle mid-way.
-            - The size shown in the apps grid and the size shown in the selection list now agree.
+            **Selection fixes**
+            - Media multi-select keeps every picked file with its real name (batch add, plus a name/size fallback for providers that report neither).
+            - The folder picker no longer freezes or forgets its grant; a selected folder opens into its files with per-file open / rename / discard; APKs picked from the Apps tile open in the installer; pull-to-refresh on the Share page rescans for devices.
 
-            **Sorting that sticks**
-            - Tap the active sort criterion again to reverse it; the menu shows the direction with an arrow.
-            - Sort can be set per folder ("Only for this folder") or globally; audio uses the global choice.
-            - Choices are saved and survive restarts.
+            **Favorites & identity**
+            - Favorites remember each device's name, model, type and icon, in a collapsible Settings section with a details view. Devices carry a stable identity, so favorites and history survive address changes; stale per-device data is discarded after 30 days.
+            - Devices can set a custom icon that LSEx peers see on their cards. Editing name / model / type now warns that a server restart applies them, with a Restart button right there.
 
-            **Predictive back**
-            - Full-screen pages scale with the predictive-back gesture as you swipe.
-            - In the file browser, back now climbs one folder at a time instead of leaving the picker from any depth.
+            **Settings, reorganised**
+            - Settings is split into subpages like UDYAT's (General, Receive, Sending, Connection, Network, Favorites, Desktop), with predictive back.
+            - Full translation pass: every label in the app is now in the string table — Spanish is fully translated, the other 55 locales keep their chrome translations and fall back to English for the rest. Android notifications follow the app language too.
+            - All emphasized text styles now use Google Sans Flex (they silently fell back to the system font before).
+            - Clearing history, the selection or the web-share list asks first.
+            - New: Share LSEx page (copy the download link, share via Bluetooth, open the releases page), a Show hidden files option, desktop drag & drop and Ctrl+V paste into the selection, and a first-run swipe hint on the History and Selection rows.
 
-            **Splash branding**
-            - The Android splash screen now carries the LocalSendEx wordmark at the bottom, in the brand colour, with a night variant.
+            Quick Share protocol support was researched for this release; it lands as its own release next.

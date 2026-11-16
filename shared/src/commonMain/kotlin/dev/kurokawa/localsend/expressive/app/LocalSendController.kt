@@ -5,6 +5,7 @@ import dev.kurokawa.localsend.expressive.discovery.DiscoveredDevice
 import dev.kurokawa.localsend.expressive.platform.PickedFile
 import dev.kurokawa.localsend.expressive.protocol.FileDto
 import dev.kurokawa.localsend.expressive.protocol.RegisterDto
+import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 
 enum class TransferStatus { WAITING, ACTIVE, VERIFYING, DONE, FAILED, CANCELLED }
@@ -69,6 +70,15 @@ data class SendState(
 interface LocalSendController {
     val localDevice: StateFlow<LocalDevice>
     val settings: StateFlow<AppSettings>
+
+    /**
+     * Incremented when the platform asks the UI to open the unified
+     * transfers sheet (e.g. a tap on the transfer Live Update). The
+     * service overrides this with its own flow; other implementations
+     * share a never-firing default.
+     */
+    val openTransfersSignal: StateFlow<Int>
+        get() = DefaultOpenTransfersSignal
     val devices: StateFlow<List<DiscoveredDevice>>
     val incomingOffer: StateFlow<IncomingOffer?>
     val incomingProgress: StateFlow<List<FileProgress>>
@@ -165,9 +175,30 @@ interface LocalSendController {
     fun updateSettings(settings: AppSettings)
     fun toggleFavorite(fingerprint: String)
 
+    /**
+     * Favorite/unfavorite a discovered device, remembering its details
+     * (name, model, type, avatar) for the Settings favorites section.
+     * Default: fall back to the fingerprint-only toggle.
+     */
+    fun toggleFavorite(device: DiscoveredDevice) {
+        toggleFavorite(device.fingerprint)
+    }
+
+    /**
+     * The user's drag-reorder of the incoming queue: LSEx senders fetch
+     * this order between files and send in it (v0.12.4 priority sync).
+     */
+    fun setReceiveOrder(fileIds: List<String>) {}
+
+    /** Restart the receive server + discovery (applies identity edits). */
+    fun restartServer() {}
+
     /** Remove one history entry (v0.8.0). */
     fun removeHistoryEntry(entry: HistoryEntry)
 
     /** Clear the whole history (v0.8.0). */
     fun clearHistory()
 }
+
+/** Shared never-firing default for [LocalSendController.openTransfersSignal]. */
+private val DefaultOpenTransfersSignal = MutableStateFlow(0)

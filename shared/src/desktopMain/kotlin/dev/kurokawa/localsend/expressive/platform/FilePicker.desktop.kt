@@ -2,6 +2,13 @@ package dev.kurokawa.localsend.expressive.platform
 
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
+import androidx.compose.ui.ExperimentalComposeUiApi
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draganddrop.DragAndDropEvent
+import androidx.compose.ui.draganddrop.DragAndDropTarget
+import androidx.compose.ui.draganddrop.DragData
+import androidx.compose.foundation.draganddrop.dragAndDropTarget
+import androidx.compose.ui.draganddrop.dragData
 import java.awt.FileDialog
 import java.awt.Frame
 
@@ -87,3 +94,64 @@ actual fun rememberFolderPickerLauncher(onPicked: (List<PickedFile>) -> Unit): (
         }
     }
 }
+
+actual fun pickedFileFromPath(path: String): PickedFile? {
+    val file = java.io.File(path)
+    return if (file.isFile) {
+        PickedFile(file.absolutePath, file.name, file.length())
+    } else {
+        null
+    }
+}
+
+actual fun pathIsDirectory(path: String): Boolean =
+    java.io.File(path).isDirectory
+
+actual fun clipboardFilePaths(): List<String> = runCatching {
+    val contents = java.awt.Toolkit.getDefaultToolkit().systemClipboard
+        .getContents(null) ?: return emptyList()
+    if (!contents.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.javaFileListFlavor)) {
+        return emptyList()
+    }
+    @Suppress("UNCHECKED_CAST")
+    val files = contents.getTransferData(
+        java.awt.datatransfer.DataFlavor.javaFileListFlavor,
+    ) as List<java.io.File>
+    files.map { it.absolutePath }
+}.getOrDefault(emptyList())
+
+actual fun clipboardTextOrNull(): String? = runCatching {
+    val contents = java.awt.Toolkit.getDefaultToolkit().systemClipboard
+        .getContents(null) ?: return null
+    if (!contents.isDataFlavorSupported(java.awt.datatransfer.DataFlavor.stringFlavor)) {
+        null
+    } else {
+        contents.getTransferData(java.awt.datatransfer.DataFlavor.stringFlavor) as? String
+    }
+}.getOrNull()
+
+@OptIn(ExperimentalComposeUiApi::class)
+actual fun Modifier.fileDropTarget(
+    onFiles: (List<String>) -> Unit,
+): Modifier = dragAndDropTarget(
+    shouldStartDragAndDrop = { event ->
+        event.dragData() is DragData.FilesList
+    },
+    target = object : DragAndDropTarget {
+        override fun onDrop(event: DragAndDropEvent): Boolean {
+            val data = event.dragData() as? DragData.FilesList ?: return false
+            val paths = data.readFiles().mapNotNull { entry ->
+                runCatching {
+                    if (entry.startsWith("file:")) {
+                        java.io.File(java.net.URI(entry)).path
+                    } else {
+                        entry
+                    }
+                }.getOrNull()
+            }
+            if (paths.isEmpty()) return false
+            onFiles(paths)
+            return true
+        }
+    },
+)

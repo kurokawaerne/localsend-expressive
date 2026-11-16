@@ -42,23 +42,35 @@ fun certificateFingerprint(cert: X509Certificate): String = sha256Hex(cert.encod
 
 /**
  * Client-side TLS verification the LocalSend way: the peer's certificate is
- * trusted when its SHA-256 matches the fingerprint the peer announced during
- * discovery. With no expected fingerprint set, any certificate is accepted
+ * trusted when its SHA-256 matches a fingerprint a peer announced during
+ * discovery. With no fingerprint known yet, any certificate is accepted
  * (and its fingerprint can be read back from [lastSeenFingerprint]).
+ *
+ * The registry only ever GROWS during a run. The pre-v0.12.4 design kept a
+ * single "current peer" pin that every request overwrote — but discovery
+ * /register answers and transfers run concurrently, so a chunk handshake
+ * could validate against a different device's fingerprint pinned a moment
+ * earlier and fail mid-transfer ("fingerprint mismatch" → the sender read
+ * it as a dead session and restarted from byte 0).
  */
 class FingerprintTrustManager : X509TrustManager {
-    @Volatile
-    var expected: Set<String> = emptySet()
+    private val known: MutableSet<String> =
+        java.util.concurrent.ConcurrentHashMap.newKeySet()
 
     @Volatile
     var lastSeenFingerprint: String? = null
         private set
 
+    /** Remember a peer fingerprint announced through discovery. */
+    fun notePeer(fingerprint: String) {
+        if (fingerprint.isNotEmpty()) known += fingerprint
+    }
+
     override fun checkServerTrusted(chain: Array<out X509Certificate>, authType: String) {
         val cert = chain.firstOrNull() ?: throw CertificateException("Empty certificate chain")
         val fingerprint = certificateFingerprint(cert)
         lastSeenFingerprint = fingerprint
-        if (expected.isNotEmpty() && fingerprint !in expected) {
+        if (known.isNotEmpty() && fingerprint !in known) {
             throw CertificateException("Certificate fingerprint mismatch: $fingerprint")
         }
     }

@@ -117,6 +117,45 @@ data class AppSettings(
     val p2pPassword: String = "",
     /** Wi-Fi Direct band: "auto", "2.4" or "5" (GHz). */
     val p2pBand: String = "auto",
+    // ── v0.12.4 ──
+    /**
+     * This device's STABLE LSEx identity (a UUID generated once and kept
+     * forever). Announced to LSEx peers so favorites and per-device data
+     * survive alias/model/type edits — those edits change how the device
+     * LOOKS, never who it IS.
+     */
+    val deviceId: String = "",
+    /**
+     * Favorite devices WITH their remembered details (name, model, type,
+     * avatar) — the Settings favorites section renders from these even
+     * while a device is offline. [favorites] stays as the legacy
+     * fingerprint set; membership checks consult both.
+     */
+    val favoriteDevices: List<FavoriteDevice> = emptyList(),
+    /** identityKey -> last-seen millis; drives the 30-day per-device data discard. */
+    val deviceLastSeen: Map<String, Long> = emptyMap(),
+    /** File browser: show hidden files and folders (dotfiles). */
+    val showHiddenFiles: Boolean = false,
+    /** The first-run swipe-hint tour has been seen (or dismissed). */
+    val tourSeen: Boolean = false,
+)
+
+/**
+ * A favorite device, remembered with the details it had when it was
+ * favorited (refreshed whenever it is seen again).
+ */
+@Serializable
+data class FavoriteDevice(
+    /** Stable identity: the peer's deviceId when it announced one, else its fingerprint. */
+    val identityKey: String,
+    val fingerprint: String,
+    val alias: String,
+    val deviceModel: String? = null,
+    /** DeviceType name ("mobile", "desktop", …). */
+    val deviceType: String? = null,
+    /** The peer's chosen avatar id (LSEx peers only). */
+    val avatar: String? = null,
+    val lastSeenMillis: Long = 0,
 )
 
 /** One finished (or failed) transfer, shown in the history list. */

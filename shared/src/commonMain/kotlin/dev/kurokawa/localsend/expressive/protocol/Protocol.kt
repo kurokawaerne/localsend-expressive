@@ -33,6 +33,8 @@ object ProtocolConstants {
     const val PATH_LSEX_UPLOAD_CHUNK = "/api/lsex/v1/upload-chunk"
     const val PATH_LSEX_UPLOAD_STATUS = "/api/lsex/v1/upload-status"
     const val PATH_LSEX_FINISH_FILE = "/api/lsex/v1/finish-file"
+    /** The receiver's desired send order for a session (drag-reorder sync). */
+    const val PATH_LSEX_ORDER = "/api/lsex/v1/order"
 
     /** Header carrying the hex SHA-256 of one chunk's bytes. */
     const val HEADER_CHUNK_SHA256 = "X-Chunk-Sha256"

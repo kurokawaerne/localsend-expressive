@@ -50,6 +50,8 @@ data class OutboxJob(
     val targetModel: String? = null,
     /** DeviceType name ("mobile", "desktop", …), for the target icon. */
     val targetType: String? = null,
+    /** The target's stable LSEx device id, when it announced one. */
+    val targetDeviceId: String? = null,
     /** Live receive-session id, when one is open (resume hint). */
     val sessionId: String? = null,
     /** fileId -> upload token for [sessionId]; lets a restarted app resume a live session. */
@@ -66,4 +68,7 @@ data class OutboxJob(
 ) {
     val hasFailures: Boolean get() = files.any { it.status == TransferStatus.FAILED }
     val pendingCount: Int get() = files.count { it.status != TransferStatus.DONE }
+
+    /** Who this job belongs to, across the target's renames. */
+    val targetIdentity: String get() = targetDeviceId ?: targetFingerprint
 }
