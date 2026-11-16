@@ -7,6 +7,7 @@ import android.content.Intent
 import androidx.core.app.NotificationCompat
 import androidx.core.graphics.drawable.IconCompat
 import dev.kurokawa.localsend.expressive.app.TransferStatus
+import dev.kurokawa.localsend.expressive.ui.notifStringsFor
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -29,6 +30,10 @@ import kotlinx.coroutines.launch
  */
 class TransferNotifier(private val context: Context) {
 
+    /** UI language code (settings); read on every snapshot. */
+    @Volatile
+    var language: String = "system"
+
     private data class Snapshot(
         val active: Boolean,
         val paused: Boolean,
@@ -41,7 +46,7 @@ class TransferNotifier(private val context: Context) {
         manager.createNotificationChannel(
             android.app.NotificationChannel(
                 CHANNEL_ID,
-                "Transfers",
+                notifStringsFor(language).channelName,
                 NotificationManager.IMPORTANCE_DEFAULT,
             ),
         )
@@ -65,11 +70,13 @@ class TransferNotifier(private val context: Context) {
                 } else {
                     0
                 }
+                val ns = notifStringsFor(language)
                 val label = when {
-                    incoming.isNotEmpty() && sendFiles.isEmpty() -> "Receiving"
-                    openJobs.size == 1 -> "Sending to ${openJobs.first().targetAlias}"
-                    sendFiles.isNotEmpty() -> "Sending"
-                    else -> "Transferring"
+                    incoming.isNotEmpty() && sendFiles.isEmpty() -> ns.receiving
+                    openJobs.size == 1 ->
+                        ns.sendingTo.replace("%s", openJobs.first().targetAlias)
+                    sendFiles.isNotEmpty() -> ns.sending
+                    else -> ns.transferring
                 }
                 Snapshot(
                     // The notification lives only while bytes are
@@ -104,10 +111,15 @@ class TransferNotifier(private val context: Context) {
     }
 
     private fun buildNotification(snapshot: Snapshot): android.app.Notification {
+        // Tap (v0.12.4): the whole app + its transfers sheet, via
+        // MainActivity — NOT the sheet-only TransferActivity (that
+        // stays the bubble target below, where a sheet is the point).
         val openTransfer = PendingIntent.getActivity(
             context,
             10,
-            Intent(context, TransferActivity::class.java),
+            Intent(context, MainActivity::class.java)
+                .putExtra(MainActivity.EXTRA_OPEN_TRANSFERS, true)
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         // Android REQUIRES the intent attached to a bubble to be
@@ -150,6 +162,7 @@ class TransferNotifier(private val context: Context) {
                     .setDesiredHeight(600)
                     .build(),
             )
+        val ns = notifStringsFor(language)
         if (snapshot.paused) {
             val resume = PendingIntent.getService(
                 context,
@@ -158,7 +171,7 @@ class TransferNotifier(private val context: Context) {
                     .setAction(LsexForegroundService.ACTION_RESUME_ALL),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
-            builder.addAction(0, "Resume", resume)
+            builder.addAction(0, ns.resume, resume)
         } else {
             val pause = PendingIntent.getService(
                 context,
@@ -167,7 +180,7 @@ class TransferNotifier(private val context: Context) {
                     .setAction(LsexForegroundService.ACTION_PAUSE_ALL),
                 PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
             )
-            builder.addAction(0, "Pause", pause)
+            builder.addAction(0, ns.pause, pause)
         }
         return builder.build()
     }

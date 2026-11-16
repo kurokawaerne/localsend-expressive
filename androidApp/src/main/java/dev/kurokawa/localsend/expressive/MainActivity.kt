@@ -1,5 +1,6 @@
 package dev.kurokawa.localsend.expressive
 
+import android.content.Intent
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -48,11 +49,33 @@ class MainActivity : ComponentActivity() {
             notificationPermission.launch(android.Manifest.permission.POST_NOTIFICATIONS)
         }
         val service = Engine.service
+        handleOpenTransfers(intent)
         // The notification's Stop action lands here: shut the transfer
         // engine down together with the foreground service.
         LsexForegroundService.onStopRequested = { service.stop() }
         setContent {
             AppRoot(service, onReady = { ready = true })
         }
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        handleOpenTransfers(intent)
+    }
+
+    /**
+     * A tap on the transfer Live Update lands here (v0.12.4): open the
+     * whole app and raise the transfers sheet inside it, instead of
+     * showing the sheet alone in its own activity.
+     */
+    private fun handleOpenTransfers(intent: Intent?) {
+        if (intent?.getBooleanExtra(EXTRA_OPEN_TRANSFERS, false) == true) {
+            Engine.service.requestOpenTransfers()
+        }
+    }
+
+    companion object {
+        const val EXTRA_OPEN_TRANSFERS = "lsex_open_transfers"
     }
 }
